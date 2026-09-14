@@ -98,13 +98,19 @@ async function checkTestnet(spec: NetworkSpec): Promise<void> {
     `node has ${info1.info.peers} peers, expected >= ${spec.validators}`,
   );
 
-  await sleep(4000);
-
-  const info2 = await rpc(nodeUrl, 'server_info');
-  assert.ok(
-    info2.info.validated_ledger.seq > info1.info.validated_ledger.seq,
-    `node validated_ledger.seq did not advance: ${info1.info.validated_ledger.seq} -> ${info2.info.validated_ledger.seq}`,
-  );
+  // With a single validator there are no other proposers, so an idle ledger
+  // only closes on xahaud's idle interval (~15s); poll well past that rather
+  // than sleeping a fixed few seconds.
+  const advanceDeadline = Date.now() + 30_000;
+  let info2 = info1;
+  while (info2.info.validated_ledger.seq <= info1.info.validated_ledger.seq) {
+    assert.ok(
+      Date.now() < advanceDeadline,
+      `node validated_ledger.seq did not advance within 30s: ${info1.info.validated_ledger.seq} -> ${info2.info.validated_ledger.seq}`,
+    );
+    await sleep(2000);
+    info2 = await rpc(nodeUrl, 'server_info');
+  }
   console.log(
     `[e2e] node server_info: peers=${info1.info.peers} validated_ledger.seq=${info1.info.validated_ledger.seq}->${info2.info.validated_ledger.seq}`,
   );
