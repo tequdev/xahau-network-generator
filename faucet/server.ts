@@ -268,3 +268,10 @@ server.listen(PORT, () => {
     `[faucet] listening on :${PORT}, wallet ${wallet.classicAddress}`,
   );
 });
+
+// node runs as PID 1 in the container, and PID 1 ignores signals it has no
+// handler for; without this `docker stop` waits out its 10s grace period and
+// SIGKILLs.
+for (const sig of ['SIGTERM', 'SIGINT'] as const) {
+  process.on(sig, () => process.exit(0));
+}

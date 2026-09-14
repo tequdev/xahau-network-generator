@@ -2,8 +2,13 @@ name: e2e
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   XAHAUD_VERSION: 2026.6.21-release+3350
@@ -29,6 +34,16 @@ jobs:
             version: 2026.9.9-dev+3667
     steps:
       - uses: actions/checkout@v7
+
+      # Overlaps the ~30s of image pulls with the setup steps below; `xng
+      # start` later finds them present or joins the in-flight pull.
+      - name: pre-pull docker images
+        run: |
+          (docker compose -f traefik/compose.yml pull &&
+           docker pull transia/explorer:latest &&
+           docker pull node:24-slim &&
+           docker pull ubuntu:noble &&
+           docker pull nginx:alpine) >/dev/null 2>&1 &
 
       - uses: pnpm/action-setup@v6
 
