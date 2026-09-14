@@ -94,3 +94,43 @@ test('compose: every service container_name is prefixed with the network name', 
     );
   }
 });
+
+test('compose: every service restarts unless-stopped, so it survives a daemon/host restart', () => {
+  for (const spec of [testnetSpec, standaloneSpec]) {
+    const doc = parse(renderCompose(spec)) as {
+      // biome-ignore lint/suspicious/noExplicitAny: compose.yml service shape has no fixed schema here
+      services: Record<string, any>;
+    };
+    for (const [serviceName, service] of Object.entries(doc.services)) {
+      assert.equal(
+        (service as { restart: string }).restart,
+        'unless-stopped',
+        `${serviceName} missing restart: unless-stopped`,
+      );
+    }
+  }
+});
+
+test('compose: standalone node command runs stand-alone mode, resuming from db/ via --load', () => {
+  const doc = parse(renderCompose(standaloneSpec)) as {
+    // biome-ignore lint/suspicious/noExplicitAny: compose.yml service shape has no fixed schema here
+    services: Record<string, any>;
+  };
+  const command: string = doc.services.node.command[2];
+  assert.match(command, /-a\b/);
+  assert.match(command, /if \[ -d db \]; then exec [^;]*--load;/);
+  assert.match(command, /else exec [^;]*--ledgerfile genesis\.json;/);
+  assert.doesNotMatch(command, /--quorum/);
+});
+
+test('compose: testnet node command still sets quorum and resumes via --load, not stand-alone mode', () => {
+  const doc = parse(renderCompose(testnetSpec)) as {
+    // biome-ignore lint/suspicious/noExplicitAny: compose.yml service shape has no fixed schema here
+    services: Record<string, any>;
+  };
+  const command: string = doc.services.node.command[2];
+  assert.match(command, /--quorum=3\b/);
+  assert.match(command, /if \[ -d db \]; then exec [^;]*--load;/);
+  assert.match(command, /else exec [^;]*--ledgerfile genesis\.json;/);
+  assert.doesNotMatch(command, / -a\b/);
+});

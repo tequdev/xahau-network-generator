@@ -1,7 +1,8 @@
-import { readFile, rm } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { Command, InvalidArgumentError, Option } from 'commander';
 import { latestReleaseVersion } from './binary.ts';
+import { renderCompose } from './compose.ts';
 import { compose, ensureProxy, proxyDown } from './docker.ts';
 import { createNetwork, resetNetworkData } from './network.ts';
 import {
@@ -169,6 +170,10 @@ program
   .action(async (opts) => {
     const spec = await loadSpec(opts.name);
     if (spec.type === 'testnet') ensureProxy();
+    // compose.yml is a pure function of network.json, so re-rendering here
+    // lets networks created by an older xng pick up compose changes (e.g.
+    // the restart policy) on their next start.
+    await writeFile(`workspace/${opts.name}/compose.yml`, renderCompose(spec));
     // --build so a changed faucet/ is always rebuilt; a no-op when unchanged.
     compose(opts.name, ['up', '-d', '--build']);
     if (opts.wait) {
@@ -195,6 +200,7 @@ program
     compose(opts.name, ['down']);
     await resetNetworkData(`workspace/${opts.name}`);
     if (spec.type === 'testnet') ensureProxy();
+    await writeFile(`workspace/${opts.name}/compose.yml`, renderCompose(spec));
     compose(opts.name, ['up', '-d', '--build']);
     if (opts.wait) {
       await waitForNetwork(spec, opts.timeout * 1000);

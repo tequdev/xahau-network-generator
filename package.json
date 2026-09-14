@@ -10,6 +10,7 @@
   "scripts": {
     "xng": "tsx src/cli.ts",
     "e2e": "tsx e2e/check.ts",
+    "e2e:restart": "tsx e2e/restart.ts",
     "test": "tsx --test src/**/*.test.ts",
     "lint": "biome check .",
     "format": "biome format --write ."

@@ -58,6 +58,10 @@ jobs:
       - run: pnpm xng reset --name ${{ matrix.name }} --wait --timeout 600
       - run: pnpm e2e --name ${{ matrix.name }}
 
+      - name: simulate host reboot (restart the Docker daemon; containers must come back on their own)
+        run: pnpm e2e:restart --name ${{ matrix.name }} --timeout 600 -- sudo systemctl restart docker
+      - run: pnpm e2e --name ${{ matrix.name }}
+
       - name: xng upgrade
         if: matrix.upgrade_to
         run: pnpm xng upgrade --name ${{ matrix.name }} --version "${{ matrix.upgrade_to }}" --timeout 600

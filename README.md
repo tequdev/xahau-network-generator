@@ -30,6 +30,13 @@ pnpm xng vote --name t1 --amendment fixSomething
 
 `reset` = stop, wipe ledger data, start again from genesis.
 
+Every generated container is `restart: unless-stopped`, so after a host
+reboot the network (and the shared Traefik) comes back on its own and each
+node resumes from its last validated ledger (`--load`; standalone
+`-a --load`), never from genesis — `xng reset` is the only thing that goes
+back to genesis. `xng start`/`xng reset` re-render compose.yml, so networks
+created before this existed pick it up on their next start.
+
 `upgrade` (testnet only) replaces the xahaud binary one node at a time —
 `node` first, then each validator in order — waiting for each to rejoin
 consensus on the new version before moving to the next, so the network is
@@ -87,4 +94,5 @@ pnpm lint     # biome check
 pnpm format   # biome format --write
 pnpm test     # node:test over src/**/*.test.ts
 pnpm e2e      # end-to-end check against a running network
+pnpm e2e:restart --name t1 -- <reboot-simulating command>  # e.g. CI uses `sudo systemctl restart docker`
 ```
