@@ -119,5 +119,10 @@ export function renderCompose(spec: NetworkSpec): string {
     ports: [`${explorerHostPort(spec)}:4000`],
   };
 
+  // Fixed names (`testnet-3-explorer`) instead of compose's `-1` suffix.
+  for (const [serviceName, service] of Object.entries(services)) {
+    service.container_name = `${spec.name}-${serviceName}`;
+  }
+
   return stringify({ name: spec.name, services });
 }
