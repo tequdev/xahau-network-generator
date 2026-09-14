@@ -54,8 +54,11 @@ export function renderXahaudCfg(o: XahaudCfgOptions): string {
   lines.push('protocol = peer');
   lines.push('');
 
+  // Not tiny: its 30s ledger cache (medium: 180s) drops the unvalidated
+  // ledger a peer asks for while re-syncing after `xng upgrade`, and the
+  // 1-validator e2e then never confirms a payment.
   lines.push('[node_size]');
-  lines.push('tiny');
+  lines.push('small');
   lines.push('');
 
   // Validators only need enough history to serve peers; `node` keeps more
