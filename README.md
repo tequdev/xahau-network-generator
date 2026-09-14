@@ -23,6 +23,9 @@ pnpm xng remove --name t1
 
 # rolling upgrade of the xahaud binary on a running testnet, no downtime
 pnpm xng upgrade --name t1 --version 2026.9.9-dev+3667
+
+# make every validator vote for (or, with --reject, veto) an amendment
+pnpm xng vote --name t1 --amendment fixSomething
 ```
 
 `reset` = stop, wipe ledger data, start again from genesis.
@@ -33,6 +36,11 @@ consensus on the new version before moving to the next, so the network is
 never fully stopped. The default quorum is capped at `validators - 1` (see
 below), so one validator can be mid-restart and consensus still keeps going;
 pass `--quorum` yourself to raise it if you want stricter safety instead.
+
+`vote` (testnet only) runs `feature <amendment> accept|reject` on each
+validator. Every generated node sets `[amendment_majority_time]` to
+1 minute (xahaud's floor), so an amendment with a majority is enabled at the
+next flag ledger (every 256 ledgers) at least a minute later.
 
 `--version` defaults to the latest release on build.xahau.tech. Binaries and
 parsed amendment sources are cached under `~/.cache/xahau-network-generator`.

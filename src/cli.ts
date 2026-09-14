@@ -12,6 +12,7 @@ import {
 } from './types.ts';
 import type { NetworkSpec } from './types.ts';
 import { upgradeNetwork } from './upgrade.ts';
+import { voteAmendment } from './vote.ts';
 import { waitForNetwork } from './wait.ts';
 
 const require = createRequire(import.meta.url);
@@ -242,6 +243,22 @@ program
     );
     await upgradeNetwork(spec, opts.version, opts.timeout * 1000);
     console.log(`upgraded network "${spec.name}" to ${opts.version}`);
+  });
+
+program
+  .command('vote')
+  .description(
+    'make every validator of a running testnet vote for (or veto) an amendment',
+  )
+  .requiredOption('--name <name>', 'network name', parseName)
+  .requiredOption('--amendment <name|hash>', 'amendment name or hash')
+  .option('--reject', 'veto instead of accept', false)
+  .action(async (opts) => {
+    const spec = await loadSpec(opts.name);
+    if (spec.type !== 'testnet') {
+      throw program.error('xng vote is testnet only');
+    }
+    voteAmendment(spec, opts.amendment, opts.reject ? 'reject' : 'accept');
   });
 
 const proxyCmd = program

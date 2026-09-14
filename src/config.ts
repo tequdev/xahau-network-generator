@@ -81,6 +81,12 @@ export function renderXahaudCfg(o: XahaudCfgOptions): string {
   lines.push('0');
   lines.push('');
 
+  // xahaud's floor is 1 minute (default 2 weeks); votes cast with `xng vote`
+  // then take effect at the next flag ledger after a minute of majority.
+  lines.push('[amendment_majority_time]');
+  lines.push('1 minutes');
+  lines.push('');
+
   if (o.type === 'testnet') {
     // Default minimum is 1 peer; a single-validator network has none and would
     // stay DISCONNECTED (consensus never runs) without this.

@@ -47,7 +47,7 @@ export function composeOutput(name: string, args: string[]): string {
   if (result.error) throw result.error;
   if (result.status !== 0) {
     throw new Error(
-      `docker compose ${args.join(' ')} exited with code ${result.status}: ${result.stderr}`,
+      `docker compose ${args.join(' ')} exited with code ${result.status}: ${result.stderr}${result.stdout}`,
     );
   }
   return result.stdout;
