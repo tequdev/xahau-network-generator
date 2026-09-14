@@ -3,11 +3,19 @@ import { createRequire } from 'node:module';
 import { Command, InvalidArgumentError, Option } from 'commander';
 import { latestReleaseVersion } from './binary.ts';
 import { compose, ensureProxy, proxyDown } from './docker.ts';
+import {
+  deployValidator,
+  parseHosts,
+  removeValidator,
+  resetValidator,
+  stopValidator,
+} from './hosted.ts';
 import { createNetwork, resetNetworkData } from './network.ts';
 import {
   DEFAULT_IMPORT_VL_KEYS,
   defaultQuorum,
   endpoints,
+  isHosted,
   nodeName,
 } from './types.ts';
 import type { NetworkSpec } from './types.ts';
@@ -125,6 +133,10 @@ program
     intArg(0, 14300),
     0,
   )
+  .option(
+    '--hosts <map>',
+    'testnet only: run validators on remote hosts via ssh; node=<docker host LAN ip>,v1=<ip>,...',
+  )
   .action(async (opts) => {
     const validators = opts.type === 'standalone' ? 1 : opts.validators;
     if (validators === 2) {
@@ -137,6 +149,17 @@ program
       program.error(
         `--quorum must be an integer in [1, ${validators}], got "${quorum}"`,
       );
+    }
+    if (opts.hosts && opts.type === 'standalone') {
+      program.error('--hosts is testnet only (use --type testnet)');
+    }
+    let hosts: Record<string, string> | undefined;
+    if (opts.hosts) {
+      try {
+        hosts = parseHosts(opts.hosts, validators);
+      } catch (err) {
+        program.error(err instanceof Error ? err.message : String(err));
+      }
     }
     const version = opts.version ?? (await latestReleaseVersion());
 
@@ -151,6 +174,7 @@ program
       tls: opts.tls,
       portOffset: opts.portOffset,
       importVlKeys: DEFAULT_IMPORT_VL_KEYS,
+      hosts,
     };
 
     const dir = await createNetwork(spec);
@@ -170,6 +194,11 @@ program
     if (spec.type === 'testnet') ensureProxy();
     // --build so a changed faucet/ is always rebuilt; a no-op when unchanged.
     compose(opts.name, ['up', '-d', '--build']);
+    if (isHosted(spec)) {
+      for (let i = 1; i <= spec.validators; i++) {
+        deployValidator(spec, nodeName(spec, i));
+      }
+    }
     if (opts.wait) {
       await waitForNetwork(spec, opts.timeout * 1000);
     }
@@ -179,7 +208,13 @@ program
   .command('stop')
   .description('docker compose down')
   .requiredOption('--name <name>', 'network name', parseName)
-  .action((opts) => {
+  .action(async (opts) => {
+    const spec = await loadSpec(opts.name);
+    if (isHosted(spec)) {
+      for (let i = 1; i <= spec.validators; i++) {
+        stopValidator(spec, nodeName(spec, i));
+      }
+    }
     compose(opts.name, ['down']);
   });
 
@@ -191,10 +226,20 @@ program
   .option('--timeout <sec>', 'readiness timeout in seconds', intArg(1), 300)
   .action(async (opts) => {
     const spec = await loadSpec(opts.name);
+    if (isHosted(spec)) {
+      for (let i = 1; i <= spec.validators; i++) {
+        resetValidator(spec, nodeName(spec, i));
+      }
+    }
     compose(opts.name, ['down']);
     await resetNetworkData(`workspace/${opts.name}`);
     if (spec.type === 'testnet') ensureProxy();
     compose(opts.name, ['up', '-d', '--build']);
+    if (isHosted(spec)) {
+      for (let i = 1; i <= spec.validators; i++) {
+        deployValidator(spec, nodeName(spec, i));
+      }
+    }
     if (opts.wait) {
       await waitForNetwork(spec, opts.timeout * 1000);
     }
@@ -205,6 +250,23 @@ program
   .description('docker compose down -v + delete the network directory')
   .requiredOption('--name <name>', 'network name', parseName)
   .action(async (opts) => {
+    let spec: NetworkSpec | undefined;
+    try {
+      spec = JSON.parse(
+        await readFile(`workspace/${opts.name}/network.json`, 'utf8'),
+      );
+    } catch {
+      // A half-created network has no network.json; nothing hosted to clean up.
+    }
+    if (spec && isHosted(spec)) {
+      for (let i = 1; i <= spec.validators; i++) {
+        try {
+          removeValidator(spec, nodeName(spec, i));
+        } catch (err) {
+          console.warn(err instanceof Error ? err.message : err);
+        }
+      }
+    }
     try {
       compose(opts.name, ['down', '-v']);
     } catch (err) {

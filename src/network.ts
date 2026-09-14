@@ -35,6 +35,7 @@ import {
   containerName,
   explorerHostPort,
   hostPorts,
+  isHosted,
   nodeName,
   ports,
 } from './types.ts';
@@ -51,9 +52,13 @@ export async function createNetwork(
       `network directory "${dir}" already exists; run \`xng remove --name ${spec.name}\` first`,
     );
   }
-  // Testnet publishes nothing (routed through Traefik instead), so only
-  // standalone networks can collide on host ports.
-  if (spec.type === 'standalone') await assertPortsFree(spec, outDir);
+  // A non-hosted testnet publishes nothing (routed through Traefik
+  // instead); standalone publishes its full port set, and a hosted testnet
+  // additionally publishes the peer port directly on the docker host (see
+  // compose.ts) — both can collide with another network under outDir.
+  if (spec.type === 'standalone' || isHosted(spec)) {
+    await assertPortsFree(spec, outDir);
+  }
   await mkdir(dir, { recursive: true });
 
   await writeFile(join(dir, 'network.json'), JSON.stringify(spec, null, 2));
@@ -129,6 +134,13 @@ export async function createNetwork(
       JSON.stringify(createFaucetKeys(), null, 2),
     );
 
+    // Hosted mode: http://<name>-vl/vl.json is only reachable on the compose
+    // network, so every node (node included) gets a static [validators]
+    // list instead.
+    const hostedValidatorKeys = isHosted(spec)
+      ? validatorKeysList.map((v) => v.nodePublic)
+      : undefined;
+
     const publisher = createPublisherKeys();
     await writeFile(
       join(dir, 'keys', 'vl.json'),
@@ -178,6 +190,7 @@ export async function createNetwork(
         vlKeyHex: publisher.master.publicKey,
         vlUrl: `http://${containerName(spec, VL_HOST)}/vl.json`,
         importVlKeys: spec.importVlKeys,
+        validators: hostedValidatorKeys,
       } satisfies XahaudCfgOptions;
       await writeFile(join(nodeDir, 'xahaud.cfg'), renderXahaudCfg(cfgOpts));
       await writeFile(
@@ -208,6 +221,7 @@ export async function createNetwork(
       vlKeyHex: publisher.master.publicKey,
       vlUrl: `http://${containerName(spec, VL_HOST)}/vl.json`,
       importVlKeys: spec.importVlKeys,
+      validators: hostedValidatorKeys,
     } satisfies XahaudCfgOptions;
     await writeFile(
       join(primaryNodeDir, 'xahaud.cfg'),
@@ -276,14 +290,23 @@ export async function resetNetworkData(dir: string): Promise<void> {
   }
 }
 
-// Host ports of every standalone network under outDir must be disjoint so
-// they can run side by side; `--port-offset` is how the caller makes room.
-// Testnet networks publish nothing (routed through Traefik) and are skipped.
+// Ports a network publishes directly on the docker host: standalone
+// publishes its full port set (shifted by --port-offset); a hosted testnet
+// additionally publishes just the peer port (see compose.ts), since
+// validators dial it directly; a non-hosted testnet publishes nothing
+// (routed through Traefik instead).
+function publishedHostPorts(spec: NetworkSpec): number[] {
+  if (spec.type === 'standalone') {
+    return [...Object.values(hostPorts(spec)), explorerHostPort(spec)];
+  }
+  if (isHosted(spec)) return [ports(spec, 0).peer];
+  return [];
+}
+
+// A network's published host ports must be disjoint from every other
+// network's under outDir so they can run side by side.
 async function assertPortsFree(spec: NetworkSpec, outDir: string) {
-  const mine = new Set([
-    ...Object.values(hostPorts(spec)),
-    explorerHostPort(spec),
-  ]);
+  const mine = new Set(publishedHostPorts(spec));
   let names: string[] = [];
   try {
     names = await readdir(outDir);
@@ -299,15 +322,10 @@ async function assertPortsFree(spec: NetworkSpec, outDir: string) {
     } catch {
       continue;
     }
-    if (other.type !== 'standalone') continue;
-    const otherPorts = [
-      ...Object.values(hostPorts(other)),
-      explorerHostPort(other),
-    ];
-    const clash = otherPorts.filter((p) => mine.has(p));
+    const clash = publishedHostPorts(other).filter((p) => mine.has(p));
     if (clash.length > 0) {
       throw new Error(
-        `host port(s) ${clash.join(', ')} already used by network "${other.name}"; pick a different --port-offset`,
+        `host port(s) ${clash.join(', ')} already used by network "${other.name}"; pick a different --port-offset (standalone) or non-overlapping --hosts (hosted testnet)`,
       );
     }
   }

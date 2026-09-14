@@ -9,6 +9,7 @@ export type XahaudCfgOptions = {
   vlKeyHex?: string; // testnet only
   vlUrl?: string; // testnet only
   importVlKeys: string[];
+  validators?: string[]; // testnet only; hosted mode: static [validators] list (base58 node public keys) instead of vlUrl/vlKeyHex, since http://<name>-vl/vl.json is only reachable on the compose network
 };
 
 export function renderXahaudCfg(o: XahaudCfgOptions): string {
@@ -126,7 +127,11 @@ export function renderXahaudCfg(o: XahaudCfgOptions): string {
 // validator-related sections live there.
 export function renderValidatorsTxt(o: XahaudCfgOptions): string {
   const lines: string[] = [];
-  if (o.type === 'testnet') {
+  if (o.type === 'testnet' && o.validators) {
+    lines.push('[validators]');
+    for (const key of o.validators) lines.push(key);
+    lines.push('');
+  } else if (o.type === 'testnet') {
     lines.push('[validator_list_sites]');
     if (o.vlUrl) lines.push(o.vlUrl);
     lines.push('');

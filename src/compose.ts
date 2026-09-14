@@ -5,8 +5,10 @@ import {
   endpoints,
   explorerHostPort,
   hostPorts,
+  isHosted,
   nodeName,
   ports,
+  xahaudCommand,
 } from './types.ts';
 import type { NetworkSpec } from './types.ts';
 
@@ -37,9 +39,10 @@ export function renderCompose(spec: NetworkSpec): string {
   const containerPorts = ports(spec, 0);
 
   // Index 0 is always the non-validating, user-facing `node`; testnet adds
-  // v1..vN validators alongside it.
+  // v1..vN validators alongside it, unless hosted (validators run natively
+  // on remote hosts instead — see src/hosted.ts).
   const nodeIndices =
-    spec.type === 'standalone'
+    spec.type === 'standalone' || isHosted(spec)
       ? [0]
       : [0, ...Array.from({ length: spec.validators }, (_, i) => i + 1)];
 
@@ -57,17 +60,7 @@ export function renderCompose(spec: NetworkSpec): string {
             '--ledgerfile',
             'genesis.json',
           ]
-        : // First boot (no db/ yet) seeds the chain from genesis.json; any
-          // later boot (`xng start` after `stop`, or a container recreated by
-          // `xng upgrade`) must continue from the ledger already in db/ via
-          // --load. Restarting from genesis.json with an existing network
-          // would start a validator at seq 1, and a lone validator then
-          // forks a fresh chain instead of rejoining the real one.
-          [
-            'sh',
-            '-c',
-            `if [ -d db ]; then exec xahaud --conf xahaud.cfg --quorum=${spec.quorum} --load; else exec xahaud --conf xahaud.cfg --quorum=${spec.quorum} --ledgerfile genesis.json; fi`,
-          ];
+        : ['sh', '-c', xahaudCommand(spec)];
 
     services[serviceName] = {
       image: 'ubuntu:noble',
@@ -116,6 +109,18 @@ export function renderCompose(spec: NetworkSpec): string {
           `${host.wsAdmin}:${containerPorts.wsAdmin}`,
           `${host.wsPublic}:${containerPorts.wsPublic}`,
           `${host.peer}:${containerPorts.peer}`,
+        ];
+      }
+      // Hosted validators dial `node` on the peer port and vice versa (see
+      // network.ts comment on why both sides dial each other); neither is
+      // resolvable without help here, since compose can't resolve the
+      // remote hosts' names and the validators aren't containers at all.
+      if (isHosted(spec)) {
+        services[serviceName].extra_hosts = Object.entries(spec.hosts ?? {})
+          .filter(([svc]) => svc !== 'node')
+          .map(([svc, ip]) => `${containerName(spec, svc)}:${ip}`);
+        services[serviceName].ports = [
+          `${containerPorts.peer}:${containerPorts.peer}`,
         ];
       }
     }
