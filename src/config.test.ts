@@ -51,3 +51,9 @@ test('validators.txt vl URL uses the network-prefixed container name', () => {
     'validator_list_sites entry missing the container-name-prefixed vl host',
   );
 });
+
+test('xahaud.cfg sets amendment_majority_time to the 1 minute floor', () => {
+  assert.ok(
+    renderXahaudCfg(cfgOpts).includes('[amendment_majority_time]\n1 minutes\n'),
+  );
+});
