@@ -1,10 +1,12 @@
 import { readFile, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { Command, InvalidArgumentError, Option } from 'commander';
+import { applyState, describePlan, planState } from './apply.ts';
 import { latestReleaseVersion } from './binary.ts';
 import { compose, enableAcme, ensureProxy, proxyDown } from './docker.ts';
 import { createNetwork, resetNetworkData } from './network.ts';
 import { startPanel } from './panel.ts';
+import { loadState } from './state.ts';
 import {
   DEFAULT_IMPORT_VL_KEYS,
   NAME_RE,
@@ -292,9 +294,39 @@ proxyCmd
   .action(() => proxyDown());
 
 program
+  .command('apply')
+  .description(
+    'converge the workspace to xng.toml: create/start/upgrade/stop/remove networks as declared (never resets)',
+  )
+  .addOption(
+    new Option('--file <path>', 'path to xng.toml')
+      .env('XNG_CONFIG')
+      .default('xng.toml'),
+  )
+  .option('--only <name>', 'reconcile just this network', parseName)
+  .option('--dry-run', 'print the plan and exit', false)
+  .option(
+    '--timeout <sec>',
+    'readiness / per-node upgrade timeout in seconds',
+    intArg(1),
+    600,
+  )
+  .action(async (opts) => {
+    const state = await loadState(opts.file, true);
+    if (opts.dryRun) {
+      console.log(describePlan(await planState(state, 'workspace', opts.only)));
+      return;
+    }
+    await applyState(state, {
+      only: opts.only,
+      timeoutMs: opts.timeout * 1000,
+    });
+  });
+
+program
   .command('panel')
   .description(
-    'run a web control panel (create/start/stop/reset/remove/upgrade/vote + live status)',
+    'run a web control panel: every change edits xng.toml and runs `xng apply`',
   )
   .addOption(
     new Option('--port <n>', 'port to listen on')
@@ -308,22 +340,9 @@ program
       .default('127.0.0.1'),
   )
   .addOption(
-    new Option(
-      '--domain <domain>',
-      'domain for networks created from the panel (per-network hostnames are <sub>.<name>.<domain>)',
-    )
-      .env('XNG_DOMAIN')
-      .argParser(parseDomain)
-      .default('127.0.0.1.nip.io'),
-  )
-  .addOption(
-    new Option(
-      '--tls',
-      'networks created from the panel get --tls (see `xng create --tls`); or XNG_TLS=1',
-    )
-      // Not .env(): commander treats a boolean env var as set whenever the
-      // name exists, so XNG_TLS=false/0 would turn TLS *on*.
-      .default(['1', 'true'].includes(process.env.XNG_TLS ?? '')),
+    new Option('--file <path>', 'path to xng.toml')
+      .env('XNG_CONFIG')
+      .default('xng.toml'),
   )
   .addOption(
     new Option(

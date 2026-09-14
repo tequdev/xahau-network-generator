@@ -26,6 +26,10 @@ pnpm xng upgrade --name t1 --version 2026.9.9-dev+3667
 
 # make every validator vote for (or, with --reject, veto) an amendment
 pnpm xng vote --name t1 --amendment fixSomething
+
+# or declare the whole set of networks in xng.toml and converge to it
+pnpm xng apply --dry-run
+pnpm xng apply
 ```
 
 `reset` = stop, wipe ledger data, start again from genesis.
@@ -94,18 +98,66 @@ Setup on the host:
    certificate per hostname (HTTP-01 on port 80). Create networks with
    `--tls` so their advertised URLs are `https`/`wss`.
 
+### Declarative: `xng.toml` + `xng apply`
+
+The set of networks a machine should run can be declared in one file and
+converged with `xng apply`, so moving the same layout to another host is
+copying `xng.toml` (commit it wherever you keep your infra) and applying:
+
+```toml
+domain = "xahau-dev.net"
+tls = true
+acme_email = "you@example.com"   # optional; same as `xng proxy up --acme-email`
+
+[networks.jshooks]
+version = "2026.9.8-jshooks+3640"
+validators = 3                    # optional: quorum, network_id, type, port_offset
+
+[networks.dev]
+version = "2026.9.9-dev+3667"
+root = true
+
+[networks.parked]
+version = "2026.6.21-release+3350"
+enabled = false                   # keep it and its ledger, but `compose down`
+```
+
+```sh
+pnpm xng apply --dry-run     # print the plan
+pnpm xng apply               # converge; --only <name> limits it to one network
+```
+
+For each declared network, apply does the least that makes reality match:
+create it if missing, `compose up` it (a no-op when already running),
+`compose down` it when `enabled = false`, run a rolling `xng upgrade` when
+`version` changed, re-render compose.yml when `domain`/`tls`/`root` changed
+(hostnames only, ledger untouched), and remove networks that are no longer
+declared. **Apply never resets a network.** A change to something baked in
+at create time (`validators`, `quorum`, `network_id`, `type`,
+`port_offset`, or `version` on a standalone network) is refused with a
+message, and nothing is done to that network until you either revert the
+field or explicitly drop and re-add it (delete the section, apply, add it
+back). `xng reset` stays a separate, deliberate command. Unknown keys are
+errors rather than silently ignored, and `apply` refuses to run when the
+file does not exist (an empty declaration would mean "remove everything").
+
+Panel actions rewrite `xng.toml` through the TOML serializer, so comments
+in a hand-edited file don't survive the next click; the page's raw editor
+writes your text verbatim.
+
 ### Web control panel
 
 `pnpm xng panel` serves a small page (`src/panel.html`) that lists every
 network with its state, validated ledger index, uptime and peers, and can
-create, start/stop/reset, remove, upgrade and vote for amendments. Each
-action runs the matching `xng` command as a child process, one at a time,
-with its log shown in the page.
+create, start/stop/reset, remove, upgrade and vote for amendments. Every
+change in the page is an edit to `xng.toml` followed by `xng apply --only
+<name>` (the page also has a raw editor for the file with a plan preview),
+so the file always reflects what is deployed. Only Reset and Vote are direct
+commands. Jobs run one at a time with their log shown in the page.
 
 ```sh
-XNG_DOMAIN=xahau-dev.net XNG_TLS=1 \
 XNG_ACCESS_TEAM=<team> XNG_ACCESS_AUD=<application audience tag> \
-pnpm xng panel            # listens on 127.0.0.1:7777
+pnpm xng panel            # listens on 127.0.0.1:7777, edits ./xng.toml
 ```
 
 Access control is Cloudflare Access: put the panel behind a

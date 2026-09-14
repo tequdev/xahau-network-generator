@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign } from 'node:crypto';
 import { test } from 'node:test';
-import { parseFeatureList, verifyAccessJwt } from './panel.ts';
+import {
+  jobNamesConflict,
+  parseFeatureList,
+  verifyAccessJwt,
+} from './panel.ts';
 import type { Jwk } from './panel.ts';
 
 function base64Url(input: Buffer | string): string {
@@ -152,4 +156,12 @@ test('parseFeatureList sorts by name and keeps optional fields', () => {
 test('parseFeatureList throws on garbage input', () => {
   assert.throws(() => parseFeatureList('not json'));
   assert.throws(() => parseFeatureList('{"result":{"status":"success"}}'));
+});
+
+test('jobNamesConflict: "*" (a whole-file apply) conflicts with every name and vice versa', () => {
+  assert.equal(jobNamesConflict('*', '*'), true);
+  assert.equal(jobNamesConflict('*', 'dev'), true);
+  assert.equal(jobNamesConflict('dev', '*'), true);
+  assert.equal(jobNamesConflict('dev', 'dev'), true);
+  assert.equal(jobNamesConflict('dev', 'jshooks'), false);
 });

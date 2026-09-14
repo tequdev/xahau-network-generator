@@ -24,6 +24,10 @@ const TRAEFIK_ACME_ENV = fileURLToPath(
 // Traefik with fewer files, recreating it without the cert resolver and
 // breaking HTTPS for every network at once.
 export function enableAcme(email: string): void {
+  // Written into an env file line: no whitespace/newlines, no '='.
+  if (!/^[^\s@=]+@[^\s@=]+$/.test(email)) {
+    throw new Error(`invalid acme email "${email}"`);
+  }
   writeFileSync(TRAEFIK_ACME_ENV, `XNG_ACME_EMAIL=${email}\n`);
 }
 

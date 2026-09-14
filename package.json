@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "commander": "^15.0.0",
+    "smol-toml": "1.8.0",
     "xahau-address-codec": "^5.0.0",
     "xahau-binary-codec": "^2.2.0",
     "xahau-keypairs": "^2.0.0",
