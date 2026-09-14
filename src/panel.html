@@ -39,6 +39,14 @@
   dialog { max-width: min(90vw, 480px); }
   dialog table { font-size: 0.85em; }
   .muted { opacity: 0.65; }
+  #state-yml {
+    width: 100%; box-sizing: border-box; font-family: ui-monospace, SFMono-Regular, monospace;
+    font-size: 0.85em; padding: 8px;
+  }
+  #state-plan {
+    white-space: pre-wrap; word-break: break-all; min-height: 1.2em;
+    background: #8881; padding: 8px; border-radius: 4px; font-size: 0.85em;
+  }
   @media (max-width: 480px) {
     body { padding: 8px; }
     form.inline { flex-direction: column; align-items: stretch; }
@@ -47,7 +55,7 @@
 </head>
 <body>
   <header>
-    <h1>xng panel <span id="domain"></span></h1>
+    <h1>xng panel <span id="domain"></span> <span id="file" class="muted"></span></h1>
   </header>
   <div id="banner" hidden></div>
 
@@ -65,6 +73,17 @@
         <tbody></tbody>
       </table>
     </div>
+  </section>
+
+  <section>
+    <h2>xng.yml</h2>
+    <textarea id="state-yml" rows="14" spellcheck="false"></textarea>
+    <form class="inline" style="margin-top: 8px;">
+      <button type="button" id="state-reload">Reload</button>
+      <button type="button" id="state-preview">Preview plan</button>
+      <button type="button" id="state-save">Save &amp; apply</button>
+    </form>
+    <pre id="state-plan"></pre>
   </section>
 
   <section>
@@ -121,10 +140,11 @@
 (function () {
   'use strict';
 
-  let config = { domain: '', tls: false };
+  let config = { domain: '', tls: false, file: '' };
   let versionsByBranch = {};
   let selectedJobId = null;
   let createNamePristine = true;
+  let stateDirty = false; // an unsaved edit in #state-yml; polling must never clobber it
 
   function showError(msg) {
     const b = document.getElementById('banner');
@@ -153,6 +173,12 @@
       const msg = (body && body.error) || (res.status + ' ' + res.statusText);
       showError(msg);
       throw new Error(msg);
+    }
+    // Every accepted mutation except a plan preview has rewritten xng.yml
+    // server-side; refresh the editor so a later "Save & apply" doesn't
+    // write stale text back (unless the operator is mid-edit).
+    if (opts && opts.method === 'POST' && path !== '/api/plan' && !stateDirty) {
+      loadStateYml();
     }
     return body;
   }
@@ -215,14 +241,31 @@
     tbody.innerHTML = '';
     for (const n of list) {
       const spec = n.spec;
-      const running = n.containers.filter((c) => c.state === 'running').length;
-      const total = n.containers.length;
-      const info = n.info;
       const tr = el('tr', {});
       tr.appendChild(el('td', { text: spec.name }));
       tr.appendChild(el('td', { text: spec.version }));
       tr.appendChild(el('td', { text: spec.type + (spec.root ? ' (root)' : '') }));
       tr.appendChild(el('td', { text: String(spec.validators) }));
+
+      if (n.missing) {
+        tr.appendChild(el('td', { text: '-' }));
+        tr.appendChild(el('td', { text: 'not created' }));
+        tr.appendChild(el('td', { text: '-' }));
+        tr.appendChild(el('td', { text: '-' }));
+        tr.appendChild(el('td', { text: '-' }));
+        tr.appendChild(el('td', {}));
+        const actions = el('td', { class: 'actions' });
+        actions.appendChild(el('button', {
+          text: 'Remove', onclick: () => { if (confirm('Remove ' + spec.name + ' from xng.yml?')) runAction(spec.name, 'remove'); },
+        }));
+        tr.appendChild(actions);
+        tbody.appendChild(tr);
+        continue;
+      }
+
+      const running = n.containers.filter((c) => c.state === 'running').length;
+      const total = n.containers.length;
+      const info = n.info;
       tr.appendChild(el('td', { text: total ? running + '/' + total + ' running' : '-' }));
       tr.appendChild(el('td', { text: info ? (info.server_state || '-') : 'unreachable' }));
       tr.appendChild(el('td', { text: info && info.seq != null ? String(info.seq) : '-' }));
@@ -391,6 +434,58 @@
     pre.scrollTop = pre.scrollHeight;
   }
 
+  async function loadStateYml() {
+    let data;
+    try {
+      data = await api('/api/state');
+    } catch {
+      return;
+    }
+    document.getElementById('state-yml').value = data.yml;
+    document.getElementById('state-plan').textContent = '';
+    stateDirty = false;
+  }
+
+  // Returns the parsed plan ({plan, steps}) on success, or null (the error
+  // is already shown via api()'s own showError).
+  async function previewPlan() {
+    clearError();
+    const yml = document.getElementById('state-yml').value;
+    let result;
+    try {
+      result = await api('/api/plan', { method: 'POST', body: JSON.stringify({ yml }) });
+    } catch {
+      document.getElementById('state-plan').textContent = '';
+      return null;
+    }
+    document.getElementById('state-plan').textContent = result.plan || '(no changes)';
+    return result;
+  }
+
+  async function saveStateYml() {
+    const result = await previewPlan();
+    if (!result) return;
+    const removing = result.steps.some((s) => s.actions.includes('remove'));
+    if (removing && !confirm('This plan removes one or more networks and their data. Continue?')) {
+      return;
+    }
+    const refused = result.steps.filter((s) => s.actions.includes('refuse'));
+    if (refused.length) {
+      showError(refused.map((s) => s.name + ': ' + s.reason).join('; '));
+    }
+    const yml = document.getElementById('state-yml').value;
+    try {
+      await api('/api/state', { method: 'POST', body: JSON.stringify({ yml }) });
+      stateDirty = false;
+      refreshJobs();
+    } catch {}
+  }
+
+  document.getElementById('state-yml').addEventListener('input', () => { stateDirty = true; });
+  document.getElementById('state-reload').addEventListener('click', loadStateYml);
+  document.getElementById('state-preview').addEventListener('click', previewPlan);
+  document.getElementById('state-save').addEventListener('click', saveStateYml);
+
   document.getElementById('create-name').addEventListener('input', () => {
     createNamePristine = false;
     updatePreview();
@@ -416,8 +511,11 @@
   async function init() {
     try {
       config = await api('/api/config');
-    } catch { config = { domain: '?', tls: false }; }
+    } catch { config = { domain: '?', tls: false, file: '?' }; }
     document.getElementById('domain').textContent = config.domain;
+    document.getElementById('file').textContent = '(' + config.file + ')';
+
+    await loadStateYml();
 
     try {
       await loadVersions();
