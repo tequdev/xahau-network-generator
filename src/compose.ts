@@ -57,13 +57,16 @@ export function renderCompose(spec: NetworkSpec): string {
             '--ledgerfile',
             'genesis.json',
           ]
-        : [
-            'xahaud',
-            '--conf',
-            'xahaud.cfg',
-            '--ledgerfile',
-            'genesis.json',
-            `--quorum=${spec.quorum}`,
+        : // First boot (no db/ yet) seeds the chain from genesis.json; any
+          // later boot (`xng start` after `stop`, or a container recreated by
+          // `xng upgrade`) must continue from the ledger already in db/ via
+          // --load. Restarting from genesis.json with an existing network
+          // would start a validator at seq 1, and a lone validator then
+          // forks a fresh chain instead of rejoining the real one.
+          [
+            'sh',
+            '-c',
+            `if [ -d db ]; then exec xahaud --conf xahaud.cfg --quorum=${spec.quorum} --load; else exec xahaud --conf xahaud.cfg --quorum=${spec.quorum} --ledgerfile genesis.json; fi`,
           ];
 
     services[serviceName] = {
