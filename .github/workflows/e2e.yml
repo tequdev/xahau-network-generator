@@ -1,0 +1,56 @@
+name: e2e
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  XAHAUD_VERSION: 2026.6.21-release+3350
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: testnet-3
+            args: "--type testnet --validators 3"
+          - name: testnet-1
+            args: "--type testnet --validators 1"
+          - name: standalone
+            args: "--type standalone"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/xahau-network-generator
+          key: xahaud-${{ env.XAHAUD_VERSION }}
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm test
+
+      - run: pnpm xng create --name ${{ matrix.name }} --version "$XAHAUD_VERSION" ${{ matrix.args }}
+      - run: pnpm xng start --name ${{ matrix.name }} --wait --timeout 600
+      - run: pnpm e2e --name ${{ matrix.name }}
+      - run: pnpm xng reset --name ${{ matrix.name }} --wait --timeout 600
+      - run: pnpm e2e --name ${{ matrix.name }}
+
+      - name: docker compose logs
+        if: failure()
+        run: docker compose -f workspace/${{ matrix.name }}/compose.yml logs --tail 200
+
+      - name: stop network
+        if: always()
+        run: pnpm xng stop --name ${{ matrix.name }}
