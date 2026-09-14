@@ -1,12 +1,21 @@
 import { execFile, spawn } from 'node:child_process';
 import { createPublicKey, randomUUID, verify } from 'node:crypto';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { describePlan, planState } from './apply.ts';
 import { listVersions } from './binary.ts';
 import { composeOutputAsync } from './docker.ts';
+import {
+  DEFAULT_DOMAIN,
+  loadState,
+  parseState,
+  saveState,
+  specFor,
+} from './state.ts';
+import type { State } from './state.ts';
 import { NAME_RE, endpoints } from './types.ts';
 import type { NetworkSpec } from './types.ts';
 import { rpc } from './wait.ts';
@@ -16,8 +25,7 @@ const execFileAsync = promisify(execFile);
 export type PanelOptions = {
   port: number;
   host: string;
-  domain: string;
-  tls: boolean;
+  file: string;
   accessTeam?: string;
   accessAud?: string;
   insecureNoAuth: boolean;
@@ -303,18 +311,32 @@ async function drainQueue(): Promise<void> {
   }
 }
 
+// A whole-file apply (job name '*') touches every network, so it conflicts
+// with any single-network job and vice versa. Exported for its own tiny test.
+export function jobNamesConflict(a: string, b: string): boolean {
+  return a === b || a === '*' || b === '*';
+}
+
+// Every yml-editing handler must call this BEFORE touching the file: a
+// request refused for a running job must not have already rewritten
+// xng.yml underneath that job (or the operator's raw-editor save).
+function busy(res: http.ServerResponse, name: string): boolean {
+  if (!jobs.some((j) => !j.endedAt && jobNamesConflict(j.name, name))) {
+    return false;
+  }
+  sendJson(res, 409, {
+    error: `a job for "${name}" is already queued or running`,
+  });
+  return true;
+}
+
 function enqueue(
   res: http.ServerResponse,
   name: string,
   steps: string[][],
   timeoutMs: number,
 ): void {
-  if (jobs.some((j) => j.name === name && !j.endedAt)) {
-    sendJson(res, 409, {
-      error: `a job for "${name}" is already queued or running`,
-    });
-    return;
-  }
+  if (busy(res, name)) return;
   const job: Job = {
     id: randomUUID(),
     name,
@@ -449,30 +471,13 @@ async function versionsByBranch(): Promise<Record<string, string[]>> {
   return branches;
 }
 
-// Per-network actions whose argv is fully determined by the name (+ body).
-const ACTIONS: Record<
+// reset/vote stay imperative: reset is a deliberate data wipe apply must
+// never do, and vote doesn't touch the declared network shape at all.
+const IMPERATIVE_ACTIONS: Record<
   string,
   (name: string, body: Record<string, unknown>) => string[]
 > = {
-  start: (name) => ['start', '--name', name, '--wait', '--timeout', '600'],
-  stop: (name) => ['stop', '--name', name],
   reset: (name) => ['reset', '--name', name, '--wait', '--timeout', '600'],
-  remove: (name) => ['remove', '--name', name],
-  upgrade: (name, body) => {
-    const version = body.version;
-    if (typeof version !== 'string' || !VERSION_RE.test(version)) {
-      throw new Error('invalid version');
-    }
-    return [
-      'upgrade',
-      '--name',
-      name,
-      '--version',
-      version,
-      '--timeout',
-      '600',
-    ];
-  },
   vote: (name, body) => {
     const amendment = body.amendment;
     if (typeof amendment !== 'string' || !AMENDMENT_RE.test(amendment)) {
@@ -489,6 +494,67 @@ const ACTIONS: Record<
   },
 };
 
+// start/stop/remove/upgrade are all "edit xng.yml, then `xng apply --only
+// name`" - the actual create/start/upgrade/down/remove work is entirely
+// apply's job (see apply.ts's planState). 404 when the name isn't declared,
+// except remove, which also has to reach a network apply already considers
+// undeclared (removed from xng.yml but not yet applied).
+async function handleDeclaredAction(
+  res: http.ServerResponse,
+  opts: PanelOptions,
+  name: string,
+  verb: 'start' | 'stop' | 'remove' | 'upgrade',
+  body: Record<string, unknown>,
+): Promise<void> {
+  if (busy(res, name)) return;
+  const state = await loadState(opts.file);
+  state.networks ??= {};
+  const decl = state.networks[name];
+  const workspaceSpec = await loadSpec(name);
+
+  if (verb === 'remove') {
+    if (!decl && !workspaceSpec) {
+      return sendJson(res, 404, { error: `no network named "${name}"` });
+    }
+    delete state.networks[name];
+    await saveState(opts.file, state);
+    return enqueue(
+      res,
+      name,
+      [['apply', '--file', opts.file, '--only', name]],
+      LONG_STEP_TIMEOUT_MS,
+    );
+  }
+
+  if (!decl) return sendJson(res, 404, { error: `no network named "${name}"` });
+
+  let timeoutMs = LONG_STEP_TIMEOUT_MS;
+  if (verb === 'start') {
+    // true is the default, so "started" is simply "no enabled key at all".
+    const { enabled: _enabled, ...rest } = decl;
+    state.networks[name] = rest;
+  } else if (verb === 'stop') {
+    decl.enabled = false;
+  } else {
+    const version = body.version;
+    if (typeof version !== 'string' || !VERSION_RE.test(version)) {
+      return sendJson(res, 400, { error: 'invalid version' });
+    }
+    decl.version = version;
+    // --timeout is per-node inside apply; scale the outer kill timer by the
+    // validator count so a rolling upgrade of a large testnet isn't cut off.
+    const validators = workspaceSpec?.validators ?? decl.validators ?? 3;
+    timeoutMs = (validators + 1) * 600_000 + LONG_STEP_TIMEOUT_MS;
+  }
+  await saveState(opts.file, state);
+  return enqueue(
+    res,
+    name,
+    [['apply', '--file', opts.file, '--only', name]],
+    timeoutMs,
+  );
+}
+
 let panelHtml = '';
 
 async function route(
@@ -504,7 +570,21 @@ async function route(
     return void res.end(panelHtml);
   }
   if (method === 'GET' && path === '/api/config') {
-    return sendJson(res, 200, { domain: opts.domain, tls: opts.tls });
+    const state = await loadState(opts.file);
+    return sendJson(res, 200, {
+      domain: state.domain ?? DEFAULT_DOMAIN,
+      tls: state.tls ?? false,
+      file: opts.file,
+    });
+  }
+  if (method === 'GET' && path === '/api/state') {
+    let yml = '';
+    try {
+      yml = await readFile(opts.file, 'utf8');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    }
+    return sendJson(res, 200, { yml });
   }
   if (method === 'GET' && path === '/api/versions') {
     try {
@@ -514,18 +594,38 @@ async function route(
     }
   }
   if (method === 'GET' && path === '/api/networks') {
-    const names = await readdir('workspace').catch(() => [] as string[]);
+    const state = await loadState(opts.file);
+    const declared = state.networks ?? {};
+    const declaredNames = new Set(Object.keys(declared));
+    const workspaceNames = await readdir('workspace').catch(
+      () => [] as string[],
+    );
+    const names = [...new Set([...declaredNames, ...workspaceNames])].sort();
     const [containers, ...networks] = await Promise.all([
       listContainers(),
       ...names.map(async (name) => {
         const spec = await loadSpec(name);
-        return (
-          spec && {
+        if (spec) {
+          return {
             spec,
             endpoints: endpoints(spec),
             info: await nodeInfo(spec),
-          }
-        );
+            declared: declaredNames.has(name),
+            missing: false,
+          };
+        }
+        // Declared but never (yet) created, e.g. a create that failed
+        // partway through - still worth showing so it's not invisible.
+        const decl = declared[name];
+        if (!decl) return null;
+        const declSpec = specFor(name, decl, state);
+        return {
+          spec: declSpec,
+          endpoints: endpoints(declSpec),
+          info: null,
+          declared: true,
+          missing: true,
+        };
       }),
     ]);
     return sendJson(
@@ -533,7 +633,10 @@ async function route(
       200,
       networks
         .filter((n) => n !== null)
-        .map((n) => ({ ...n, containers: containers.get(n.spec.name) ?? [] })),
+        .map((n) => ({
+          ...n,
+          containers: n.missing ? [] : (containers.get(n.spec.name) ?? []),
+        })),
     );
   }
   if (method === 'GET' && path === '/api/jobs') {
@@ -588,8 +691,57 @@ async function route(
     }
     const body = await readJsonBody(req);
 
+    if (path === '/api/state') {
+      const yml = body.yml;
+      if (typeof yml !== 'string') {
+        return sendJson(res, 400, { error: 'yml must be a string' });
+      }
+      try {
+        parseState(yml);
+      } catch (err) {
+        return sendJson(res, 400, { error: (err as Error).message });
+      }
+      if (busy(res, '*')) return;
+      // Written verbatim - the operator's own formatting/comments, not a
+      // round-trip through the YAML serializer.
+      await writeFile(opts.file, yml);
+      return enqueue(
+        res,
+        '*',
+        [['apply', '--file', opts.file]],
+        LONG_STEP_TIMEOUT_MS,
+      );
+    }
+
+    if (path === '/api/plan') {
+      const yml = body.yml;
+      if (typeof yml !== 'string') {
+        return sendJson(res, 400, { error: 'yml must be a string' });
+      }
+      let state: State;
+      try {
+        state = parseState(yml);
+      } catch (err) {
+        return sendJson(res, 400, { error: (err as Error).message });
+      }
+      const plans = await planState(state);
+      return sendJson(res, 200, {
+        plan: describePlan(plans),
+        steps: plans.map((p) => ({
+          name: p.name,
+          actions: p.actions,
+          reason: p.reason,
+        })),
+      });
+    }
+
     if (path === '/api/networks') {
-      const { name, version, validators = 3, root = false } = body;
+      const {
+        name,
+        version,
+        validators: validatorsIn = 3,
+        root = false,
+      } = body;
       if (typeof name !== 'string' || !NAME_RE.test(name)) {
         return sendJson(res, 400, { error: 'invalid name' });
       }
@@ -597,63 +749,63 @@ async function route(
         return sendJson(res, 400, { error: 'invalid version' });
       }
       if (
-        !Number.isInteger(validators) ||
-        (validators !== 1 &&
-          ((validators as number) < 3 || (validators as number) > 20))
+        typeof validatorsIn !== 'number' ||
+        !Number.isInteger(validatorsIn) ||
+        (validatorsIn !== 1 && (validatorsIn < 3 || validatorsIn > 20))
       ) {
         return sendJson(res, 400, { error: 'validators must be 1 or 3..20' });
       }
+      const validators = validatorsIn;
+      if (busy(res, name)) return;
+      const state = await loadState(opts.file);
+      state.networks ??= {};
+      if (state.networks[name]) {
+        return sendJson(res, 409, {
+          error: `"${name}" is already declared in ${opts.file}`,
+        });
+      }
+      state.networks[name] = {
+        version,
+        ...(validators !== 3 ? { validators } : {}),
+        ...(root ? { root: true } : {}),
+      };
+      await saveState(opts.file, state);
       return enqueue(
         res,
         name,
-        [
-          [
-            'create',
-            '--name',
-            name,
-            '--type',
-            'testnet',
-            '--version',
-            version,
-            '--validators',
-            String(validators),
-            '--domain',
-            opts.domain,
-            ...(opts.tls ? ['--tls'] : []),
-            ...(root ? ['--root'] : []),
-          ],
-          ['start', '--name', name, '--wait', '--timeout', '600'],
-        ],
+        [['apply', '--file', opts.file, '--only', name]],
         LONG_STEP_TIMEOUT_MS,
       );
     }
+
     const actionMatch = path.match(/^\/api\/networks\/([^/]+)\/([a-z]+)$/);
     const verb = actionMatch?.[2] ?? '';
-    // hasOwn: `constructor` etc. would otherwise resolve through the prototype.
-    if (actionMatch && Object.hasOwn(ACTIONS, verb)) {
+    if (actionMatch) {
       const name = actionMatch[1] ?? '';
       if (!NAME_RE.test(name))
         return sendJson(res, 400, { error: 'invalid name' });
-      let timeoutMs = ['start', 'reset'].includes(verb)
-        ? LONG_STEP_TIMEOUT_MS
-        : SHORT_STEP_TIMEOUT_MS;
-      if (verb === 'upgrade') {
-        // --timeout 600 is per node, and the CLI upgrades validators + 1
-        // nodes in sequence.
-        const spec = await loadSpec(name);
-        if (!spec)
-          return sendJson(res, 404, { error: `no network named "${name}"` });
-        timeoutMs = (spec.validators + 1) * 600_000 + LONG_STEP_TIMEOUT_MS;
+      // hasOwn: `constructor` etc. would otherwise resolve through the prototype.
+      if (Object.hasOwn(IMPERATIVE_ACTIONS, verb)) {
+        const timeoutMs =
+          verb === 'reset' ? LONG_STEP_TIMEOUT_MS : SHORT_STEP_TIMEOUT_MS;
+        try {
+          return enqueue(
+            res,
+            name,
+            [IMPERATIVE_ACTIONS[verb]?.(name, body) ?? []],
+            timeoutMs,
+          );
+        } catch (err) {
+          return sendJson(res, 400, { error: (err as Error).message });
+        }
       }
-      try {
-        return enqueue(
-          res,
-          name,
-          [ACTIONS[verb]?.(name, body) ?? []],
-          timeoutMs,
-        );
-      } catch (err) {
-        return sendJson(res, 400, { error: (err as Error).message });
+      if (
+        verb === 'start' ||
+        verb === 'stop' ||
+        verb === 'remove' ||
+        verb === 'upgrade'
+      ) {
+        return handleDeclaredAction(res, opts, name, verb, body);
       }
     }
   }
