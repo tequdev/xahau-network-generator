@@ -48,27 +48,20 @@ export function renderCompose(spec: NetworkSpec): string {
     const serviceName = nodeName(spec, i);
     const nodeDir = serviceName;
 
-    const command =
-      spec.type === 'standalone'
-        ? [
-            'xahaud',
-            '-a',
-            '--conf',
-            'xahaud.cfg',
-            '--ledgerfile',
-            'genesis.json',
-          ]
-        : // First boot (no db/ yet) seeds the chain from genesis.json; any
-          // later boot (`xng start` after `stop`, or a container recreated by
-          // `xng upgrade`) must continue from the ledger already in db/ via
-          // --load. Restarting from genesis.json with an existing network
-          // would start a validator at seq 1, and a lone validator then
-          // forks a fresh chain instead of rejoining the real one.
-          [
-            'sh',
-            '-c',
-            `if [ -d db ]; then exec xahaud --conf xahaud.cfg --quorum=${spec.quorum} --load; else exec xahaud --conf xahaud.cfg --quorum=${spec.quorum} --ledgerfile genesis.json; fi`,
-          ];
+    // First boot (no db/ yet) seeds the chain from genesis.json; any later
+    // boot (`xng start` after `stop`, a container restarted by Docker after
+    // a daemon/host restart, or a container recreated by `xng upgrade`) must
+    // continue from the ledger already in db/ via --load. Restarting from
+    // genesis.json with an existing network would start a validator at seq
+    // 1, and a lone validator then forks a fresh chain instead of rejoining
+    // the real one (standalone: `-a --load` resumes xahaud stand-alone mode
+    // from the last ledger saved in db/).
+    const xahaud = `xahaud --conf xahaud.cfg${spec.type === 'standalone' ? ' -a' : ` --quorum=${spec.quorum}`}`;
+    const command = [
+      'sh',
+      '-c',
+      `if [ -d db ]; then exec ${xahaud} --load; else exec ${xahaud} --ledgerfile genesis.json; fi`,
+    ];
 
     services[serviceName] = {
       image: 'ubuntu:noble',
@@ -184,6 +177,10 @@ export function renderCompose(spec: NetworkSpec): string {
   // Fixed names (`testnet-3-explorer`) instead of compose's `-1` suffix.
   for (const [serviceName, service] of Object.entries(services)) {
     service.container_name = containerName(spec, serviceName);
+    // dockerd restarts these itself after a daemon restart / host reboot;
+    // `xng stop` is `compose down`, which removes the containers, so it's
+    // unaffected by this policy.
+    service.restart = 'unless-stopped';
   }
 
   // biome-ignore lint/suspicious/noExplicitAny: compose.yml document shape has no fixed schema here
