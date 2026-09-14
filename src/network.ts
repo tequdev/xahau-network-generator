@@ -56,6 +56,19 @@ export async function createNetwork(
   if (spec.type === 'standalone') await assertPortsFree(spec, outDir);
   await mkdir(dir, { recursive: true });
 
+  // Anything failing past this point (binary 404, amendment source fetch,
+  // ...) would otherwise leave a directory with only network.json in it,
+  // which every later command then mistakes for an existing network.
+  try {
+    await populateNetwork(spec, dir);
+  } catch (err) {
+    await rm(dir, { recursive: true, force: true });
+    throw err;
+  }
+  return dir;
+}
+
+async function populateNetwork(spec: NetworkSpec, dir: string): Promise<void> {
   await writeFile(join(dir, 'network.json'), JSON.stringify(spec, null, 2));
 
   // 1. binary
@@ -258,8 +271,6 @@ export async function createNetwork(
 
   // 6. compose
   await writeFile(join(dir, 'compose.yml'), renderCompose(spec));
-
-  return dir;
 }
 
 // Deletes each node's ledger data (nodedb under nodes/*/db) so the network
