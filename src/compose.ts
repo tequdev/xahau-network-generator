@@ -1,6 +1,7 @@
 import { stringify } from 'yaml';
 import {
   VL_HOST,
+  containerName,
   endpoints,
   explorerHostPort,
   hostPorts,
@@ -75,7 +76,7 @@ export function renderCompose(spec: NetworkSpec): string {
       working_dir: '/node',
       command,
       volumes: [
-        './bin/xahaud:/usr/local/bin/xahaud:ro',
+        `./bin/${serviceName}/xahaud:/usr/local/bin/xahaud:ro`,
         `./nodes/${nodeDir}:/node`,
       ],
     };
@@ -150,7 +151,7 @@ export function renderCompose(spec: NetworkSpec): string {
     services.faucet = {
       build: './faucet',
       environment: {
-        XAHAU_WS_URL: `ws://${nodeName(spec, 0)}:${ports(spec, 0).wsPublic}`,
+        XAHAU_WS_URL: `ws://${containerName(spec, nodeName(spec, 0))}:${ports(spec, 0).wsPublic}`,
         PORT: '8080',
         FAUCET_KEY_FILE: '/run/faucet.json',
       },
@@ -193,7 +194,7 @@ export function renderCompose(spec: NetworkSpec): string {
 
   // Fixed names (`testnet-3-explorer`) instead of compose's `-1` suffix.
   for (const [serviceName, service] of Object.entries(services)) {
-    service.container_name = `${spec.name}-${serviceName}`;
+    service.container_name = containerName(spec, serviceName);
   }
 
   // biome-ignore lint/suspicious/noExplicitAny: compose.yml document shape has no fixed schema here
