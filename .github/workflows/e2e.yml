@@ -17,9 +17,9 @@ jobs:
       matrix:
         include:
           - name: testnet-3
-            args: "--type testnet --validators 3"
+            args: "--type testnet --validators 3 --domain localhost"
           - name: testnet-1
-            args: "--type testnet --validators 1"
+            args: "--type testnet --validators 1 --domain localhost"
           - name: standalone
             args: "--type standalone"
           - name: standalone-dev
