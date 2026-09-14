@@ -64,14 +64,21 @@ export async function waitForNetwork(
       const info = result?.info;
       const seq = info?.validated_ledger?.seq;
       console.log(
-        `[${spec.name}] server_state=${info?.server_state ?? 'unknown'} seq=${seq ?? '-'}`,
+        `[${spec.name}] server_state=${info?.server_state ?? 'unknown'} seq=${seq ?? '-'} peers=${info?.peers ?? '-'}`,
       );
       const ready =
         // `full` matters on a restart: with --load a node reports its old
         // validated seq immediately while still `syncing`, and submits made
         // in that window fail.
+        // `peers`: when every node starts at once (first boot, reset, host
+        // reboot) two nodes dialling each other simultaneously can drop both
+        // connections, and xahaud only retries a fixed peer a minute later;
+        // `node` can be `full` via the remaining validators long before that.
         spec.type === 'testnet'
-          ? info?.server_state === 'full' && typeof seq === 'number' && seq >= 3
+          ? info?.server_state === 'full' &&
+            typeof seq === 'number' &&
+            seq >= 3 &&
+            (info?.peers ?? 0) >= spec.validators
           : info?.validated_ledger != null;
       if (ready) break;
     } catch (err) {
