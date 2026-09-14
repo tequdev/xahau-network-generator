@@ -2,7 +2,6 @@
 
 CLI that generates and runs disposable Xahau `testnet` (N validators) or
 `standalone` networks for a given `xahaud` release, via Docker Compose.
-See [DESIGN.md](./DESIGN.md) for the full design.
 
 ## Usage
 
@@ -25,10 +24,37 @@ pnpm xng remove --name t1
 
 `reset` = stop, wipe ledger data, start again from genesis.
 
-`--version` defaults to the latest release on build.xahau.tech. `--port-offset N`
-shifts every host port so several networks can run side by side. Binaries and
+`--version` defaults to the latest release on build.xahau.tech. Binaries and
 parsed amendment sources are cached under `~/.cache/xahau-network-generator`.
 The testnet faucet's own key is generated per-network at `workspace/<name>/keys/faucet.json`.
+
+### Networking
+
+**testnet** networks publish nothing on a host port (not even the peer port —
+xahaud's peer TLS sends no SNI, so it can't be proxied). Instead, `xng start`
+and `xng reset` bring up a single shared Traefik instance (`xng proxy up` /
+`xng proxy down` to manage it directly) that every testnet joins via the
+external `proxy` Docker network, and routes each service by subdomain, e.g.
+for a network named `t1`:
+
+```
+http://explorer.t1.127.0.0.1.nip.io
+http://rpc.t1.127.0.0.1.nip.io
+ws://t1.127.0.0.1.nip.io
+http://faucet.t1.127.0.0.1.nip.io
+```
+
+The default domain, `127.0.0.1.nip.io`, resolves any subdomain to
+`127.0.0.1` so this works out of the box on plain HTTP. To expose a testnet
+on a real host, pass `--domain your.domain --tls`, point wildcard DNS
+(`*.your.domain`) at the machine, and uncomment the ACME lines in
+`traefik/compose.yml`.
+
+**standalone** networks are unaffected by Traefik: they publish their ports
+directly on `localhost` exactly as before (rpc admin 5005, rpc public 5007,
+ws admin 6006, ws public 6008, peer 51235, explorer 4000). `--port-offset N`
+shifts every one of those ports so several standalone networks can run side
+by side.
 
 ## Development
 

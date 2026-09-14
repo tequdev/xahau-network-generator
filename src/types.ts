@@ -5,14 +5,17 @@ export type NetworkSpec = {
   validators: number; // standalone: 1
   quorum: number; // testnet only; default ceil(0.8*validators)
   networkId: number; // default 21339
-  portOffset: number; // default 0
+  domain: string; // testnet only; default '127.0.0.1.nip.io'; hostnames are `<sub>.<name>.<domain>`
+  tls: boolean; // testnet only; default false; true renders https/wss endpoint URLs
+  portOffset: number; // standalone only; default 0; shifts every published host port
   importVlKeys: string[]; // default ["ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC1"]
 };
 
 // Hostnames inside the network. compose.ts uses them as service names; a
 // native runner would map them via /etc/hosts. Index 0 is always the
-// non-validating, user-facing `node` (the only node with published host
-// ports); testnet validators are v1..vN.
+// non-validating, user-facing `node` (the only node routed through Traefik
+// on testnet, or published directly on the host on standalone); testnet
+// validators are v1..vN.
 export const VL_HOST = 'vl';
 export function nodeName(spec: NetworkSpec, i: number): string {
   return i === 0 ? 'node' : `v${i}`;
@@ -47,7 +50,8 @@ export function ports(_spec: NetworkSpec, _i: number): Ports {
 
 // Validators publish no host ports at all (container-to-container only);
 // only `node` (index 0) does, shifted by --port-offset alone (no per-index
-// term now that just one node is ever published per network).
+// term now that just one node is ever published per network). Standalone
+// only — testnet publishes nothing and is routed through Traefik instead.
 export function hostPorts(spec: NetworkSpec): Ports {
   const { portOffset } = spec;
   return {
@@ -59,17 +63,46 @@ export function hostPorts(spec: NetworkSpec): Ports {
   };
 }
 
-export function faucetHostPort(spec: NetworkSpec): number {
-  return 8080 + spec.portOffset;
-}
-
 export function explorerHostPort(spec: NetworkSpec): number {
   return 4000 + spec.portOffset;
 }
 
-export function allHostPorts(spec: NetworkSpec): number[] {
-  const result = Object.values(hostPorts(spec));
-  result.push(explorerHostPort(spec));
-  if (spec.type === 'testnet') result.push(faucetHostPort(spec));
-  return result;
+// Public URLs for `node` (index 0): on testnet, subdomains of spec.domain
+// routed through the shared Traefik instance (mirroring
+// https://github.com/tequdev/xahau-devnets); on standalone, published
+// directly on localhost via --port-offset, exactly as before Traefik
+// existed. faucet/vl only apply to testnet; rpcAdmin/wsAdmin (needed for
+// ledger_accept) only apply to standalone — kept optional so a caller has
+// to check before using one.
+export type Endpoints = {
+  ws: string;
+  rpc: string;
+  explorer: string;
+  faucet?: string;
+  vl?: string;
+  rpcAdmin?: string;
+  wsAdmin?: string;
+};
+
+export function endpoints(spec: NetworkSpec): Endpoints {
+  if (spec.type === 'testnet') {
+    const httpScheme = spec.tls ? 'https' : 'http';
+    const wsScheme = spec.tls ? 'wss' : 'ws';
+    const { name, domain } = spec;
+    return {
+      ws: `${wsScheme}://${name}.${domain}`,
+      rpc: `${httpScheme}://rpc.${name}.${domain}`,
+      explorer: `${httpScheme}://explorer.${name}.${domain}`,
+      faucet: `${httpScheme}://faucet.${name}.${domain}`,
+      vl: `${httpScheme}://vl.${name}.${domain}`,
+    };
+  }
+  const host = hostPorts(spec);
+  return {
+    ws: `ws://localhost:${host.wsPublic}`,
+    rpc: `http://localhost:${host.rpcPublic}`,
+    explorer: `http://localhost:${explorerHostPort(spec)}`,
+    rpcAdmin: `http://localhost:${host.rpcAdmin}`,
+    wsAdmin: `ws://localhost:${host.wsAdmin}`,
+  };
 }

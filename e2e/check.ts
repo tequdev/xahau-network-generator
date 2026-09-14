@@ -3,36 +3,31 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { deriveAddress, deriveKeypair, generateSeed } from 'xahau-keypairs';
-import { explorerHostPort, faucetHostPort, hostPorts } from '../src/types.ts';
+import { endpoints } from '../src/types.ts';
 import type { NetworkSpec } from '../src/types.ts';
 import { rpc } from '../src/wait.ts';
 
 const GENESIS_SECRET = 'snoPBrXtMeMyMHUVTgbuqAfg1SUTb';
 const GENESIS_ADDRESS = 'rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh';
 
-function rpcUrl(port: number): string {
-  return `http://localhost:${port}`;
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// `node` is the only node with a published host port (for both network
-// types) and the only one users/faucet/explorer ever talk to.
+// `node` is the only node routed through Traefik (for both network types)
+// and the only one users/faucet/explorer ever talk to.
 // biome-ignore lint/suspicious/noExplicitAny: JSON-RPC result shape varies by method
 async function checkCommon(spec: NetworkSpec): Promise<any> {
-  const host = hostPorts(spec);
-  const info = await rpc(rpcUrl(host.rpcPublic), 'server_info');
+  const ep = endpoints(spec);
+  const info = await rpc(ep.rpc, 'server_info');
   assert.equal(info.info.network_id, spec.networkId, 'network_id mismatch');
   console.log(
     `[e2e] server_info: build_version=${info.info.build_version} server_state=${info.info.server_state} validated_ledger.seq=${info.info.validated_ledger?.seq}`,
   );
 
-  const explorerRes = await fetch(
-    `http://localhost:${explorerHostPort(spec)}/`,
-    { signal: AbortSignal.timeout(10_000) },
-  );
+  const explorerRes = await fetch(`${ep.explorer}/`, {
+    signal: AbortSignal.timeout(10_000),
+  });
   assert.equal(explorerRes.status, 200, 'explorer did not return 200');
 
   return info;
@@ -41,7 +36,9 @@ async function checkCommon(spec: NetworkSpec): Promise<any> {
 async function checkTestnet(spec: NetworkSpec): Promise<void> {
   await checkCommon(spec);
 
-  const faucetBase = `http://localhost:${faucetHostPort(spec)}`;
+  const ep = endpoints(spec);
+  assert.ok(ep.faucet, 'testnet spec missing faucet endpoint');
+  const faucetBase = ep.faucet;
 
   const first = await fetch(`${faucetBase}/accounts`, {
     method: 'POST',
@@ -90,10 +87,11 @@ async function checkTestnet(spec: NetworkSpec): Promise<void> {
     `[e2e] faucet topped up ${firstBody.account.classicAddress} balance=${secondBody.balance}`,
   );
 
-  // Validators publish no host ports, so they can only be checked indirectly
-  // via `node`: it must be peered to every validator, and the ledger must
-  // keep advancing (i.e. consensus is actually running among them).
-  const nodeUrl = rpcUrl(hostPorts(spec).rpcPublic);
+  // Validators aren't routed through Traefik, so they can only be checked
+  // indirectly via `node`: it must be peered to every validator, and the
+  // ledger must keep advancing (i.e. consensus is actually running among
+  // them).
+  const nodeUrl = ep.rpc;
   const info1 = await rpc(nodeUrl, 'server_info');
   assert.ok(
     info1.info.peers >= spec.validators,
@@ -146,8 +144,9 @@ async function checkTestnet(spec: NetworkSpec): Promise<void> {
 async function checkStandalone(spec: NetworkSpec): Promise<void> {
   await checkCommon(spec);
 
-  const host = hostPorts(spec);
-  const adminUrl = rpcUrl(host.rpcAdmin);
+  const ep = endpoints(spec);
+  assert.ok(ep.rpcAdmin, 'standalone spec missing rpcAdmin endpoint');
+  const adminUrl = ep.rpcAdmin;
 
   const accept1 = await rpc(adminUrl, 'ledger_accept');
   const accept2 = await rpc(adminUrl, 'ledger_accept');

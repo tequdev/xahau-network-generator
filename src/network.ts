@@ -29,7 +29,13 @@ import {
   signVl,
 } from './keys.ts';
 import type { NetworkSpec } from './types.ts';
-import { VL_HOST, allHostPorts, nodeName, ports } from './types.ts';
+import {
+  VL_HOST,
+  explorerHostPort,
+  hostPorts,
+  nodeName,
+  ports,
+} from './types.ts';
 
 const REPO_FAUCET_DIR = fileURLToPath(new URL('../faucet', import.meta.url));
 
@@ -43,7 +49,9 @@ export async function createNetwork(
       `network directory "${dir}" already exists; run \`xng remove --name ${spec.name}\` first`,
     );
   }
-  await assertPortsFree(spec, outDir);
+  // Testnet publishes nothing (routed through Traefik instead), so only
+  // standalone networks can collide on host ports.
+  if (spec.type === 'standalone') await assertPortsFree(spec, outDir);
   await mkdir(dir, { recursive: true });
 
   await writeFile(join(dir, 'network.json'), JSON.stringify(spec, null, 2));
@@ -231,10 +239,14 @@ export async function resetNetworkData(dir: string): Promise<void> {
   }
 }
 
-// Host ports of every network under outDir must be disjoint so they can run
-// side by side; `--port-offset` is how the caller makes room.
+// Host ports of every standalone network under outDir must be disjoint so
+// they can run side by side; `--port-offset` is how the caller makes room.
+// Testnet networks publish nothing (routed through Traefik) and are skipped.
 async function assertPortsFree(spec: NetworkSpec, outDir: string) {
-  const mine = new Set(allHostPorts(spec));
+  const mine = new Set([
+    ...Object.values(hostPorts(spec)),
+    explorerHostPort(spec),
+  ]);
   let names: string[] = [];
   try {
     names = await readdir(outDir);
@@ -250,7 +262,12 @@ async function assertPortsFree(spec: NetworkSpec, outDir: string) {
     } catch {
       continue;
     }
-    const clash = allHostPorts(other).filter((p) => mine.has(p));
+    if (other.type !== 'standalone') continue;
+    const otherPorts = [
+      ...Object.values(hostPorts(other)),
+      explorerHostPort(other),
+    ];
+    const clash = otherPorts.filter((p) => mine.has(p));
     if (clash.length > 0) {
       throw new Error(
         `host port(s) ${clash.join(', ')} already used by network "${other.name}"; pick a different --port-offset`,

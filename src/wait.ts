@@ -1,4 +1,4 @@
-import { explorerHostPort, faucetHostPort, hostPorts } from './types.ts';
+import { endpoints } from './types.ts';
 import type { NetworkSpec } from './types.ts';
 
 export async function rpc(
@@ -47,20 +47,19 @@ export async function waitForNetwork(
   spec: NetworkSpec,
   timeoutMs: number,
 ): Promise<void> {
-  // `node` (index 0) is the only node with a published host port, for both
+  // `node` (index 0) is the only node routed through Traefik, for both
   // network types.
-  const primaryHost = hostPorts(spec);
-  const rpcUrl = `http://localhost:${primaryHost.rpcPublic}`;
+  const ep = endpoints(spec);
   const deadline = Date.now() + timeoutMs;
 
   for (;;) {
     if (Date.now() > deadline) {
       throw new Error(
-        `timed out waiting for network "${spec.name}" to become ready (node rpc at ${rpcUrl})`,
+        `timed out waiting for network "${spec.name}" to become ready (node rpc at ${ep.rpc})`,
       );
     }
     try {
-      const result = await rpc(rpcUrl, 'server_info', { api_version: 1 });
+      const result = await rpc(ep.rpc, 'server_info', { api_version: 1 });
       const info = result?.info;
       const seq = info?.validated_ledger?.seq;
       console.log(
@@ -79,8 +78,8 @@ export async function waitForNetwork(
     await sleep(2000);
   }
 
-  if (spec.type === 'testnet') {
-    const faucetUrl = `http://localhost:${faucetHostPort(spec)}/health`;
+  if (spec.type === 'testnet' && ep.faucet) {
+    const faucetUrl = `${ep.faucet}/health`;
     for (;;) {
       const check = await checkUrl(faucetUrl);
       if (check.ok) break;
@@ -94,7 +93,7 @@ export async function waitForNetwork(
     }
   }
 
-  const explorerUrl = `http://localhost:${explorerHostPort(spec)}/`;
+  const explorerUrl = `${ep.explorer}/`;
   while (!(await urlOk(explorerUrl))) {
     if (Date.now() > deadline) {
       throw new Error(

@@ -2,14 +2,9 @@ import { readFile, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { Command, InvalidArgumentError, Option } from 'commander';
 import { latestReleaseVersion } from './binary.ts';
-import { compose } from './docker.ts';
+import { compose, ensureProxy, proxyDown } from './docker.ts';
 import { createNetwork, resetNetworkData } from './network.ts';
-import {
-  DEFAULT_IMPORT_VL_KEYS,
-  explorerHostPort,
-  faucetHostPort,
-  hostPorts,
-} from './types.ts';
+import { DEFAULT_IMPORT_VL_KEYS, endpoints } from './types.ts';
 import type { NetworkSpec } from './types.ts';
 import { waitForNetwork } from './wait.ts';
 
@@ -33,6 +28,17 @@ function parseName(value: string): string {
   if (!NAME_RE.test(value)) {
     throw new InvalidArgumentError(
       `--name must match ${NAME_RE} (lowercase, digits, "-", "_"), got "${value}"`,
+    );
+  }
+  return value;
+}
+
+const DOMAIN_RE = /^[a-z0-9.-]+$/;
+
+function parseDomain(value: string): string {
+  if (!DOMAIN_RE.test(value)) {
+    throw new InvalidArgumentError(
+      `--domain must match ${DOMAIN_RE} (lowercase letters, digits, dots, hyphens), got "${value}"`,
     );
   }
   return value;
@@ -63,14 +69,15 @@ async function loadSpec(name: string): Promise<NetworkSpec> {
 }
 
 function printEndpoints(spec: NetworkSpec, dir: string): void {
-  const primaryHost = hostPorts(spec);
+  const ep = endpoints(spec);
   console.log(`created network "${spec.name}" at ${dir}`);
-  console.log(`  rpc:      http://localhost:${primaryHost.rpcPublic}`);
-  console.log(`  ws:       ws://localhost:${primaryHost.wsPublic}`);
-  console.log(`  explorer: http://localhost:${explorerHostPort(spec)}`);
-  if (spec.type === 'testnet') {
-    console.log(`  faucet:   http://localhost:${faucetHostPort(spec)}`);
-  }
+  console.log(`  rpc:      ${ep.rpc}`);
+  console.log(`  ws:       ${ep.ws}`);
+  console.log(`  explorer: ${ep.explorer}`);
+  if (ep.faucet) console.log(`  faucet:   ${ep.faucet}`);
+  if (ep.vl) console.log(`  vl:       ${ep.vl}`);
+  if (ep.rpcAdmin) console.log(`  rpc admin: ${ep.rpcAdmin}`);
+  if (ep.wsAdmin) console.log(`  ws admin:  ${ep.wsAdmin}`);
 }
 
 program
@@ -96,8 +103,19 @@ program
   )
   .option('--network-id <n>', 'network id', intArg(0), 21339)
   .option(
+    '--domain <domain>',
+    'testnet only: base domain for Traefik routing (per-network hostnames are <sub>.<name>.<domain>)',
+    parseDomain,
+    '127.0.0.1.nip.io',
+  )
+  .option(
+    '--tls',
+    'testnet only: generate https/wss endpoint URLs; enable ACME in traefik/compose.yml yourself',
+    false,
+  )
+  .option(
     '--port-offset <n>',
-    'shift every host port by this amount',
+    'standalone only: shift every published host port by this amount',
     intArg(0, 14300),
     0,
   )
@@ -118,6 +136,8 @@ program
       validators,
       quorum,
       networkId: opts.networkId,
+      domain: opts.domain,
+      tls: opts.tls,
       portOffset: opts.portOffset,
       importVlKeys: DEFAULT_IMPORT_VL_KEYS,
     };
@@ -136,6 +156,7 @@ program
   .option('--timeout <sec>', 'readiness timeout in seconds', intArg(1), 300)
   .action(async (opts) => {
     const spec = await loadSpec(opts.name);
+    if (spec.type === 'testnet') ensureProxy();
     // --build so a changed faucet/ is always rebuilt; a no-op when unchanged.
     compose(opts.name, ['up', '-d', '--build']);
     if (opts.wait) {
@@ -161,6 +182,7 @@ program
     const spec = await loadSpec(opts.name);
     compose(opts.name, ['down']);
     await resetNetworkData(`workspace/${opts.name}`);
+    if (spec.type === 'testnet') ensureProxy();
     compose(opts.name, ['up', '-d', '--build']);
     if (opts.wait) {
       await waitForNetwork(spec, opts.timeout * 1000);
@@ -180,6 +202,20 @@ program
     }
     await rm(`workspace/${opts.name}`, { recursive: true, force: true });
   });
+
+const proxyCmd = program
+  .command('proxy')
+  .description(
+    'manage the shared Traefik reverse proxy every network routes through',
+  );
+proxyCmd
+  .command('up')
+  .description('create the shared proxy network and start Traefik')
+  .action(() => ensureProxy());
+proxyCmd
+  .command('down')
+  .description('stop the shared Traefik instance')
+  .action(() => proxyDown());
 
 program.parseAsync().catch((err) => {
   console.error(err instanceof Error ? err.message : err);
