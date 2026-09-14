@@ -3,8 +3,10 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { deriveAddress, deriveKeypair, generateSeed } from 'xahau-keypairs';
-import { endpoints } from '../src/types.ts';
+import { composeOutput } from '../src/docker.ts';
+import { endpoints, nodeName } from '../src/types.ts';
 import type { NetworkSpec } from '../src/types.ts';
+import { parseServerInfoOutput } from '../src/upgrade.ts';
 import { rpc } from '../src/wait.ts';
 
 const GENESIS_SECRET = 'snoPBrXtMeMyMHUVTgbuqAfg1SUTb';
@@ -33,7 +35,56 @@ async function checkCommon(spec: NetworkSpec): Promise<any> {
   return info;
 }
 
-async function checkTestnet(spec: NetworkSpec): Promise<void> {
+// After an `xng upgrade`, checks that every node (node + all validators) is
+// running the new binary and that the ledger kept advancing rather than
+// being reset (i.e. the upgrade didn't wipe node data).
+function checkVersion(
+  spec: NetworkSpec,
+  // biome-ignore lint/suspicious/noExplicitAny: JSON-RPC result shape varies by method
+  nodeInfo: any,
+  expectVersion: string,
+): void {
+  assert.equal(
+    nodeInfo.build_version,
+    expectVersion,
+    `node build_version ${nodeInfo.build_version} !== ${expectVersion}`,
+  );
+  const seq = nodeInfo.validated_ledger?.seq;
+  assert.ok(
+    typeof seq === 'number' && seq >= 10,
+    `node validated_ledger.seq ${seq} not >= 10 (ledger may have been reset by the upgrade)`,
+  );
+
+  for (let i = 1; i <= spec.validators; i++) {
+    const service = nodeName(spec, i);
+    const stdout = composeOutput(spec.name, [
+      'exec',
+      '-T',
+      service,
+      'xahaud',
+      '--conf',
+      'xahaud.cfg',
+      'server_info',
+    ]);
+    const info = parseServerInfoOutput(stdout);
+    assert.equal(
+      info.build_version,
+      expectVersion,
+      `${service} build_version ${info.build_version} !== ${expectVersion}`,
+    );
+    console.log(
+      `[e2e] ${service}: build_version=${info.build_version} server_state=${info.server_state}`,
+    );
+  }
+  console.log(
+    `[e2e] version check passed: all nodes on ${expectVersion}, node seq=${seq}`,
+  );
+}
+
+async function checkTestnet(
+  spec: NetworkSpec,
+  expectVersion?: string,
+): Promise<void> {
   await checkCommon(spec);
 
   const ep = endpoints(spec);
@@ -114,6 +165,8 @@ async function checkTestnet(spec: NetworkSpec): Promise<void> {
   console.log(
     `[e2e] node server_info: peers=${info1.info.peers} validated_ledger.seq=${info1.info.validated_ledger.seq}->${info2.info.validated_ledger.seq}`,
   );
+
+  if (expectVersion) checkVersion(spec, info2.info, expectVersion);
 
   const faucetKeysPath = path.resolve(
     'workspace',
@@ -202,7 +255,12 @@ async function checkStandalone(spec: NetworkSpec): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const { values } = parseArgs({ options: { name: { type: 'string' } } });
+  const { values } = parseArgs({
+    options: {
+      name: { type: 'string' },
+      'expect-version': { type: 'string' },
+    },
+  });
   const name = values.name;
   if (!name) {
     throw new Error('--name is required');
@@ -212,7 +270,7 @@ async function main(): Promise<void> {
   const spec: NetworkSpec = JSON.parse(await readFile(specPath, 'utf8'));
 
   if (spec.type === 'testnet') {
-    await checkTestnet(spec);
+    await checkTestnet(spec, values['expect-version']);
   } else {
     await checkStandalone(spec);
   }

@@ -3,7 +3,7 @@ export type NetworkSpec = {
   type: 'testnet' | 'standalone';
   version: string;
   validators: number; // standalone: 1
-  quorum: number; // testnet only; default ceil(0.8*validators)
+  quorum: number; // testnet only; default defaultQuorum(validators) (see below)
   networkId: number; // default 21339
   domain: string; // testnet only; default '127.0.0.1.nip.io'; hostnames are `<sub>.<name>.<domain>`
   tls: boolean; // testnet only; default false; true renders https/wss endpoint URLs
@@ -19,6 +19,28 @@ export type NetworkSpec = {
 export const VL_HOST = 'vl';
 export function nodeName(spec: NetworkSpec, i: number): string {
   return i === 0 ? 'node' : `v${i}`;
+}
+
+// The bare compose service name (e.g. "node", "vl") is only unique within
+// one network's own default Docker network. Every testnet's `node`/`vl`/
+// `faucet` also join the *shared* external `proxy` network (for Traefik),
+// and Docker aliases containers by service name on every network they join
+// - so on `proxy`, "node" is ambiguous across testnets. The container name
+// (`<network-name>-<service>`, set as `container_name` in compose.ts) is
+// unique and resolvable on every network the container is on, so any
+// container-to-container reference (xahaud.cfg peers/vl URL, the faucet's
+// XAHAU_WS_URL, ...) must use this instead of the bare service name.
+export function containerName(spec: NetworkSpec, service: string): string {
+  return `${spec.name}-${service}`;
+}
+
+// Default consensus quorum. Capped at validators-1 (for validators >= 3) so
+// a rolling upgrade (`xng upgrade`) can restart one validator at a time
+// without ever dropping below quorum, i.e. without pausing consensus.
+// --quorum can still override this.
+export function defaultQuorum(validators: number): number {
+  if (validators === 1) return 1;
+  return Math.min(Math.ceil(0.8 * validators), validators - 1);
 }
 
 export const DEFAULT_IMPORT_VL_KEYS = [

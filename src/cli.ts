@@ -4,8 +4,14 @@ import { Command, InvalidArgumentError, Option } from 'commander';
 import { latestReleaseVersion } from './binary.ts';
 import { compose, ensureProxy, proxyDown } from './docker.ts';
 import { createNetwork, resetNetworkData } from './network.ts';
-import { DEFAULT_IMPORT_VL_KEYS, endpoints } from './types.ts';
+import {
+  DEFAULT_IMPORT_VL_KEYS,
+  defaultQuorum,
+  endpoints,
+  nodeName,
+} from './types.ts';
 import type { NetworkSpec } from './types.ts';
+import { upgradeNetwork } from './upgrade.ts';
 import { waitForNetwork } from './wait.ts';
 
 const require = createRequire(import.meta.url);
@@ -98,7 +104,7 @@ program
   )
   .option(
     '--quorum <n>',
-    'consensus quorum (default: ceil(0.8 * validators))',
+    'consensus quorum (default: min(ceil(0.8 * validators), validators - 1), so one validator can restart without pausing consensus)',
     intArg(1),
   )
   .option('--network-id <n>', 'network id', intArg(0), 21339)
@@ -121,7 +127,12 @@ program
   )
   .action(async (opts) => {
     const validators = opts.type === 'standalone' ? 1 : opts.validators;
-    const quorum = opts.quorum ?? Math.ceil(0.8 * validators);
+    if (validators === 2) {
+      program.error(
+        '--validators must be 1 or >= 3; a 2-validator network cannot tolerate a rolling restart',
+      );
+    }
+    const quorum = opts.quorum ?? defaultQuorum(validators);
     if (quorum < 1 || quorum > validators) {
       program.error(
         `--quorum must be an integer in [1, ${validators}], got "${quorum}"`,
@@ -201,6 +212,36 @@ program
       console.warn(err instanceof Error ? err.message : err);
     }
     await rm(`workspace/${opts.name}`, { recursive: true, force: true });
+  });
+
+program
+  .command('upgrade')
+  .description(
+    'rolling upgrade of the xahaud binary on a running testnet, one node at a time',
+  )
+  .requiredOption('--name <name>', 'network name', parseName)
+  .requiredOption('--version <ver>', 'xahaud version to upgrade to')
+  .option(
+    '--timeout <sec>',
+    'per-node readiness timeout in seconds',
+    intArg(1),
+    300,
+  )
+  .action(async (opts) => {
+    const spec = await loadSpec(opts.name);
+    if (spec.type !== 'testnet') {
+      throw program.error(
+        'xng upgrade is testnet only; use `xng remove`/`create` for standalone',
+      );
+    }
+    const services = Array.from({ length: spec.validators + 1 }, (_, i) =>
+      nodeName(spec, i),
+    );
+    console.log(
+      `upgrading ${spec.name}: ${services.join(', ')} -> ${opts.version}`,
+    );
+    await upgradeNetwork(spec, opts.version, opts.timeout * 1000);
+    console.log(`upgraded network "${spec.name}" to ${opts.version}`);
   });
 
 const proxyCmd = program

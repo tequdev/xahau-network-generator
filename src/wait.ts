@@ -66,8 +66,11 @@ export async function waitForNetwork(
         `[${spec.name}] server_state=${info?.server_state ?? 'unknown'} seq=${seq ?? '-'}`,
       );
       const ready =
+        // `full` matters on a restart: with --load a node reports its old
+        // validated seq immediately while still `syncing`, and submits made
+        // in that window fail.
         spec.type === 'testnet'
-          ? typeof seq === 'number' && seq >= 3
+          ? info?.server_state === 'full' && typeof seq === 'number' && seq >= 3
           : info?.validated_ledger != null;
       if (ready) break;
     } catch (err) {

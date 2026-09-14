@@ -70,3 +70,27 @@ test('compose: node has the rpc Traefik rule label', () => {
     'missing rpc router rule label',
   );
 });
+
+test('compose: faucet talks to node via its container name, not the bare service name (bare "node" is ambiguous on the shared proxy network across testnets)', () => {
+  const doc = parse(renderCompose(testnetSpec)) as {
+    // biome-ignore lint/suspicious/noExplicitAny: compose.yml service shape has no fixed schema here
+    services: Record<string, any>;
+  };
+  assert.equal(
+    doc.services.faucet.environment.XAHAU_WS_URL,
+    'ws://testnet-3-node:6008',
+  );
+});
+
+test('compose: every service container_name is prefixed with the network name', () => {
+  const doc = parse(renderCompose(testnetSpec)) as {
+    // biome-ignore lint/suspicious/noExplicitAny: compose.yml service shape has no fixed schema here
+    services: Record<string, any>;
+  };
+  for (const [serviceName, service] of Object.entries(doc.services)) {
+    assert.equal(
+      (service as { container_name: string }).container_name,
+      `testnet-3-${serviceName}`,
+    );
+  }
+});

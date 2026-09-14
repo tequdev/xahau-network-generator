@@ -3,6 +3,7 @@ import {
   chmod,
   copyFile,
   cp,
+  link,
   mkdir,
   readFile,
   readdir,
@@ -31,6 +32,7 @@ import {
 import type { NetworkSpec } from './types.ts';
 import {
   VL_HOST,
+  containerName,
   explorerHostPort,
   hostPorts,
   nodeName,
@@ -57,10 +59,36 @@ export async function createNetwork(
   await writeFile(join(dir, 'network.json'), JSON.stringify(spec, null, 2));
 
   // 1. binary
+  // Each node gets its own copy of the binary (workspace/<name>/bin/<service>/xahaud)
+  // rather than one shared file, so a rolling upgrade (src/upgrade.ts) can
+  // replace one node's binary without touching the others. The first copy is
+  // written for real; the rest are hard-linked to it (same inode, so no extra
+  // disk use) and only diverge later when `xng upgrade` rewrites one of them.
   const { binaryPath, releaseinfo } = await fetchBinary(spec.version);
-  await mkdir(join(dir, 'bin'), { recursive: true });
-  await copyFile(binaryPath, join(dir, 'bin', 'xahaud'));
-  await chmod(join(dir, 'bin', 'xahaud'), 0o755);
+  const serviceNames =
+    spec.type === 'standalone'
+      ? [nodeName(spec, 0)]
+      : Array.from({ length: spec.validators + 1 }, (_, i) =>
+          nodeName(spec, i),
+        );
+  const [primaryService, ...restServices] = serviceNames;
+  if (!primaryService) throw new Error('no services to install a binary for');
+  const primaryBinDir = join(dir, 'bin', primaryService);
+  await mkdir(primaryBinDir, { recursive: true });
+  const primaryBinPath = join(primaryBinDir, 'xahaud');
+  await copyFile(binaryPath, primaryBinPath);
+  await chmod(primaryBinPath, 0o755);
+  for (const service of restServices) {
+    const binDir = join(dir, 'bin', service);
+    await mkdir(binDir, { recursive: true });
+    const binPath = join(binDir, 'xahaud');
+    try {
+      await link(primaryBinPath, binPath);
+    } catch {
+      await copyFile(primaryBinPath, binPath);
+      await chmod(binPath, 0o755);
+    }
+  }
 
   // 2. amendments
   const commit = commitFromReleaseinfo(releaseinfo);
@@ -127,9 +155,17 @@ export async function createNetwork(
     for (let i = 1; i <= spec.validators; i++) {
       const nodeDir = join(dir, 'nodes', nodeName(spec, i));
       await mkdir(nodeDir, { recursive: true });
+      // Every other node, `node` included: xahaud retries a failed fixed
+      // peer with a 1/1/2/3/5... minute backoff, so if only `node` dialled
+      // validators, a validator restarted by `xng upgrade` would stay
+      // unpeered from `node` for minutes. Having both sides dial each other
+      // means whichever side just restarted reconnects immediately.
       const peers: string[] = [];
-      for (let j = 1; j <= spec.validators; j++) {
-        if (j !== i) peers.push(`${nodeName(spec, j)} ${ports(spec, j).peer}`);
+      for (let j = 0; j <= spec.validators; j++) {
+        if (j !== i)
+          peers.push(
+            `${containerName(spec, nodeName(spec, j))} ${ports(spec, j).peer}`,
+          );
       }
       const validatorKeys = validatorKeysList[i - 1];
       if (!validatorKeys) throw new Error(`missing keys for validator ${i}`);
@@ -140,7 +176,7 @@ export async function createNetwork(
         token: validatorKeys.token,
         peers,
         vlKeyHex: publisher.master.publicKey,
-        vlUrl: `http://${VL_HOST}/vl.json`,
+        vlUrl: `http://${containerName(spec, VL_HOST)}/vl.json`,
         importVlKeys: spec.importVlKeys,
       } satisfies XahaudCfgOptions;
       await writeFile(join(nodeDir, 'xahaud.cfg'), renderXahaudCfg(cfgOpts));
@@ -156,12 +192,13 @@ export async function createNetwork(
 
     // Non-validating `node`: users, the faucet and the explorer talk to this
     // one, never to a validator. Same shape as a validator config, but no
-    // token and peered to every validator (rather than the other way round).
+    // token and peered to every validator (and they to it, see above).
     const primaryNodeDir = join(dir, 'nodes', nodeName(spec, 0));
     await mkdir(primaryNodeDir, { recursive: true });
     const primaryPeers = Array.from(
       { length: spec.validators },
-      (_, idx) => `${nodeName(spec, idx + 1)} ${ports(spec, idx + 1).peer}`,
+      (_, idx) =>
+        `${containerName(spec, nodeName(spec, idx + 1))} ${ports(spec, idx + 1).peer}`,
     );
     const primaryCfgOpts = {
       type: 'testnet',
@@ -169,7 +206,7 @@ export async function createNetwork(
       ports: ports(spec, 0),
       peers: primaryPeers,
       vlKeyHex: publisher.master.publicKey,
-      vlUrl: `http://${VL_HOST}/vl.json`,
+      vlUrl: `http://${containerName(spec, VL_HOST)}/vl.json`,
       importVlKeys: spec.importVlKeys,
     } satisfies XahaudCfgOptions;
     await writeFile(
