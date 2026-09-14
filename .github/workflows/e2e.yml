@@ -22,6 +22,9 @@ jobs:
             args: "--type testnet --validators 1"
           - name: standalone
             args: "--type standalone"
+          - name: standalone-dev
+            args: "--type standalone"
+            version: 2026.9.9-dev+3667
     steps:
       - uses: actions/checkout@v4
 
@@ -35,13 +38,13 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ~/.cache/xahau-network-generator
-          key: xahaud-${{ env.XAHAUD_VERSION }}
+          key: xahaud-${{ matrix.version || env.XAHAUD_VERSION }}
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm test
 
-      - run: pnpm xng create --name ${{ matrix.name }} --version "$XAHAUD_VERSION" ${{ matrix.args }}
+      - run: pnpm xng create --name ${{ matrix.name }} --version "${{ matrix.version || env.XAHAUD_VERSION }}" ${{ matrix.args }}
       - run: pnpm xng start --name ${{ matrix.name }} --wait --timeout 600
       - run: pnpm e2e --name ${{ matrix.name }}
       - run: pnpm xng reset --name ${{ matrix.name }} --wait --timeout 600
