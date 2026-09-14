@@ -1,5 +1,6 @@
 import { readFile, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { createInterface } from 'node:readline/promises';
 import { Command, InvalidArgumentError, Option } from 'commander';
 import { applyState, describePlan, planState } from './apply.ts';
 import { latestReleaseVersion } from './binary.ts';
@@ -306,6 +307,11 @@ program
   .option('--only <name>', 'reconcile just this network', parseName)
   .option('--dry-run', 'print the plan and exit', false)
   .option(
+    '--yes',
+    'apply without asking (required when stdin is not a terminal, e.g. from the panel)',
+    false,
+  )
+  .option(
     '--timeout <sec>',
     'readiness / per-node upgrade timeout in seconds',
     intArg(1),
@@ -313,9 +319,28 @@ program
   )
   .action(async (opts) => {
     const state = await loadState(opts.file, true);
-    if (opts.dryRun) {
-      console.log(describePlan(await planState(state, 'workspace', opts.only)));
-      return;
+    const plans = await planState(state, 'workspace', opts.only);
+    console.log(plans.length > 0 ? describePlan(plans) : 'nothing to do');
+    if (opts.dryRun || plans.length === 0) return;
+    // The plan can include `remove` (down -v + rm -rf), so a human gets to
+    // read it first; default is no. A non-interactive caller (the panel, a
+    // script) must say --yes explicitly rather than have the prompt hang or
+    // be skipped silently.
+    if (!opts.yes) {
+      if (!process.stdin.isTTY) {
+        throw program.error('stdin is not a terminal; pass --yes to apply');
+      }
+      const rl = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+      const answer = (await rl.question('apply? [y/N] ')).trim().toLowerCase();
+      rl.close();
+      if (answer !== 'y' && answer !== 'yes') {
+        console.log('aborted');
+        process.exitCode = 1;
+        return;
+      }
     }
     await applyState(state, {
       only: opts.only,

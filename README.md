@@ -123,7 +123,8 @@ networks:
 
 ```sh
 pnpm xng apply --dry-run     # print the plan
-pnpm xng apply               # converge; --only <name> limits it to one network
+pnpm xng apply               # print the plan, ask [y/N], converge; --only <name> limits it to one network
+pnpm xng apply --yes         # no prompt (required without a terminal; the panel passes it)
 ```
 
 For each declared network, apply does the least that makes reality match:

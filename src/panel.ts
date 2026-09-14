@@ -521,7 +521,7 @@ async function handleDeclaredAction(
     return enqueue(
       res,
       name,
-      [['apply', '--file', opts.file, '--only', name]],
+      [['apply', '--yes', '--file', opts.file, '--only', name]],
       LONG_STEP_TIMEOUT_MS,
     );
   }
@@ -550,7 +550,7 @@ async function handleDeclaredAction(
   return enqueue(
     res,
     name,
-    [['apply', '--file', opts.file, '--only', name]],
+    [['apply', '--yes', '--file', opts.file, '--only', name]],
     timeoutMs,
   );
 }
@@ -708,7 +708,7 @@ async function route(
       return enqueue(
         res,
         '*',
-        [['apply', '--file', opts.file]],
+        [['apply', '--yes', '--file', opts.file]],
         LONG_STEP_TIMEOUT_MS,
       );
     }
@@ -773,7 +773,7 @@ async function route(
       return enqueue(
         res,
         name,
-        [['apply', '--file', opts.file, '--only', name]],
+        [['apply', '--yes', '--file', opts.file, '--only', name]],
         LONG_STEP_TIMEOUT_MS,
       );
     }
