@@ -72,6 +72,36 @@ ws admin 6006, ws public 6008, peer 51235, explorer 4000). `--port-offset N`
 shifts every one of those ports so several standalone networks can run side
 by side.
 
+### Hosted validators (Proxmox LXC / VMs)
+
+`node`/`vl`/`faucet`/`explorer`/Traefik can stay in the local Docker compose
+while each testnet validator runs natively (no Docker) on its own Proxmox
+LXC or VM, reached over `ssh root@<ip>`. Pass `--hosts` at create time:
+
+```sh
+pnpm xng create --name t1 --validators 3 \
+  --hosts node=10.0.0.10,v1=10.0.0.11,v2=10.0.0.12,v3=10.0.0.13
+```
+
+Keys must be exactly `node` (the LAN IP of the machine running `xng`, which
+validators dial as `<name>-node`) plus `v1..vN`. `start`/`reset` deploy each
+validator over ssh (ships `nodes/<svc>` + `bin/<svc>/xahaud`, installs a
+`xng-<name>-<svc>` systemd unit); `stop`/`remove` tear them down the same
+way. `xng upgrade` streams the new binary to each host and restarts its
+unit instead of recreating a container; `node` always stays on compose.
+Nodes use a static `[validators]` list in hosted mode (validators aren't
+reachable from `http://<name>-vl/vl.json`), so the printed `vl:` endpoint is
+served but not actually consumed by the network.
+
+Requirements: passwordless `ssh root@<ip>` (key auth), an Ubuntu 24.04 LXC
+(unprivileged is fine) or VM with `tar` installed, port 51235 reachable in
+both directions between `node` and every validator, and see the `pct create`
+loop in `docs/hosted-validators.md` for provisioning the LXCs themselves
+(not driven by `xng`). Admin RPC binds to `0.0.0.0` on the LAN — fine for a
+homelab, not for anything exposed to the internet. `node` binds the peer
+port (51235) on all of the docker host's interfaces, so only one hosted
+testnet can run per docker host at a time.
+
 ## Development
 
 ```sh

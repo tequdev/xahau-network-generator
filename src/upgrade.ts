@@ -2,7 +2,8 @@ import { chmod, copyFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fetchBinary } from './binary.ts';
 import { compose, composeOutput } from './docker.ts';
-import { endpoints, nodeName } from './types.ts';
+import { upgradeValidator, validatorServerInfo } from './hosted.ts';
+import { endpoints, isHosted, nodeName } from './types.ts';
 import type { NetworkSpec } from './types.ts';
 import { rpc } from './wait.ts';
 
@@ -34,8 +35,8 @@ export function parseServerInfoOutput(stdout: string): ServerInfo {
 
 // `node` (index 0) is reachable from the host via its rpc endpoint;
 // validators aren't, so they're queried by running the xahaud client inside
-// their own container instead.
-async function fetchInfo(
+// their own container instead — or, in hosted mode, over ssh.
+export async function fetchInfo(
   spec: NetworkSpec,
   service: string,
   isPrimary: boolean,
@@ -45,6 +46,9 @@ async function fetchInfo(
       api_version: 1,
     });
     return result.info;
+  }
+  if (isHosted(spec)) {
+    return parseServerInfoOutput(validatorServerInfo(spec, service));
   }
   const stdout = composeOutput(spec.name, [
     'exec',
@@ -151,8 +155,20 @@ export async function upgradeNetwork(
     await chmod(tmpPath, 0o755);
     await rename(tmpPath, finalPath);
 
-    // --no-deps so `vl` (and any other dependency) is left alone.
-    compose(spec.name, ['up', '-d', '--no-deps', '--force-recreate', service]);
+    if (isHosted(spec) && !isPrimary) {
+      // Ships the just-swapped local binary to the host and restarts its
+      // systemd unit; `node` (the primary) always stays on compose.
+      upgradeValidator(spec, service, finalPath);
+    } else {
+      // --no-deps so `vl` (and any other dependency) is left alone.
+      compose(spec.name, [
+        'up',
+        '-d',
+        '--no-deps',
+        '--force-recreate',
+        service,
+      ]);
+    }
 
     try {
       await waitForNode(

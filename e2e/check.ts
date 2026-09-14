@@ -3,10 +3,9 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { deriveAddress, deriveKeypair, generateSeed } from 'xahau-keypairs';
-import { composeOutput } from '../src/docker.ts';
 import { endpoints, nodeName } from '../src/types.ts';
 import type { NetworkSpec } from '../src/types.ts';
-import { parseServerInfoOutput } from '../src/upgrade.ts';
+import { fetchInfo } from '../src/upgrade.ts';
 import { rpc } from '../src/wait.ts';
 
 const GENESIS_SECRET = 'snoPBrXtMeMyMHUVTgbuqAfg1SUTb';
@@ -38,12 +37,12 @@ async function checkCommon(spec: NetworkSpec): Promise<any> {
 // After an `xng upgrade`, checks that every node (node + all validators) is
 // running the new binary and that the ledger kept advancing rather than
 // being reset (i.e. the upgrade didn't wipe node data).
-function checkVersion(
+async function checkVersion(
   spec: NetworkSpec,
   // biome-ignore lint/suspicious/noExplicitAny: JSON-RPC result shape varies by method
   nodeInfo: any,
   expectVersion: string,
-): void {
+): Promise<void> {
   assert.equal(
     nodeInfo.build_version,
     expectVersion,
@@ -57,16 +56,7 @@ function checkVersion(
 
   for (let i = 1; i <= spec.validators; i++) {
     const service = nodeName(spec, i);
-    const stdout = composeOutput(spec.name, [
-      'exec',
-      '-T',
-      service,
-      'xahaud',
-      '--conf',
-      'xahaud.cfg',
-      'server_info',
-    ]);
-    const info = parseServerInfoOutput(stdout);
+    const info = await fetchInfo(spec, service, false);
     assert.equal(
       info.build_version,
       expectVersion,
@@ -166,7 +156,7 @@ async function checkTestnet(
     `[e2e] node server_info: peers=${info1.info.peers} validated_ledger.seq=${info1.info.validated_ledger.seq}->${info2.info.validated_ledger.seq}`,
   );
 
-  if (expectVersion) checkVersion(spec, info2.info, expectVersion);
+  if (expectVersion) await checkVersion(spec, info2.info, expectVersion);
 
   const faucetKeysPath = path.resolve(
     'workspace',

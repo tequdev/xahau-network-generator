@@ -9,7 +9,34 @@ export type NetworkSpec = {
   tls: boolean; // testnet only; default false; true renders https/wss endpoint URLs
   portOffset: number; // standalone only; default 0; shifts every published host port
   importVlKeys: string[]; // default ["ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC1"]
+  hosts?: Record<string, string>; // testnet only; keys are exactly "node" and "v1".."vN", values are IPv4 addresses of one Proxmox LXC/VM per validator (plus "node" = the LAN IP of the docker host xng runs on). See docs/hosted-validators.md.
 };
+
+// True when validators run natively on remote hosts (via ssh) instead of as
+// compose services; node/vl/faucet/explorer/Traefik stay in compose either way.
+export function isHosted(spec: NetworkSpec): boolean {
+  return spec.type === 'testnet' && !!spec.hosts;
+}
+
+// Remote root directory for a hosted validator (contains nodes/<svc>/ and
+// bin/<svc>/xahaud, mirroring the local workspace/<name>/ layout).
+export const HOSTED_DIR = (spec: NetworkSpec): string =>
+  `/opt/xng/${spec.name}`;
+
+// systemd unit name for a hosted validator.
+export const hostedUnit = (spec: NetworkSpec, svc: string): string =>
+  `xng-${spec.name}-${svc}`;
+
+// First boot (no db/ yet) seeds the chain from genesis.json; any later boot
+// (`xng start` after `stop`, or a container/unit recreated by `xng upgrade`)
+// must continue from the ledger already in db/ via --load. Restarting from
+// genesis.json with an existing network would start a validator at seq 1,
+// and a lone validator then forks a fresh chain instead of rejoining the
+// real one. Shared by compose.ts (container command) and hosted.ts (systemd
+// ExecStart) so the two never drift apart.
+export function xahaudCommand(spec: NetworkSpec): string {
+  return `if [ -d db ]; then exec xahaud --conf xahaud.cfg --quorum=${spec.quorum} --load; else exec xahaud --conf xahaud.cfg --quorum=${spec.quorum} --ledgerfile genesis.json; fi`;
+}
 
 // Hostnames inside the network. compose.ts uses them as service names; a
 // native runner would map them via /etc/hosts. Index 0 is always the

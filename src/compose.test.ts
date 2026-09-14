@@ -30,6 +30,20 @@ const standaloneSpec: NetworkSpec = {
   quorum: 1,
 };
 
+const hostedSpec: NetworkSpec = {
+  ...base,
+  name: 'h1',
+  type: 'testnet',
+  validators: 3,
+  quorum: 3,
+  hosts: {
+    node: '10.0.0.10',
+    v1: '10.0.0.11',
+    v2: '10.0.0.12',
+    v3: '10.0.0.13',
+  },
+};
+
 test('compose: testnet publishes no host ports and joins the shared proxy network', () => {
   // biome-ignore lint/suspicious/noExplicitAny: compose.yml service shape has no fixed schema here
   const doc = parse(renderCompose(testnetSpec)) as any;
@@ -93,4 +107,26 @@ test('compose: every service container_name is prefixed with the network name', 
       `testnet-3-${serviceName}`,
     );
   }
+});
+
+test('compose: hosted mode renders no validator services, and node gets extra_hosts + the published peer port', () => {
+  const doc = parse(renderCompose(hostedSpec)) as {
+    // biome-ignore lint/suspicious/noExplicitAny: compose.yml service shape has no fixed schema here
+    services: Record<string, any>;
+  };
+  assert.deepEqual(
+    Object.keys(doc.services).sort(),
+    ['explorer', 'faucet', 'node', 'vl'].sort(),
+    'hosted mode must not render v1..v3 compose services',
+  );
+  assert.deepEqual(doc.services.node.extra_hosts.sort(), [
+    'h1-v1:10.0.0.11',
+    'h1-v2:10.0.0.12',
+    'h1-v3:10.0.0.13',
+  ]);
+  assert.deepEqual(doc.services.node.ports, ['51235:51235']);
+  // vl/faucet/explorer are still present and unaffected.
+  assert.ok(doc.services.vl);
+  assert.ok(doc.services.faucet);
+  assert.ok(doc.services.explorer);
 });

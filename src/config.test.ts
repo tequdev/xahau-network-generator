@@ -51,3 +51,14 @@ test('validators.txt vl URL uses the network-prefixed container name', () => {
     'validator_list_sites entry missing the container-name-prefixed vl host',
   );
 });
+
+test('validators.txt: hosted mode emits a static [validators] list instead of validator_list_sites/keys', () => {
+  const hostedOpts: XahaudCfgOptions = {
+    ...cfgOpts,
+    validators: ['n9Kabc'],
+  };
+  const txt = renderValidatorsTxt(hostedOpts);
+  assert.ok(txt.includes('[validators]\nn9Kabc'));
+  assert.ok(!txt.includes('[validator_list_sites]'));
+  assert.ok(!txt.includes('[validator_list_keys]'));
+});
