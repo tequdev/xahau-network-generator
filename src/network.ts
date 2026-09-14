@@ -155,8 +155,13 @@ export async function createNetwork(
     for (let i = 1; i <= spec.validators; i++) {
       const nodeDir = join(dir, 'nodes', nodeName(spec, i));
       await mkdir(nodeDir, { recursive: true });
+      // Every other node, `node` included: xahaud retries a failed fixed
+      // peer with a 1/1/2/3/5... minute backoff, so if only `node` dialled
+      // validators, a validator restarted by `xng upgrade` would stay
+      // unpeered from `node` for minutes. Having both sides dial each other
+      // means whichever side just restarted reconnects immediately.
       const peers: string[] = [];
-      for (let j = 1; j <= spec.validators; j++) {
+      for (let j = 0; j <= spec.validators; j++) {
         if (j !== i)
           peers.push(
             `${containerName(spec, nodeName(spec, j))} ${ports(spec, j).peer}`,
@@ -187,7 +192,7 @@ export async function createNetwork(
 
     // Non-validating `node`: users, the faucet and the explorer talk to this
     // one, never to a validator. Same shape as a validator config, but no
-    // token and peered to every validator (rather than the other way round).
+    // token and peered to every validator (and they to it, see above).
     const primaryNodeDir = join(dir, 'nodes', nodeName(spec, 0));
     await mkdir(primaryNodeDir, { recursive: true });
     const primaryPeers = Array.from(

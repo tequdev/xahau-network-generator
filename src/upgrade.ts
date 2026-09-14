@@ -13,6 +13,7 @@ async function sleep(ms: number): Promise<void> {
 export type ServerInfo = {
   build_version?: string;
   server_state?: string;
+  peers?: number;
   validated_ledger?: { seq?: number };
 };
 
@@ -181,6 +182,23 @@ export async function upgradeNetwork(
       compose(spec.name, ['restart', 'faucet']);
       console.log(`[${spec.name}] restarted faucet to reconnect to ${service}`);
     }
+  }
+
+  // Post-condition: `node` is peered to every validator again (validators
+  // dial `node` on restart, so this is normally immediate; see network.ts).
+  const peersDeadline = Date.now() + timeoutMs;
+  for (;;) {
+    const info = await fetchInfo(spec, nodeName(spec, 0), true);
+    if ((info.peers ?? 0) >= spec.validators) break;
+    if (Date.now() > peersDeadline) {
+      throw new Error(
+        `[${spec.name}] timed out waiting for node to re-peer with all ${spec.validators} validators (peers=${info.peers ?? 0})`,
+      );
+    }
+    console.log(
+      `[${spec.name}] node: peers=${info.peers ?? 0}/${spec.validators}, waiting...`,
+    );
+    await sleep(2000);
   }
 
   spec.version = version;
