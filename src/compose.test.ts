@@ -134,3 +134,28 @@ test('compose: testnet node command still sets quorum and resumes via --load, no
   assert.match(command, /else exec [^;]*--ledgerfile genesis\.json;/);
   assert.doesNotMatch(command, / -a\b/);
 });
+
+test('compose: a root network hangs every service off the bare domain', () => {
+  const doc = parse(renderCompose({ ...testnetSpec, name: 'dev', root: true }));
+  const labels: string[] = [
+    ...doc.services.node.labels,
+    ...doc.services.explorer.labels,
+    ...doc.services.faucet.labels,
+    ...doc.services.vl.labels,
+  ];
+  const hosts = labels
+    .filter((l) => l.includes('.rule=Host'))
+    .map((l) => l.replace(/.*Host\(`(.*)`\).*/, '$1'))
+    .sort();
+  assert.deepEqual(hosts, [
+    '127.0.0.1.nip.io',
+    'explorer.127.0.0.1.nip.io',
+    'faucet.127.0.0.1.nip.io',
+    'rpc.127.0.0.1.nip.io',
+    'vl.127.0.0.1.nip.io',
+  ]);
+  // Router/container names still carry the network name, so a root network
+  // coexists with named ones on the same Traefik.
+  assert.ok(labels.some((l) => l.startsWith('traefik.http.routers.dev-ws.')));
+  assert.equal(doc.services.node.container_name, 'dev-node');
+});

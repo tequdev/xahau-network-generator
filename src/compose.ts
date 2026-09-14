@@ -4,6 +4,7 @@ import {
   containerName,
   endpoints,
   explorerHostPort,
+  hostBase,
   hostPorts,
   nodeName,
   ports,
@@ -33,7 +34,7 @@ function traefikRoute(
 export function renderCompose(spec: NetworkSpec): string {
   // biome-ignore lint/suspicious/noExplicitAny: compose.yml service shape has no fixed schema here
   const services: Record<string, any> = {};
-  const { name, domain } = spec;
+  const base = hostBase(spec);
   const containerPorts = ports(spec, 0);
 
   // Index 0 is always the non-validating, user-facing `node`; testnet adds
@@ -55,11 +56,11 @@ export function renderCompose(spec: NetworkSpec): string {
     // 1, and a lone validator then forks a fresh chain instead of rejoining
     // the real one (standalone: `-a --load` resumes xahaud stand-alone mode
     // from the last ledger saved in db/).
-    const base = `xahaud --conf xahaud.cfg${spec.type === 'standalone' ? ' -a' : ` --quorum=${spec.quorum}`}`;
+    const xahaud = `xahaud --conf xahaud.cfg${spec.type === 'standalone' ? ' -a' : ` --quorum=${spec.quorum}`}`;
     const command = [
       'sh',
       '-c',
-      `if [ -d db ]; then exec ${base} --load; else exec ${base} --ledgerfile genesis.json; fi`,
+      `if [ -d db ]; then exec ${xahaud} --load; else exec ${xahaud} --ledgerfile genesis.json; fi`,
     ];
 
     services[serviceName] = {
@@ -88,18 +89,8 @@ export function renderCompose(spec: NetworkSpec): string {
         services[serviceName].labels = [
           'traefik.enable=true',
           'traefik.docker.network=proxy',
-          ...traefikRoute(
-            spec,
-            'ws',
-            `${name}.${domain}`,
-            containerPorts.wsPublic,
-          ),
-          ...traefikRoute(
-            spec,
-            'rpc',
-            `rpc.${name}.${domain}`,
-            containerPorts.rpcPublic,
-          ),
+          ...traefikRoute(spec, 'ws', base, containerPorts.wsPublic),
+          ...traefikRoute(spec, 'rpc', `rpc.${base}`, containerPorts.rpcPublic),
         ];
       } else {
         const host = hostPorts(spec);
@@ -127,7 +118,7 @@ export function renderCompose(spec: NetworkSpec): string {
       labels: [
         'traefik.enable=true',
         'traefik.docker.network=proxy',
-        ...traefikRoute(spec, 'vl', `vl.${name}.${domain}`, 80),
+        ...traefikRoute(spec, 'vl', `vl.${base}`, 80),
       ],
       healthcheck: {
         test: [
@@ -156,7 +147,7 @@ export function renderCompose(spec: NetworkSpec): string {
       labels: [
         'traefik.enable=true',
         'traefik.docker.network=proxy',
-        ...traefikRoute(spec, 'faucet', `faucet.${name}.${domain}`, 8080),
+        ...traefikRoute(spec, 'faucet', `faucet.${base}`, 8080),
       ],
       depends_on: [nodeName(spec, 0)],
     };
@@ -178,12 +169,7 @@ export function renderCompose(spec: NetworkSpec): string {
           labels: [
             'traefik.enable=true',
             'traefik.docker.network=proxy',
-            ...traefikRoute(
-              spec,
-              'explorer',
-              `explorer.${name}.${domain}`,
-              4000,
-            ),
+            ...traefikRoute(spec, 'explorer', `explorer.${base}`, 4000),
           ],
         }
       : { ...explorerBase, ports: [`${explorerHostPort(spec)}:4000`] };

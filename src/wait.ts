@@ -5,13 +5,14 @@ export async function rpc(
   url: string,
   method: string,
   params?: object,
+  timeoutMs = 10_000,
   // biome-ignore lint/suspicious/noExplicitAny: JSON-RPC result shape varies by method
 ): Promise<any> {
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ method, params: params ? [params] : undefined }),
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) throw new Error(`rpc ${method} to ${url} failed: ${res.status}`);
   const json = (await res.json()) as { result: unknown };

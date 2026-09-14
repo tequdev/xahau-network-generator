@@ -31,6 +31,7 @@ import {
 } from './keys.ts';
 import type { NetworkSpec } from './types.ts';
 import {
+  RESERVED_NAMES,
   VL_HOST,
   containerName,
   explorerHostPort,
@@ -54,8 +55,27 @@ export async function createNetwork(
   // Testnet publishes nothing (routed through Traefik instead), so only
   // standalone networks can collide on host ports.
   if (spec.type === 'standalone') await assertPortsFree(spec, outDir);
+  if (spec.type === 'testnet' && RESERVED_NAMES.has(spec.name)) {
+    throw new Error(
+      `"${spec.name}" is reserved (it is a service subdomain of a root network); pick another name`,
+    );
+  }
+  if (spec.root) await assertRootFree(spec, outDir);
   await mkdir(dir, { recursive: true });
 
+  // Anything failing past this point (binary 404, amendment source fetch,
+  // ...) would otherwise leave a directory with only network.json in it,
+  // which every later command then mistakes for an existing network.
+  try {
+    await populateNetwork(spec, dir);
+  } catch (err) {
+    await rm(dir, { recursive: true, force: true });
+    throw err;
+  }
+  return dir;
+}
+
+async function populateNetwork(spec: NetworkSpec, dir: string): Promise<void> {
   await writeFile(join(dir, 'network.json'), JSON.stringify(spec, null, 2));
 
   // 1. binary
@@ -258,8 +278,6 @@ export async function createNetwork(
 
   // 6. compose
   await writeFile(join(dir, 'compose.yml'), renderCompose(spec));
-
-  return dir;
 }
 
 // Deletes each node's ledger data (nodedb under nodes/*/db) so the network
@@ -276,6 +294,36 @@ export async function resetNetworkData(dir: string): Promise<void> {
   }
 }
 
+async function otherSpecs(outDir: string): Promise<NetworkSpec[]> {
+  let names: string[] = [];
+  try {
+    names = await readdir(outDir);
+  } catch {
+    return [];
+  }
+  const specs: NetworkSpec[] = [];
+  for (const name of names) {
+    try {
+      specs.push(
+        JSON.parse(await readFile(join(outDir, name, 'network.json'), 'utf8')),
+      );
+    } catch {}
+  }
+  return specs;
+}
+
+// A root network owns `<sub>.<domain>` outright, so two of them on one
+// domain would register identical Traefik Host() rules.
+async function assertRootFree(spec: NetworkSpec, outDir: string) {
+  for (const other of await otherSpecs(outDir)) {
+    if (other.root && other.domain === spec.domain) {
+      throw new Error(
+        `network "${other.name}" already serves the bare domain ${spec.domain}; remove it or drop --root`,
+      );
+    }
+  }
+}
+
 // Host ports of every standalone network under outDir must be disjoint so
 // they can run side by side; `--port-offset` is how the caller makes room.
 // Testnet networks publish nothing (routed through Traefik) and are skipped.
@@ -284,21 +332,7 @@ async function assertPortsFree(spec: NetworkSpec, outDir: string) {
     ...Object.values(hostPorts(spec)),
     explorerHostPort(spec),
   ]);
-  let names: string[] = [];
-  try {
-    names = await readdir(outDir);
-  } catch {
-    return;
-  }
-  for (const name of names) {
-    let other: NetworkSpec;
-    try {
-      other = JSON.parse(
-        await readFile(join(outDir, name, 'network.json'), 'utf8'),
-      );
-    } catch {
-      continue;
-    }
+  for (const other of await otherSpecs(outDir)) {
     if (other.type !== 'standalone') continue;
     const otherPorts = [
       ...Object.values(hostPorts(other)),

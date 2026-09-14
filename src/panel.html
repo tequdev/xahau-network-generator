@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>xng panel</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    margin: 0;
+    padding: 16px;
+    max-width: 1100px;
+  }
+  h1 { font-size: 1.3em; margin: 0 0 4px; }
+  h2 { font-size: 1.05em; margin: 24px 0 8px; }
+  #domain { font-weight: normal; opacity: 0.7; font-size: 0.7em; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.9em; }
+  th, td { border-bottom: 1px solid #8884; padding: 6px 8px; text-align: left; vertical-align: top; }
+  .tablewrap { overflow-x: auto; }
+  .endpoints a { margin-right: 6px; white-space: nowrap; }
+  .actions button { margin: 1px; }
+  button { cursor: pointer; }
+  #banner {
+    background: #d33; color: #fff; padding: 8px 12px; border-radius: 4px; margin-bottom: 12px;
+  }
+  form.inline { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+  form.inline label { display: flex; flex-direction: column; font-size: 0.85em; gap: 2px; }
+  #jobs-list { list-style: none; padding: 0; }
+  #jobs-list li { padding: 4px 0; border-bottom: 1px solid #8884; cursor: pointer; font-size: 0.9em; }
+  #jobs-list li.selected { font-weight: bold; }
+  .status-ok { color: #2a2; }
+  .status-failed { color: #d33; }
+  .status-running, .status-queued { color: #a80; }
+  #job-log {
+    white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto;
+    background: #8881; padding: 8px; border-radius: 4px; font-size: 0.8em;
+  }
+  dialog { max-width: min(90vw, 480px); }
+  dialog table { font-size: 0.85em; }
+  .muted { opacity: 0.65; }
+  @media (max-width: 480px) {
+    body { padding: 8px; }
+    form.inline { flex-direction: column; align-items: stretch; }
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>xng panel <span id="domain"></span></h1>
+  </header>
+  <div id="banner" hidden></div>
+
+  <section>
+    <h2>Networks</h2>
+    <div class="tablewrap">
+      <table id="networks-table">
+        <thead>
+          <tr>
+            <th>name</th><th>version</th><th>type</th><th>validators</th>
+            <th>containers</th><th>state</th><th>seq</th><th>uptime</th><th>peers</th>
+            <th>endpoints</th><th>actions</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>New network</h2>
+    <form class="inline" id="create-form">
+      <label>branch
+        <select id="create-branch" required></select>
+      </label>
+      <label>version
+        <select id="create-version" required></select>
+      </label>
+      <label>name
+        <input id="create-name" required pattern="[a-z0-9][a-z0-9_-]{0,62}" />
+      </label>
+      <label>validators
+        <input id="create-validators" type="number" value="3" min="1" max="20" />
+      </label>
+      <label><input id="create-root" type="checkbox" /> root domain</label>
+      <span id="create-preview" class="muted"></span>
+      <button type="submit">Create</button>
+    </form>
+  </section>
+
+  <section>
+    <h2>Jobs</h2>
+    <ul id="jobs-list"></ul>
+    <pre id="job-log" hidden></pre>
+  </section>
+
+  <dialog id="upgrade-dialog">
+    <form method="dialog" class="inline" id="upgrade-form">
+      <h3>Upgrade <span id="upgrade-name"></span></h3>
+      <label>branch <select id="upgrade-branch"></select></label>
+      <label>version <select id="upgrade-version"></select></label>
+      <div>
+        <button value="cancel">Cancel</button>
+        <button value="ok" id="upgrade-submit">Upgrade</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="vote-dialog">
+    <h3>Vote on <span id="vote-name"></span></h3>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>name</th><th>enabled</th><th>count</th><th>threshold</th><th></th></tr></thead>
+        <tbody id="vote-body"></tbody>
+      </table>
+    </div>
+    <form method="dialog"><button value="cancel">Close</button></form>
+  </dialog>
+
+<script>
+(function () {
+  'use strict';
+
+  let config = { domain: '', tls: false };
+  let versionsByBranch = {};
+  let selectedJobId = null;
+  let createNamePristine = true;
+
+  function showError(msg) {
+    const b = document.getElementById('banner');
+    b.textContent = msg;
+    b.hidden = false;
+  }
+  function clearError() {
+    document.getElementById('banner').hidden = true;
+  }
+
+  async function api(path, opts) {
+    let res;
+    try {
+      // Every POST is JSON (the server rejects anything else as its CSRF guard).
+      if (opts && opts.method === 'POST') {
+        opts = Object.assign({ headers: { 'content-type': 'application/json' }, body: '{}' }, opts);
+      }
+      res = await fetch(path, opts);
+    } catch (err) {
+      showError('network error: ' + err.message);
+      throw err;
+    }
+    let body = null;
+    try { body = await res.json(); } catch {}
+    if (!res.ok) {
+      const msg = (body && body.error) || (res.status + ' ' + res.statusText);
+      showError(msg);
+      throw new Error(msg);
+    }
+    return body;
+  }
+
+  function humanizeUptime(s) {
+    if (s == null) return '-';
+    s = Math.floor(s);
+    const d = Math.floor(s / 86400); s %= 86400;
+    const h = Math.floor(s / 3600); s %= 3600;
+    const m = Math.floor(s / 60);
+    const secs = s % 60;
+    const parts = [];
+    if (d) parts.push(d + 'd');
+    if (h) parts.push(h + 'h');
+    if (d === 0 && m) parts.push(m + 'm');
+    if (d === 0 && h === 0 && m === 0) parts.push(secs + 's');
+    return parts.join(' ') || '0s';
+  }
+
+  function el(tag, attrs, children) {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (k === 'text') e.textContent = v;
+      else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+      else e.setAttribute(k, v);
+    }
+    for (const c of children || []) e.appendChild(c);
+    return e;
+  }
+
+  function endpointLinks(ep) {
+    const wrap = el('span', { class: 'endpoints' });
+    for (const key of ['ws', 'rpc', 'explorer', 'faucet', 'vl']) {
+      if (!ep[key]) continue;
+      wrap.appendChild(el('a', { href: ep[key], target: '_blank', rel: 'noopener', text: key }));
+    }
+    return wrap;
+  }
+
+  function fillVersionSelects(branchSel, versionSel, preferredBranch) {
+    branchSel.innerHTML = '';
+    const branches = Object.keys(versionsByBranch);
+    for (const b of branches) {
+      branchSel.appendChild(el('option', { value: b, text: b }));
+    }
+    if (preferredBranch && branches.includes(preferredBranch)) branchSel.value = preferredBranch;
+    fillVersions(branchSel.value, versionSel);
+    branchSel.onchange = () => fillVersions(branchSel.value, versionSel);
+  }
+
+  function fillVersions(branch, versionSel) {
+    versionSel.innerHTML = '';
+    for (const v of versionsByBranch[branch] || []) {
+      versionSel.appendChild(el('option', { value: v, text: v }));
+    }
+  }
+
+  function renderNetworks(list) {
+    const tbody = document.querySelector('#networks-table tbody');
+    tbody.innerHTML = '';
+    for (const n of list) {
+      const spec = n.spec;
+      const running = n.containers.filter((c) => c.state === 'running').length;
+      const total = n.containers.length;
+      const info = n.info;
+      const tr = el('tr', {});
+      tr.appendChild(el('td', { text: spec.name }));
+      tr.appendChild(el('td', { text: spec.version }));
+      tr.appendChild(el('td', { text: spec.type + (spec.root ? ' (root)' : '') }));
+      tr.appendChild(el('td', { text: String(spec.validators) }));
+      tr.appendChild(el('td', { text: total ? running + '/' + total + ' running' : '-' }));
+      tr.appendChild(el('td', { text: info ? (info.server_state || '-') : 'unreachable' }));
+      tr.appendChild(el('td', { text: info && info.seq != null ? String(info.seq) : '-' }));
+      tr.appendChild(el('td', { text: info ? humanizeUptime(info.uptime) : '-' }));
+      tr.appendChild(el('td', { text: info && info.peers != null ? String(info.peers) : '-' }));
+      tr.appendChild(el('td', {}, [endpointLinks(n.endpoints)]));
+
+      const actions = el('td', { class: 'actions' });
+      actions.appendChild(el('button', {
+        text: 'Start', onclick: () => runAction(spec.name, 'start'),
+      }));
+      actions.appendChild(el('button', {
+        text: 'Stop', onclick: () => runAction(spec.name, 'stop'),
+      }));
+      actions.appendChild(el('button', {
+        text: 'Reset', onclick: () => { if (confirm('Reset ' + spec.name + '? This wipes ledger data.')) runAction(spec.name, 'reset'); },
+      }));
+      actions.appendChild(el('button', {
+        text: 'Remove', onclick: () => { if (confirm('Remove ' + spec.name + '? This deletes the network.')) runAction(spec.name, 'remove'); },
+      }));
+      if (spec.type === 'testnet') {
+        actions.appendChild(el('button', { text: 'Upgrade', onclick: () => openUpgrade(spec.name) }));
+        actions.appendChild(el('button', { text: 'Vote', onclick: () => openVote(spec.name) }));
+      }
+      tr.appendChild(actions);
+      tbody.appendChild(tr);
+    }
+  }
+
+  async function runAction(name, action) {
+    clearError();
+    try {
+      await api('/api/networks/' + encodeURIComponent(name) + '/' + action, { method: 'POST' });
+      refreshJobs();
+    } catch {}
+  }
+
+  function openUpgrade(name) {
+    document.getElementById('upgrade-name').textContent = name;
+    const branchSel = document.getElementById('upgrade-branch');
+    const versionSel = document.getElementById('upgrade-version');
+    fillVersionSelects(branchSel, versionSel);
+    const dialog = document.getElementById('upgrade-dialog');
+    dialog.showModal();
+    document.getElementById('upgrade-form').onsubmit = async (e) => {
+      // For a method="dialog" form, e.submitter identifies which button was
+      // pressed *before* the dialog closes (dialog.returnValue isn't set yet
+      // at submit time) — the Cancel button gets no listener here, so it
+      // just falls through to the browser's default close.
+      if (!e.submitter || e.submitter.value !== 'ok') return;
+      e.preventDefault();
+      clearError();
+      try {
+        await api('/api/networks/' + encodeURIComponent(name) + '/upgrade', {
+          method: 'POST',
+          body: JSON.stringify({ version: versionSel.value }),
+        });
+        refreshJobs();
+      } catch {}
+      dialog.close();
+    };
+  }
+
+  async function openVote(name) {
+    document.getElementById('vote-name').textContent = name;
+    const body = document.getElementById('vote-body');
+    body.innerHTML = '<tr><td colspan="5">loading...</td></tr>';
+    const dialog = document.getElementById('vote-dialog');
+    dialog.showModal();
+    let amendments;
+    try {
+      amendments = await api('/api/networks/' + encodeURIComponent(name) + '/amendments');
+    } catch {
+      body.innerHTML = '';
+      return;
+    }
+    body.innerHTML = '';
+    for (const a of amendments) {
+      const tr = el('tr', {});
+      tr.appendChild(el('td', { text: a.name }));
+      tr.appendChild(el('td', { text: a.enabled ? 'yes' : 'no' }));
+      tr.appendChild(el('td', { text: a.count != null ? String(a.count) : '-' }));
+      tr.appendChild(el('td', { text: a.threshold != null ? String(a.threshold) : '-' }));
+      const cell = el('td', {});
+      const accept = el('button', {
+        text: 'Accept',
+        onclick: () => vote(name, a.name, false),
+      });
+      const reject = el('button', { text: 'Reject', onclick: () => vote(name, a.name, true) });
+      if (a.enabled) accept.disabled = true;
+      cell.appendChild(accept);
+      cell.appendChild(reject);
+      tr.appendChild(cell);
+      body.appendChild(tr);
+    }
+  }
+
+  async function vote(name, amendment, reject) {
+    clearError();
+    try {
+      await api('/api/networks/' + encodeURIComponent(name) + '/vote', {
+        method: 'POST',
+        body: JSON.stringify({ amendment, reject }),
+      });
+      document.getElementById('vote-dialog').close();
+      refreshJobs();
+    } catch {}
+  }
+
+  function updatePreview() {
+    const root = document.getElementById('create-root').checked;
+    const name = document.getElementById('create-name').value || '<name>';
+    document.getElementById('create-preview').textContent =
+      '-> ' + (root ? config.domain : name + '.' + config.domain);
+  }
+
+  async function loadVersions() {
+    const data = await api('/api/versions');
+    versionsByBranch = data.branches;
+  }
+
+  async function refreshNetworks() {
+    try {
+      const list = await api('/api/networks');
+      renderNetworks(list);
+    } catch {}
+  }
+
+  function statusClass(status) { return 'status-' + status; }
+
+  async function refreshJobs() {
+    let list;
+    try {
+      list = await api('/api/jobs');
+    } catch { return; }
+    const ul = document.getElementById('jobs-list');
+    ul.innerHTML = '';
+    for (const j of list.slice(0, 20)) {
+      const li = el('li', {
+        text: j.name + ' [' + j.steps.map((s) => s[0]).join(', ') + '] ',
+        onclick: () => selectJob(j.id),
+      });
+      const span = el('span', { class: statusClass(j.status), text: j.status });
+      li.appendChild(span);
+      if (j.id === selectedJobId) li.classList.add('selected');
+      ul.appendChild(li);
+    }
+    if (selectedJobId) await refreshJobLog();
+  }
+
+  async function selectJob(id) {
+    selectedJobId = id;
+    document.getElementById('job-log').hidden = false;
+    await refreshJobLog();
+    await refreshJobs();
+  }
+
+  async function refreshJobLog() {
+    if (!selectedJobId) return;
+    let job;
+    try {
+      job = await api('/api/jobs/' + encodeURIComponent(selectedJobId));
+    } catch { return; }
+    const pre = document.getElementById('job-log');
+    pre.textContent = job.log || '(no output yet)';
+    pre.scrollTop = pre.scrollHeight;
+  }
+
+  document.getElementById('create-name').addEventListener('input', () => {
+    createNamePristine = false;
+    updatePreview();
+  });
+  document.getElementById('create-root').addEventListener('change', updatePreview);
+
+  document.getElementById('create-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearError();
+    const name = document.getElementById('create-name').value;
+    const version = document.getElementById('create-version').value;
+    const validators = Number(document.getElementById('create-validators').value);
+    const root = document.getElementById('create-root').checked;
+    try {
+      await api('/api/networks', {
+        method: 'POST',
+        body: JSON.stringify({ name, version, validators, root }),
+      });
+      refreshJobs();
+    } catch {}
+  });
+
+  async function init() {
+    try {
+      config = await api('/api/config');
+    } catch { config = { domain: '?', tls: false }; }
+    document.getElementById('domain').textContent = config.domain;
+
+    try {
+      await loadVersions();
+    } catch {}
+    const branchSel = document.getElementById('create-branch');
+    const versionSel = document.getElementById('create-version');
+    fillVersionSelects(branchSel, versionSel, 'release');
+    branchSel.addEventListener('change', () => {
+      if (createNamePristine) {
+        document.getElementById('create-name').value = branchSel.value;
+        updatePreview();
+      }
+    });
+    if (createNamePristine) {
+      document.getElementById('create-name').value = branchSel.value || '';
+    }
+    updatePreview();
+
+    await refreshNetworks();
+    await refreshJobs();
+    setInterval(refreshNetworks, 5000);
+    setInterval(refreshJobs, 2000);
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>

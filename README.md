@@ -70,10 +70,64 @@ http://faucet.t1.127.0.0.1.nip.io
 ```
 
 The default domain, `127.0.0.1.nip.io`, resolves any subdomain to
-`127.0.0.1` so this works out of the box on plain HTTP. To expose a testnet
-on a real host, pass `--domain your.domain --tls`, point wildcard DNS
-(`*.your.domain`) at the machine, and uncomment the ACME lines in
-`traefik/compose.yml`.
+`127.0.0.1` so this works out of the box on plain HTTP.
+
+### Serving several devnets on a real domain
+
+One machine can serve any number of testnets under one domain, one per
+feature branch, e.g. with `--domain xahau-dev.net`:
+
+```
+xng create --name jshooks --version 2026.9.8-jshooks+3640 --domain xahau-dev.net --tls
+  -> wss://jshooks.xahau-dev.net, https://explorer.jshooks.xahau-dev.net, https://faucet.jshooks.xahau-dev.net
+xng create --name dev --root --version 2026.9.9-dev+3667 --domain xahau-dev.net --tls
+  -> wss://xahau-dev.net, https://explorer.xahau-dev.net, https://faucet.xahau-dev.net
+```
+
+`--root` puts a network on the bare domain instead of `<name>.<domain>`;
+only one root network per domain is allowed, and the names `explorer`,
+`rpc`, `faucet`, `vl` are reserved so they can't shadow its subdomains.
+
+Setup on the host:
+
+1. DNS: `A` records for `<domain>` and `*.<domain>` pointing at the machine.
+   A DNS wildcard matches nested labels too, so
+   `explorer.jshooks.<domain>` resolves. Keep these records DNS-only if the
+   domain is on Cloudflare: proxying a nested subdomain needs Cloudflare's
+   Advanced Certificate Manager.
+2. TLS: `pnpm xng proxy up --acme-email you@example.com` records the email
+   in `traefik/acme.env` (gitignored) and from then on every `xng start`
+   applies `traefik/compose.acme.yml`, so Traefik issues a Let's Encrypt
+   certificate per hostname (HTTP-01 on port 80). Create networks with
+   `--tls` so their advertised URLs are `https`/`wss`.
+
+### Web control panel
+
+`pnpm xng panel` serves a small page (`src/panel.html`) that lists every
+network with its state, validated ledger index, uptime and peers, and can
+create, start/stop/reset, remove, upgrade and vote for amendments. Each
+action runs the matching `xng` command as a child process, one at a time,
+with its log shown in the page.
+
+```sh
+XNG_DOMAIN=xahau-dev.net XNG_TLS=1 \
+XNG_ACCESS_TEAM=<team> XNG_ACCESS_AUD=<application audience tag> \
+pnpm xng panel            # listens on 127.0.0.1:7777
+```
+
+Access control is Cloudflare Access: put the panel behind a
+[cloudflared tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
+(`ingress: hostname: xng.<domain>, service: http://localhost:7777`) with an
+Access application on that hostname, and pass the team name and the
+application's audience (AUD) tag. The panel verifies the
+`Cf-Access-Jwt-Assertion` token Cloudflare adds to every request, so it is
+unusable without a valid login even if something else reaches the port. It
+refuses to start without both values unless given `--insecure-no-auth`,
+which serves loopback clients only (local development).
+
+Run it as a service from the repo root, e.g. a systemd unit with
+`WorkingDirectory=/path/to/xahau-network-generator`,
+`ExecStart=/usr/bin/pnpm xng panel` and the environment above.
 
 Container-to-container references (xahaud's peer list, the validator list
 URL, the faucet's websocket URL) use container names (`<name>-<service>`,

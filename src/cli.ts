@@ -3,10 +3,12 @@ import { createRequire } from 'node:module';
 import { Command, InvalidArgumentError, Option } from 'commander';
 import { latestReleaseVersion } from './binary.ts';
 import { renderCompose } from './compose.ts';
-import { compose, ensureProxy, proxyDown } from './docker.ts';
+import { compose, enableAcme, ensureProxy, proxyDown } from './docker.ts';
 import { createNetwork, resetNetworkData } from './network.ts';
+import { startPanel } from './panel.ts';
 import {
   DEFAULT_IMPORT_VL_KEYS,
+  NAME_RE,
   defaultQuorum,
   endpoints,
   nodeName,
@@ -27,8 +29,6 @@ program
 // So a subcommand's own `--version <ver>` (the xahaud release) doesn't get
 // swallowed by the program's own `-V/--version` flag.
 program.enablePositionalOptions();
-
-const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,62}$/;
 
 // The name becomes a directory under workspace/ and the compose project name,
 // so it must be path-safe and something compose will not silently normalize.
@@ -118,7 +118,12 @@ program
   )
   .option(
     '--tls',
-    'testnet only: generate https/wss endpoint URLs; enable ACME in traefik/compose.yml yourself',
+    'testnet only: generate https/wss endpoint URLs (set XNG_ACME_EMAIL so the shared Traefik issues certificates)',
+    false,
+  )
+  .option(
+    '--root',
+    'testnet only: serve the bare domain (hostnames are <sub>.<domain>, not <sub>.<name>.<domain>); one per domain',
     false,
   )
   .option(
@@ -129,6 +134,9 @@ program
   )
   .action(async (opts) => {
     const validators = opts.type === 'standalone' ? 1 : opts.validators;
+    if (opts.root && opts.type !== 'testnet') {
+      program.error('--root is testnet only');
+    }
     if (validators === 2) {
       program.error(
         '--validators must be 1 or >= 3; a 2-validator network cannot tolerate a rolling restart',
@@ -151,6 +159,7 @@ program
       networkId: opts.networkId,
       domain: opts.domain,
       tls: opts.tls,
+      root: opts.root,
       portOffset: opts.portOffset,
       importVlKeys: DEFAULT_IMPORT_VL_KEYS,
     };
@@ -275,11 +284,84 @@ const proxyCmd = program
 proxyCmd
   .command('up')
   .description('create the shared proxy network and start Traefik')
-  .action(() => ensureProxy());
+  .option(
+    '--acme-email <email>',
+    "enable Let's Encrypt for every routed hostname (persisted in traefik/acme.env; delete that file to disable)",
+  )
+  .action((opts) => {
+    if (opts.acmeEmail) enableAcme(opts.acmeEmail);
+    ensureProxy();
+  });
 proxyCmd
   .command('down')
   .description('stop the shared Traefik instance')
   .action(() => proxyDown());
+
+program
+  .command('panel')
+  .description(
+    'run a web control panel (create/start/stop/reset/remove/upgrade/vote + live status)',
+  )
+  .addOption(
+    new Option('--port <n>', 'port to listen on')
+      .env('XNG_PANEL_PORT')
+      .argParser(intArg(1, 65535))
+      .default(7777),
+  )
+  .addOption(
+    new Option('--host <host>', 'address to bind')
+      .env('XNG_PANEL_HOST')
+      .default('127.0.0.1'),
+  )
+  .addOption(
+    new Option(
+      '--domain <domain>',
+      'domain for networks created from the panel (per-network hostnames are <sub>.<name>.<domain>)',
+    )
+      .env('XNG_DOMAIN')
+      .argParser(parseDomain)
+      .default('127.0.0.1.nip.io'),
+  )
+  .addOption(
+    new Option(
+      '--tls',
+      'networks created from the panel get --tls (see `xng create --tls`); or XNG_TLS=1',
+    )
+      // Not .env(): commander treats a boolean env var as set whenever the
+      // name exists, so XNG_TLS=false/0 would turn TLS *on*.
+      .default(['1', 'true'].includes(process.env.XNG_TLS ?? '')),
+  )
+  .addOption(
+    new Option(
+      '--access-team <team>',
+      'Cloudflare Access team (<team>.cloudflareaccess.com); with --access-aud, requires a valid Access JWT on every request',
+    ).env('XNG_ACCESS_TEAM'),
+  )
+  .addOption(
+    new Option(
+      '--access-aud <aud>',
+      'Cloudflare Access application audience tag',
+    ).env('XNG_ACCESS_AUD'),
+  )
+  .option(
+    '--insecure-no-auth',
+    'run without Cloudflare Access verification, serving loopback clients only (local development)',
+    false,
+  )
+  .action(async (opts) => {
+    if (!!opts.accessTeam !== !!opts.accessAud) {
+      program.error('--access-team and --access-aud must be given together');
+    }
+    // Refusing to start is deliberate: with a cloudflared tunnel in front,
+    // the tunnel's peer *is* loopback, so a forgotten env var would
+    // otherwise open the panel to the internet with only a log warning.
+    if (!opts.accessTeam && !opts.insecureNoAuth) {
+      program.error(
+        'refusing to start without --access-team/--access-aud (or --insecure-no-auth for local use)',
+      );
+    }
+    await startPanel(opts);
+  });
 
 program.parseAsync().catch((err) => {
   console.error(err instanceof Error ? err.message : err);
