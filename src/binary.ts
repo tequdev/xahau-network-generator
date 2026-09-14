@@ -17,40 +17,56 @@ export const cacheDir =
   process.env.XNG_CACHE_DIR ??
   join(os.homedir(), '.cache', 'xahau-network-generator');
 
-// version like "2026.6.21-release+3350" -> [2026,6,21,3350] for ordering.
-function versionSortKey(version: string): number[] {
-  const m = version.match(/^(\d+)\.(\d+)\.(\d+)-release\+(\d+)$/);
-  if (!m) return [0, 0, 0, 0];
-  return [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])];
+export type BuildVersion = { version: string; branch: string; build: number };
+
+// Entries on the build.xahau.tech index look like
+// "2026.9.9-dev%2B3667", "2026.9.8-jshooks%2B3640", "2026.6.21-release%2B3350".
+const VERSION_RE = /^(\d+)\.(\d+)\.(\d+)-([A-Za-z0-9._-]+)\+(\d+)$/;
+
+// Pure HTML -> BuildVersion[] step, factored out of listVersions() so it's
+// testable without a network call. Anything that isn't a decodable href
+// matching VERSION_RE (directories, `.releaseinfo` files, malformed entries)
+// is silently skipped.
+export function parseVersionIndex(html: string): BuildVersion[] {
+  const entries: (BuildVersion & { y: number; mo: number; d: number })[] = [];
+  for (const m of html.matchAll(/href="([^"]+)"/g)) {
+    const href = m[1];
+    if (!href) continue;
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(href);
+    } catch {
+      continue;
+    }
+    const vm = decoded.match(VERSION_RE);
+    if (!vm) continue;
+    const [, y, mo, d, branch, build] = vm;
+    entries.push({
+      version: decoded,
+      branch: branch as string,
+      build: Number(build),
+      y: Number(y),
+      mo: Number(mo),
+      d: Number(d),
+    });
+  }
+  entries.sort(
+    (a, b) => b.y - a.y || b.mo - a.mo || b.d - a.d || b.build - a.build,
+  );
+  return entries.map(({ y, mo, d, ...rest }) => rest);
 }
 
-function compareVersions(a: string, b: string): number {
-  const ka = versionSortKey(a);
-  const kb = versionSortKey(b);
-  for (let i = 0; i < ka.length; i++) {
-    const diff = (ka[i] ?? 0) - (kb[i] ?? 0);
-    if (diff !== 0) return diff;
-  }
-  return 0;
+export async function listVersions(): Promise<BuildVersion[]> {
+  const res = await fetch('https://build.xahau.tech/');
+  if (!res.ok) throw new Error(`failed to list versions: ${res.status}`);
+  return parseVersionIndex(await res.text());
 }
 
 export async function latestReleaseVersion(): Promise<string> {
-  const res = await fetch('https://build.xahau.tech/');
-  if (!res.ok) throw new Error(`failed to list releases: ${res.status}`);
-  const html = await res.text();
-  const versions: string[] = [];
-  const re = /href="([^"]*-release%2B\d+)"/g;
-  for (const m of html.matchAll(re)) {
-    const raw = m[1];
-    if (!raw) continue;
-    versions.push(decodeURIComponent(raw).replace(/%2B/g, '+'));
-  }
-  if (versions.length === 0)
-    throw new Error('no releases found on build.xahau.tech');
-  versions.sort(compareVersions);
-  const latest = versions[versions.length - 1];
+  const versions = await listVersions();
+  const latest = versions.find((v) => v.branch === 'release');
   if (!latest) throw new Error('no releases found on build.xahau.tech');
-  return latest;
+  return latest.version;
 }
 
 async function fileExistsNonEmpty(path: string): Promise<boolean> {
