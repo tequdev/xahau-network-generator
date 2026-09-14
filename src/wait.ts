@@ -5,13 +5,14 @@ export async function rpc(
   url: string,
   method: string,
   params?: object,
+  timeoutMs = 10_000,
   // biome-ignore lint/suspicious/noExplicitAny: JSON-RPC result shape varies by method
 ): Promise<any> {
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ method, params: params ? [params] : undefined }),
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) throw new Error(`rpc ${method} to ${url} failed: ${res.status}`);
   const json = (await res.json()) as { result: unknown };
@@ -63,14 +64,21 @@ export async function waitForNetwork(
       const info = result?.info;
       const seq = info?.validated_ledger?.seq;
       console.log(
-        `[${spec.name}] server_state=${info?.server_state ?? 'unknown'} seq=${seq ?? '-'}`,
+        `[${spec.name}] server_state=${info?.server_state ?? 'unknown'} seq=${seq ?? '-'} peers=${info?.peers ?? '-'}`,
       );
       const ready =
         // `full` matters on a restart: with --load a node reports its old
         // validated seq immediately while still `syncing`, and submits made
         // in that window fail.
+        // `peers`: when every node starts at once (first boot, reset, host
+        // reboot) two nodes dialling each other simultaneously can drop both
+        // connections, and xahaud only retries a fixed peer a minute later;
+        // `node` can be `full` via the remaining validators long before that.
         spec.type === 'testnet'
-          ? info?.server_state === 'full' && typeof seq === 'number' && seq >= 3
+          ? info?.server_state === 'full' &&
+            typeof seq === 'number' &&
+            seq >= 3 &&
+            (info?.peers ?? 0) >= spec.validators
           : info?.validated_ledger != null;
       if (ready) break;
     } catch (err) {

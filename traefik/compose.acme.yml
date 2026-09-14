@@ -1,0 +1,17 @@
+# Overlay applied by `xng proxy up` / `xng start` when XNG_ACME_EMAIL is set:
+# every router on `websecure` gets a Let's Encrypt certificate (one per
+# hostname, so nested subdomains like explorer.jshooks.<domain> work without
+# a multi-level wildcard). HTTP-01 rather than TLS-ALPN so it also works for
+# hostnames proxied through Cloudflare, which forwards /.well-known/acme-challenge/.
+services:
+  traefik:
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.websecure.http.tls.certResolver=letsencrypt
+      - --certificatesresolvers.letsencrypt.acme.email=${XNG_ACME_EMAIL}
+      - --certificatesresolvers.letsencrypt.acme.storage=/acme/acme.json
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge=true
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web

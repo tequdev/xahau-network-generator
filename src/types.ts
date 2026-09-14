@@ -1,3 +1,13 @@
+// A network name becomes a directory under workspace/, the compose project
+// name and a hostname label, so it must be path-safe, DNS-safe and something
+// compose will not silently normalize.
+export const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,62}$/;
+// A testnet named `explorer` would get the router rule Host(`explorer.<domain>`)
+// - the very hostname a root network's explorer uses - and Traefik would
+// silently pick one of the two. Reserved outright rather than only next to
+// a root network, so a name never becomes invalid later.
+export const RESERVED_NAMES = new Set(['explorer', 'rpc', 'faucet', 'vl']);
+
 export type NetworkSpec = {
   name: string;
   type: 'testnet' | 'standalone';
@@ -7,6 +17,7 @@ export type NetworkSpec = {
   networkId: number; // default 21339
   domain: string; // testnet only; default '127.0.0.1.nip.io'; hostnames are `<sub>.<name>.<domain>`
   tls: boolean; // testnet only; default false; true renders https/wss endpoint URLs
+  root?: boolean; // testnet only; default false; true serves the bare domain (`<sub>.<domain>`) instead of `<sub>.<name>.<domain>`
   portOffset: number; // standalone only; default 0; shifts every published host port
   importVlKeys: string[]; // default ["ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC1"]
 };
@@ -106,17 +117,25 @@ export type Endpoints = {
   wsAdmin?: string;
 };
 
+// Testnet only: the hostname every routed service hangs off. Normally
+// `<name>.<domain>` (so `explorer.<name>.<domain>` etc.); a `root` network
+// takes the bare domain itself (`explorer.<domain>`), which is why only one
+// root network per domain can exist (checked in network.ts).
+export function hostBase(spec: NetworkSpec): string {
+  return spec.root ? spec.domain : `${spec.name}.${spec.domain}`;
+}
+
 export function endpoints(spec: NetworkSpec): Endpoints {
   if (spec.type === 'testnet') {
     const httpScheme = spec.tls ? 'https' : 'http';
     const wsScheme = spec.tls ? 'wss' : 'ws';
-    const { name, domain } = spec;
+    const base = hostBase(spec);
     return {
-      ws: `${wsScheme}://${name}.${domain}`,
-      rpc: `${httpScheme}://rpc.${name}.${domain}`,
-      explorer: `${httpScheme}://explorer.${name}.${domain}`,
-      faucet: `${httpScheme}://faucet.${name}.${domain}`,
-      vl: `${httpScheme}://vl.${name}.${domain}`,
+      ws: `${wsScheme}://${base}`,
+      rpc: `${httpScheme}://rpc.${base}`,
+      explorer: `${httpScheme}://explorer.${base}`,
+      faucet: `${httpScheme}://faucet.${base}`,
+      vl: `${httpScheme}://vl.${base}`,
     };
   }
   const host = hostPorts(spec);
