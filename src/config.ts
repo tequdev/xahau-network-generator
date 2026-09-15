@@ -54,15 +54,21 @@ export function renderXahaudCfg(o: XahaudCfgOptions): string {
   lines.push('protocol = peer');
   lines.push('');
 
+  // Not tiny: its 30s ledger cache (medium: 180s) drops the unvalidated
+  // ledger a peer asks for while re-syncing after `xng upgrade`, and the
+  // 1-validator e2e then never confirms a payment.
   lines.push('[node_size]');
-  lines.push(o.type === 'testnet' ? 'medium' : 'small');
+  lines.push('small');
   lines.push('');
 
+  // Validators only need enough history to serve peers; `node` keeps more
+  // for users and the explorer.
+  const history = o.token ? 256 : 10000;
   lines.push('[node_db]');
   lines.push('type=NuDB');
   lines.push('path=db/nudb');
   lines.push('advisory_delete=0');
-  lines.push('online_delete=10000');
+  lines.push(`online_delete=${history}`);
   lines.push('');
 
   lines.push('[database_path]');
@@ -70,7 +76,7 @@ export function renderXahaudCfg(o: XahaudCfgOptions): string {
   lines.push('');
 
   lines.push('[ledger_history]');
-  lines.push('10000');
+  lines.push(String(history));
   lines.push('');
 
   lines.push('[network_id]');

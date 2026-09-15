@@ -57,3 +57,12 @@ test('xahaud.cfg sets amendment_majority_time to the 1 minute floor', () => {
     renderXahaudCfg(cfgOpts).includes('[amendment_majority_time]\n1 minutes\n'),
   );
 });
+
+test('validators keep 256 ledgers, node keeps 10000', () => {
+  const validator = renderXahaudCfg({ ...cfgOpts, token: 'T' });
+  assert.ok(validator.includes('online_delete=256\n'));
+  assert.ok(validator.includes('[ledger_history]\n256\n'));
+  const node = renderXahaudCfg(cfgOpts);
+  assert.ok(node.includes('online_delete=10000\n'));
+  assert.ok(node.includes('[ledger_history]\n10000\n'));
+});
