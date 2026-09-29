@@ -2,6 +2,12 @@ import { readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { Command, InvalidArgumentError, Option } from 'commander';
 import { latestReleaseVersion } from './binary.ts';
+import {
+  certHosts,
+  cfConfigFromEnv,
+  ensureCertificate,
+  removeCertificate,
+} from './cloudflare.ts';
 import { renderCompose } from './compose.ts';
 import { compose, enableAcme, ensureProxy, proxyDown } from './docker.ts';
 import { createNetwork, resetNetworkData } from './network.ts';
@@ -88,6 +94,25 @@ function printEndpoints(spec: NetworkSpec, dir: string): void {
   if (ep.wsAdmin) console.log(`  ws admin:  ${ep.wsAdmin}`);
 }
 
+// Cloudflare mode (XNG_CF_ZONE set, see cloudflare.ts): make sure the
+// network's edge certificate exists and is active. On `create` a failure is
+// an error (the URLs just printed would fail TLS); on `start`/`reset` it only
+// warns, so a Cloudflare API hiccup never keeps a network from starting.
+async function syncCertificate(
+  spec: NetworkSpec,
+  { fatal }: { fatal: boolean },
+): Promise<void> {
+  const cfg = cfConfigFromEnv();
+  if (!cfg) return;
+  try {
+    await ensureCertificate(spec, cfg);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (fatal) throw err;
+    console.warn(`warning: ${message}`);
+  }
+}
+
 program
   .command('create')
   .description('generate a new network under workspace/<name>')
@@ -118,7 +143,7 @@ program
   )
   .option(
     '--tls',
-    'testnet only: generate https/wss endpoint URLs (set XNG_ACME_EMAIL so the shared Traefik issues certificates)',
+    'testnet only: generate https/wss endpoint URLs (certificates come from `xng proxy up --acme-email`, or from Cloudflare when XNG_CF_ZONE is set)',
     false,
   )
   .option(
@@ -164,8 +189,19 @@ program
       importVlKeys: DEFAULT_IMPORT_VL_KEYS,
     };
 
+    // Fail before generating anything if the domain is outside the zone.
+    const cfg = cfConfigFromEnv();
+    if (cfg) certHosts(spec, cfg.zone);
+
     const dir = await createNetwork(spec);
     printEndpoints(spec, dir);
+    try {
+      await syncCertificate(spec, { fatal: true });
+    } catch (err) {
+      throw new Error(
+        `network "${spec.name}" was created, but its Cloudflare certificate is not ready: ${err instanceof Error ? err.message : err}`,
+      );
+    }
   });
 
 program
@@ -185,6 +221,7 @@ program
     await writeFile(`workspace/${opts.name}/compose.yml`, renderCompose(spec));
     // --build so a changed faucet/ is always rebuilt; a no-op when unchanged.
     compose(opts.name, ['up', '-d', '--build']);
+    await syncCertificate(spec, { fatal: false });
     if (opts.wait) {
       await waitForNetwork(spec, opts.timeout * 1000);
     }
@@ -211,6 +248,7 @@ program
     if (spec.type === 'testnet') ensureProxy();
     await writeFile(`workspace/${opts.name}/compose.yml`, renderCompose(spec));
     compose(opts.name, ['up', '-d', '--build']);
+    await syncCertificate(spec, { fatal: false });
     if (opts.wait) {
       await waitForNetwork(spec, opts.timeout * 1000);
     }
@@ -226,6 +264,21 @@ program
     } catch (err) {
       // A half-created network has no compose.yml; still remove the directory.
       console.warn(err instanceof Error ? err.message : err);
+    }
+    // Before deleting the directory: network.json is what says which
+    // certificate pack belongs to this network.
+    const cfg = cfConfigFromEnv();
+    if (cfg) {
+      try {
+        const spec: NetworkSpec = JSON.parse(
+          await readFile(`workspace/${opts.name}/network.json`, 'utf8'),
+        );
+        await removeCertificate(spec, cfg);
+      } catch (err) {
+        console.warn(
+          `warning: could not remove the Cloudflare certificate: ${err instanceof Error ? err.message : err}`,
+        );
+      }
     }
     await rm(`workspace/${opts.name}`, { recursive: true, force: true });
   });
