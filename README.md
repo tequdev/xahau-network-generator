@@ -88,18 +88,81 @@ xng create --name dev --root --version 2026.9.9-dev+3667 --domain xahau-dev.net 
 only one root network per domain is allowed, and the names `explorer`,
 `rpc`, `faucet`, `vl` are reserved so they can't shadow its subdomains.
 
-Setup on the host:
+Setup on the host — pick one of the two ways to get certificates:
+
+**A. Let's Encrypt on the host (DNS-only records, ports 80/443 open)**
 
 1. DNS: `A` records for `<domain>` and `*.<domain>` pointing at the machine.
    A DNS wildcard matches nested labels too, so
    `explorer.jshooks.<domain>` resolves. Keep these records DNS-only if the
-   domain is on Cloudflare: proxying a nested subdomain needs Cloudflare's
-   Advanced Certificate Manager.
+   domain is on Cloudflare (proxying needs option B).
 2. TLS: `pnpm xng proxy up --acme-email you@example.com` records the email
    in `traefik/acme.env` (gitignored) and from then on every `xng start`
    applies `traefik/compose.acme.yml`, so Traefik issues a Let's Encrypt
    certificate per hostname (HTTP-01 on port 80). Create networks with
    `--tls` so their advertised URLs are `https`/`wss`.
+
+**B. Cloudflare only (Tunnel + Advanced Certificate Manager, no open ports)**
+
+Cloudflare terminates TLS and a Cloudflare Tunnel carries the traffic to
+Traefik, which only routes by hostname (no ACME). The free Universal
+certificate covers `<domain>` and `*.<domain>` only, so each network's
+nested hostnames need an [Advanced Certificate Manager](https://developers.cloudflare.com/ssl/edge-certificates/advanced-certificate-manager/)
+certificate for `*.<name>.<domain>`. No CA issues `*.*.<domain>` and Total
+TLS skips Tunnel hostnames, so this can't be done once up front: with
+`XNG_CF_ZONE` set, `xng` orders that certificate through Cloudflare's
+[`cf` CLI](https://github.com/cloudflare/cf) and waits for it to go active
+on `xng create`, re-checks it (idempotently) on `xng start`/`xng reset`,
+and deletes it on `xng remove`. Everything else is one-time setup:
+
+1. Install and log in to `cf` (Node 22+): `npm i -g cf@0.15.0 && cf auth login`, or
+   export `CLOUDFLARE_API_TOKEN` with *SSL and Certificates: Edit* on the
+   zone. xng is verified against that cf release (`CF_VERSION` in
+   `src/cloudflare.ts`); `xng doctor` warns when a different one is installed.
+2. Create a remotely-managed tunnel and route everything to Traefik's
+   published HTTP port (keep the panel rule, if any, before the wildcard):
+
+   ```sh
+   export CLOUDFLARE_ACCOUNT_ID=<account id>
+   cf tunnels config update <tunnel-id> --body '{"config":{"ingress":[
+     {"hostname":"xng.<domain>","service":"http://localhost:7777"},
+     {"hostname":"<domain>","service":"http://localhost:80"},
+     {"hostname":"*.<domain>","service":"http://localhost:80"},
+     {"service":"http_status:404"}]}}'
+   ```
+
+   cloudflared's `*.<domain>` also matches nested hostnames
+   (`explorer.jshooks.<domain>`), and it forwards the original `Host`
+   header, which is what Traefik routes on.
+3. DNS: proxied `CNAME` records for `<domain>` and `*` pointing at
+   `<tunnel-id>.cfargotunnel.com` (the dashboard does not create the
+   wildcard one for you):
+
+   ```sh
+   cf dns records create -z <domain> --body '{"type":"CNAME","name":"*","content":"<tunnel-id>.cfargotunnel.com","proxied":true}'
+   cf dns records create -z <domain> --body '{"type":"CNAME","name":"<domain>","content":"<tunnel-id>.cfargotunnel.com","proxied":true}'
+   ```
+
+4. Run `cloudflared tunnel run --token <token>` on the host (e.g. as a
+   systemd service), and export for `xng` (and `xng panel`):
+
+   | variable | meaning |
+   | --- | --- |
+   | `XNG_CF_ZONE` | Cloudflare zone name, e.g. `xahau-dev.net`; enables this mode |
+   | `XNG_CF_CA` | `google` (default), `lets_encrypt` or `ssl_com` |
+   | `XNG_CF_CERT_TIMEOUT` | seconds `xng create` waits for the certificate (default 900) |
+   | `XNG_CF_BIN` | path to `cf` (default `cf` on `PATH`) |
+
+Create networks with `--tls`, and don't pass `--acme-email` in this mode.
+A certificate takes a few minutes to become active (TXT validation is
+automatic on a full-setup zone); `xng create` prints the URLs and then waits
+for it. A root network on the zone apex needs no certificate of its own.
+Non-Enterprise zones have a cap on advanced certificate packs; check
+`cf ssl certificate-packs quota get -z <domain>` before running many networks.
+
+`pnpm e2e:cf` verifies this setup: it orders and then deletes one certificate
+pack for a throwaway network name (needs `XNG_CF_ZONE` and cf auth). CI runs
+it when the `CLOUDFLARE_API_TOKEN` secret and `XNG_CF_ZONE` variable are set.
 
 ### Web control panel
 

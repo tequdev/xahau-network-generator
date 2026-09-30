@@ -11,6 +11,7 @@
     "xng": "tsx src/cli.ts",
     "e2e": "tsx e2e/check.ts",
     "e2e:restart": "tsx e2e/restart.ts",
+    "e2e:cf": "tsx e2e/cloudflare.ts",
     "test": "tsx --test src/**/*.test.ts",
     "lint": "biome check .",
     "format": "biome format --write ."

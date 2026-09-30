@@ -91,3 +91,27 @@ jobs:
       - name: stop network
         if: always()
         run: pnpm xng stop --name ${{ matrix.name }}
+
+  # Runs the unit tests with the real `cf` installed, so the auth-free
+  # --dry-run contract test in src/cloudflare.test.ts is never skipped. The
+  # live e2e (orders and deletes one real certificate pack on the zone) only
+  # runs when the secret and variable are set, so forks and PRs skip it.
+  cloudflare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      XNG_CF_ZONE: ${{ vars.XNG_CF_ZONE }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Keep in sync with CF_VERSION in src/cloudflare.ts.
+      - run: npm i -g cf@0.15.0
+      - run: pnpm test
+      - run: pnpm e2e:cf
+        if: env.CLOUDFLARE_API_TOKEN != '' && env.XNG_CF_ZONE != ''
