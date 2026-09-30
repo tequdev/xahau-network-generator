@@ -40,7 +40,7 @@ jobs:
       - name: pre-pull docker images
         run: |
           (docker compose -f traefik/compose.yml pull &&
-           docker pull transia/explorer:latest &&
+           docker pull ghcr.io/tequdev/xrpl-technical-explorer:xahau-devnet &&
            docker pull node:24-slim &&
            docker pull ubuntu:noble &&
            docker pull nginx:alpine) >/dev/null 2>&1 &
