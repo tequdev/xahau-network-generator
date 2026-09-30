@@ -153,12 +153,14 @@ export function renderCompose(spec: NetworkSpec): string {
     };
   }
 
+  // tequdev/XRPL-Technical-Explorer@xahau-devnet: transia/explorer plus a
+  // VUE_APP_NETWORK override so the header says "Xahau Devnet" on any domain.
   const explorerBase = {
-    image: 'transia/explorer:latest',
-    platform: 'linux/amd64',
+    image: 'ghcr.io/tequdev/xrpl-technical-explorer:xahau-devnet',
     environment: {
       PORT: '4000',
       VUE_APP_WSS_ENDPOINT: endpoints(spec).ws,
+      VUE_APP_NETWORK: 'xahau_dev',
     },
   };
   services.explorer =
