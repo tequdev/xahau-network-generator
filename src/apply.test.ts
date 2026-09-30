@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { executionSteps, formatPlan, parseXngYml, plan } from './apply.ts';
 import { DEFAULT_IMPORT_VL_KEYS } from './types.ts';
@@ -302,11 +303,7 @@ test('formatPlan: summary counts, row symbols and create description', () => {
     created({ name: 't2' }),
     created({ name: 'old' }),
   ];
-  const out = formatPlan(
-    plan(desired, actual, new Set(['dev', 't2'])),
-    'xng.yml',
-    desired,
-  );
+  const out = formatPlan(plan(desired, actual, new Set(['dev', 't2'])));
   const [head] = out.split('\n');
   assert.equal(
     head,
@@ -338,4 +335,61 @@ test('plan --network: a recreate that collides with an untouched on-disk network
     () => plan(desired, actual, new Set(['s1', 's2']), { only: ['s1'] }),
     /host port/,
   );
+});
+
+const ZONE = { zone: 'xahau-dev.net' };
+
+test('formatPlan: with a zone, lists certificate packs ordered and deleted', () => {
+  const desired = desiredOf(
+    `  jshooks:\n    version: ${V1}\n    domain: xahau-dev.net\n    tls: true`,
+    `  apex:\n    version: ${V1}\n    domain: xahau-dev.net\n    tls: true\n    root: true`,
+    `  s1:\n    type: standalone\n    version: ${V1}`,
+  );
+  const actual = [
+    created({ name: 'old', domain: 'xahau-dev.net', tls: true }),
+    created({ name: 'plain' }),
+  ];
+  const out = formatPlan(plan(desired, actual, new Set()), 'xng.yml', ZONE);
+  assert.match(out, /^cloudflare \(XNG_CF_ZONE=xahau-dev\.net\):$/m);
+  assert.match(
+    out,
+    /^ {2}\+ certificate \*\.jshooks\.xahau-dev\.net +\(jshooks: ordered by create\)$/m,
+  );
+  assert.match(
+    out,
+    /^ {2}- certificate \*\.old\.xahau-dev\.net +\(old: deleted by remove\)$/m,
+  );
+  assert.equal(
+    out.match(/certificate/g)?.length,
+    2,
+    'apex and standalone add no line',
+  );
+});
+
+test('formatPlan: without a zone, warns for tls testnets that would need certificates', () => {
+  const desired = desiredOf(
+    `  jshooks:\n    version: ${V1}\n    domain: xahau-dev.net\n    tls: true`,
+  );
+  const out = formatPlan(
+    plan(desired, [created({ name: 'old', tls: true })], new Set()),
+  );
+  assert.match(
+    out,
+    /^cloudflare: XNG_CF_ZONE is not set, .*ordered for jshooks or deleted for old /m,
+  );
+});
+
+test('formatPlan: nothing tls means no cloudflare output', () => {
+  const desired = desiredOf(`  a:\n    version: ${V1}`);
+  const actions = plan(desired, [created({ name: 'b' })], new Set());
+  assert.ok(!/cloudflare/.test(formatPlan(actions)));
+  assert.ok(!/cloudflare/.test(formatPlan(actions, 'xng.yml', ZONE)));
+});
+
+test('xng.example.yml parses (the template cannot drift from the parser)', () => {
+  const text = readFileSync(
+    new URL('../xng.example.yml', import.meta.url),
+    'utf8',
+  );
+  assert.equal(parseXngYml(text).length, 3);
 });

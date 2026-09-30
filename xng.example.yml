@@ -1,0 +1,45 @@
+# Template for `xng apply`.
+#
+#   cp xng.example.yml xng.yml
+#   pnpm xng apply --dry-run     # show the plan, change nothing
+#   pnpm xng apply               # show the plan, ask, then apply
+#
+# Networks that are in workspace/ but not in this file are REMOVED (ledger
+# data and keys included). `networks: {}` removes every network.
+#
+# The key under `networks:` is the network name: lowercase letters, digits,
+# "-" and "_", starting with a letter or digit, at most 63 characters. A
+# testnet cannot be called explorer, rpc, faucet or vl. Unknown keys are an
+# error. Every key below except `version` is optional.
+#
+#   type:       testnet | standalone                          (default testnet)
+#   version:    xahaud release, REQUIRED (never resolved implicitly)
+#   validators: 1 or an integer >= 3; must be 1 for standalone (default 3; 1 for standalone)
+#   quorum:     integer in 1..validators
+#               (default min(ceil(0.8 * validators), validators - 1); 1 when validators is 1)
+#   networkId:  integer >= 0                                  (default 21339)
+#   domain:     lowercase letters, digits, dots, hyphens      (default 127.0.0.1.nip.io)
+#   tls:        true | false, https/wss endpoint URLs         (default false)
+#   root:       true | false, testnet only; serves the bare domain
+#               instead of <name>.<domain>; one per domain    (default false)
+#   portOffset: integer in 0..14300, standalone only; shifts every
+#               published host port                           (default 0)
+networks:
+  # Root network: wss://xahau-dev.net, https://explorer.xahau-dev.net, ...
+  dev:
+    version: 2026.9.9-dev+3667
+    domain: xahau-dev.net
+    tls: true
+    root: true
+
+  # Same domain, nested under its name: wss://jshooks.xahau-dev.net, ...
+  jshooks:
+    version: 2026.9.8-jshooks+3640
+    domain: xahau-dev.net
+    tls: true
+
+  # Standalone on localhost; give each standalone its own portOffset.
+  s1:
+    type: standalone
+    version: 2026.6.21-release+3350
+    portOffset: 4000

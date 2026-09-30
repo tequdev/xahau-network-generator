@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
+import { certHosts } from './cloudflare.ts';
 import { CLI_PATH, TSX_BIN } from './docker.ts';
 import {
   DEFAULT_IMPORT_VL_KEYS,
@@ -130,6 +131,8 @@ export type Action = {
   kind: 'create' | 'remove' | 'upgrade' | 'recreate' | 'start' | 'unchanged';
   diff: { key: string; from: unknown; to: unknown }[]; // upgrade/recreate
   steps: string[][]; // xng argv, in execution order
+  from?: NetworkSpec; // on-disk spec (absent for create)
+  to?: NetworkSpec; // desired spec (absent for remove)
 };
 
 // Older network.json files have no `root`; treat a missing one as false.
@@ -207,6 +210,7 @@ export function plan(
       return {
         name,
         kind: 'create',
+        to: d,
         diff: [],
         steps: [createArgv(d), startArgv(name)],
       };
@@ -215,12 +219,14 @@ export function plan(
       return {
         name,
         kind: 'remove',
+        from: a,
         diff: [],
         steps: [['remove', '--name', name]],
       };
     }
     if (!d || !a) throw new Error('unreachable');
 
+    const both = { from: a, to: d };
     const diff = COMPARED.flatMap((key) => {
       const from = comparable(a, key);
       const to = comparable(d, key);
@@ -228,8 +234,8 @@ export function plan(
     });
     if (diff.length === 0) {
       return running.has(name)
-        ? { name, kind: 'unchanged', diff, steps: [] }
-        : { name, kind: 'start', diff, steps: [startArgv(name)] };
+        ? { name, kind: 'unchanged', diff, steps: [], ...both }
+        : { name, kind: 'start', diff, steps: [startArgv(name)], ...both };
     }
     // `xng upgrade` only swaps the binary of a running testnet; anything else
     // that changed (or a standalone, which has no upgrade) needs a new network.
@@ -237,6 +243,7 @@ export function plan(
       return {
         name,
         kind: 'upgrade',
+        ...both,
         diff,
         steps: [
           ...(running.has(name) ? [] : [startArgv(name)]),
@@ -255,6 +262,7 @@ export function plan(
     return {
       name,
       kind: 'recreate',
+      ...both,
       diff,
       steps: [['remove', '--name', name], createArgv(d), startArgv(name)],
     };
@@ -296,16 +304,13 @@ const DISPLAY = [
   ['unchanged', '='],
 ] as const;
 
-function describe(
-  a: Action,
-  spec?: NetworkSpec,
-): { detail: string; note: string } {
+function describe(a: Action): { detail: string; note: string } {
   const changes = a.diff
     .map((c) => `${c.key} ${String(c.from)} -> ${String(c.to)}`)
     .join(', ');
   switch (a.kind) {
     case 'create':
-      return { detail: spec ? describeSpec(spec) : '', note: '' };
+      return { detail: a.to ? describeSpec(a.to) : '', note: '' };
     case 'upgrade':
       return {
         detail: changes,
@@ -333,11 +338,69 @@ function describeSpec(spec: NetworkSpec): string {
   return `testnet ${spec.version}, ${spec.validators} validator${spec.validators === 1 ? '' : 's'}, ${spec.domain}${flags.length ? ` (${flags.join(', ')})` : ''}`;
 }
 
-// `desired` only supplies the one-line description of a `create`.
+// With XNG_CF_ZONE (`cf`), create/recreate order an edge certificate pack and
+// remove/recreate delete one (see cloudflare.ts); say so, or warn that nothing
+// will happen when the variable is missing for a tls testnet.
+function cloudflareBlock(
+  rows: { a: Action }[],
+  cf: { zone: string } | undefined,
+): string[] {
+  const ordered = rows.filter(
+    ({ a }) => ['create', 'recreate'].includes(a.kind) && isTlsTestnet(a.to),
+  );
+  const deleted = rows.filter(
+    ({ a }) => ['remove', 'recreate'].includes(a.kind) && isTlsTestnet(a.from),
+  );
+  if (!cf) {
+    const parts = [
+      ordered.length &&
+        `ordered for ${ordered.map((r) => r.a.name).join(', ')}`,
+      deleted.length &&
+        `deleted for ${deleted.map((r) => r.a.name).join(', ')}`,
+    ].filter(Boolean);
+    return parts.length
+      ? [
+          '',
+          `cloudflare: XNG_CF_ZONE is not set, so no edge certificate will be ${parts.join(' or ')} (see README "Cloudflare only")`,
+        ]
+      : [];
+  }
+  const lines = rows.flatMap(({ a }) =>
+    (['from', 'to'] as const).flatMap((side) => {
+      const spec = a[side];
+      const hosts = spec && certHosts(spec, cf.zone);
+      const applies =
+        side === 'from'
+          ? ['remove', 'recreate'].includes(a.kind)
+          : ['create', 'recreate'].includes(a.kind);
+      if (!hosts || !applies) return [];
+      const verb = side === 'from' ? 'deleted' : 'ordered';
+      return [
+        [
+          `${side === 'from' ? '-' : '+'} certificate ${hosts[1]}`,
+          `(${a.name}: ${verb} by ${a.kind})`,
+        ],
+      ];
+    }),
+  );
+  const w = Math.max(0, ...lines.map(([cert]) => cert?.length ?? 0));
+  return lines.length
+    ? [
+        '',
+        `cloudflare (XNG_CF_ZONE=${cf.zone}):`,
+        ...lines.map(([cert, note]) => `  ${cert?.padEnd(w)}   ${note}`),
+      ]
+    : [];
+}
+
+function isTlsTestnet(spec?: NetworkSpec): boolean {
+  return spec?.type === 'testnet' && spec.tls;
+}
+
 export function formatPlan(
   actions: Action[],
   file = 'xng.yml',
-  desired: NetworkSpec[] = [],
+  cf?: { zone: string },
 ): string {
   const counts = DISPLAY.filter(([k]) => k !== 'unchanged')
     .map(([k]) => [k, actions.filter((a) => a.kind === k).length] as const)
@@ -345,12 +408,11 @@ export function formatPlan(
     .map(([k, n]) => `${n} to ${k}`);
   const head = `xng apply: ${file}${counts.length ? ` -> ${counts.join(', ')}` : ''}`;
 
-  const specs = new Map(desired.map((s) => [s.name, s]));
   const rows = DISPLAY.flatMap(([kind, sym]) =>
     actions
       .filter((a) => a.kind === kind)
       .sort((x, y) => x.name.localeCompare(y.name))
-      .map((a) => ({ a, sym, ...describe(a, specs.get(a.name)) })),
+      .map((a) => ({ a, sym, ...describe(a) })),
   );
   const nameW = Math.max(0, ...rows.map((r) => r.a.name.length));
   const lines = rows.map((r) =>
@@ -359,7 +421,7 @@ export function formatPlan(
       .join(' ')
       .trimEnd(),
   );
-  return [head, '', ...lines].join('\n');
+  return [head, '', ...lines, ...cloudflareBlock(rows, cf)].join('\n');
 }
 
 // Runs each step as a child `xng` (see docker.ts for why). Stops at the first

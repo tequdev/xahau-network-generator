@@ -348,7 +348,7 @@ program
       only: opts.network,
       timeout: opts.timeout,
     });
-    console.log(formatPlan(actions, opts.file, desired));
+    console.log(formatPlan(actions, opts.file, cfg));
 
     const todo = actions.filter((a) => a.kind !== 'unchanged');
     if (todo.length === 0) {

@@ -194,6 +194,9 @@ networks:
     portOffset: 4000
 ```
 
+[`xng.example.yml`](xng.example.yml) is a commented template listing every
+key (`cp xng.example.yml xng.yml`).
+
 The keys are those of `workspace/<name>/network.json`: `type` (default
 `testnet`), `version`, `validators` (3), `quorum`, `networkId` (21339),
 `domain` (`127.0.0.1.nip.io`), `tls` (false), `root` (false), `portOffset`
@@ -227,6 +230,11 @@ to create or upgrade to, so a mistyped version fails before anything is
 removed. Removes run first, then creates, upgrades and starts, one step at a
 time; the first failure stops the run. Running `apply` again recomputes from
 the real state, so there is no rollback.
+
+With `XNG_CF_ZONE` set, the plan also lists the Cloudflare certificate packs
+that will be ordered (create, recreate) or deleted (remove, recreate); when it
+is not set and a `tls` testnet is affected, the plan warns that no certificate
+will be ordered or deleted.
 
 Things to know:
 
