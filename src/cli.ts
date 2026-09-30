@@ -10,6 +10,7 @@ import {
 } from './cloudflare.ts';
 import { renderCompose } from './compose.ts';
 import { compose, enableAcme, ensureProxy, proxyDown } from './docker.ts';
+import { report, runChecks } from './doctor.ts';
 import { createNetwork, resetNetworkData } from './network.ts';
 import { startPanel } from './panel.ts';
 import {
@@ -414,6 +415,15 @@ program
       );
     }
     await startPanel(opts);
+  });
+
+program
+  .command('doctor')
+  .description(
+    'check that everything xng needs is installed and reachable, and show the state of optional features',
+  )
+  .action(async () => {
+    if (!report(await runChecks())) process.exit(1);
   });
 
 program.parseAsync().catch((err) => {
