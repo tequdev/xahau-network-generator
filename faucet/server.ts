@@ -241,6 +241,7 @@ async function handleAccounts(
     // The payment may still complete (timeout, node restart mid-flight), so a
     // generated wallet's secret goes back with the error.
     if (!generatedSecret) throw err;
+    console.error(`[faucet] /accounts error: ${(err as Error).message}`);
     sendJson(res, 500, {
       error: (err as Error).message,
       account: {
