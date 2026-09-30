@@ -405,7 +405,7 @@ test('xng.example.yml parses (the template cannot drift from the parser)', () =>
     new URL('../xng.example.yml', import.meta.url),
     'utf8',
   );
-  assert.equal(parseXngYml(text).length, 3);
+  assert.equal(parseXngYml(text).length, 4);
 });
 
 test('plan with a zone: removing a network outside the zone does not throw', () => {

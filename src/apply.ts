@@ -403,8 +403,10 @@ function cloudflareBlock(
     : [];
 }
 
+// Without a zone the apex is unknown, but a root network normally sits on
+// it and needs no pack of its own, so it is left out of the warning.
 function isTlsTestnet(spec?: NetworkSpec): boolean {
-  return spec?.type === 'testnet' && spec.tls;
+  return spec?.type === 'testnet' && spec.tls && !spec.root;
 }
 
 export function formatPlan(
