@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { checkCompose, checkNode, report } from './doctor.ts';
+import { CF_VERSION } from './cloudflare.ts';
+import { checkCf, checkCompose, checkNode, report } from './doctor.ts';
 
 test('node and compose version gates', () => {
   assert.equal(checkNode('v22.12.0').status, 'ok');
@@ -8,6 +9,13 @@ test('node and compose version gates', () => {
   assert.equal(checkCompose('2.29.7').status, 'ok');
   assert.equal(checkCompose('1.29.2').status, 'fail');
   assert.equal(checkCompose(undefined).status, 'fail');
+});
+
+test('cf version gate', () => {
+  assert.equal(checkCf(undefined, false).status, 'info');
+  assert.equal(checkCf(undefined, true).status, 'fail');
+  assert.equal(checkCf('0.0.1', false).status, 'fail');
+  assert.equal(checkCf(CF_VERSION, false).status, 'ok');
 });
 
 test('report fails only on required checks', () => {

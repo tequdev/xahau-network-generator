@@ -2,8 +2,10 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
+  CF_VERSION,
   cfConfigFromEnv,
   cfRunner,
+  cfVersion,
   listCertificatePacks,
 } from './cloudflare.ts';
 import { TRAEFIK_ACME_ENV } from './docker.ts';
@@ -138,6 +140,31 @@ function checkAcme(): Check {
   }
 }
 
+// `cf` is optional, but when it is installed it must be the release xng
+// was verified against: cf's flags are generated from the API schema and
+// change between releases.
+export function checkCf(version: string | undefined, required: boolean): Check {
+  const name = 'cf';
+  const install = `npm i -g cf@${CF_VERSION}`;
+  if (version === undefined) {
+    return required
+      ? { name, status: 'fail', detail: `not found (${install})` }
+      : {
+          name,
+          status: 'info',
+          detail: `not found (${install}; only needed with XNG_CF_ZONE)`,
+        };
+  }
+  if (version !== CF_VERSION) {
+    return {
+      name,
+      status: 'fail',
+      detail: `v${version} (xng needs cf ${CF_VERSION}: ${install})`,
+    };
+  }
+  return { name, status: 'ok', detail: `v${version}` };
+}
+
 async function checkCloudflare(): Promise<Check[]> {
   const name = 'cloudflare';
   let cfg: ReturnType<typeof cfConfigFromEnv>;
@@ -146,8 +173,10 @@ async function checkCloudflare(): Promise<Check[]> {
   } catch (err) {
     return [{ name, status: 'fail', detail: (err as Error).message }];
   }
+  const cf = checkCf(cfVersion(), cfg !== undefined);
   if (!cfg) {
     return [
+      cf,
       {
         name,
         status: 'info',
@@ -157,16 +186,19 @@ async function checkCloudflare(): Promise<Check[]> {
   }
   // With the mode on, `cf` (found + authenticated for the zone) is required:
   // this is the first call `xng create` makes.
-  const checks: Check[] = [];
-  try {
-    const packs = await listCertificatePacks(cfRunner(), cfg.zone);
-    checks.push({
-      name,
-      status: 'ok',
-      detail: `zone ${cfg.zone}, ${packs.length} certificate pack(s), ca ${cfg.ca}`,
-    });
-  } catch (err) {
-    checks.push({ name, status: 'fail', detail: (err as Error).message });
+  const checks: Check[] = [cf];
+  // A failed cf line already explains why the zone cannot be queried.
+  if (cf.status !== 'fail') {
+    try {
+      const packs = await listCertificatePacks(cfRunner(), cfg.zone);
+      checks.push({
+        name,
+        status: 'ok',
+        detail: `zone ${cfg.zone}, ${packs.length} certificate pack(s), ca ${cfg.ca}`,
+      });
+    } catch (err) {
+      checks.push({ name, status: 'fail', detail: (err as Error).message });
+    }
   }
   checks.push({
     name: 'cloudflared',
