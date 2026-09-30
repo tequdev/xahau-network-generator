@@ -28,7 +28,6 @@ import {
 } from './keys.ts';
 import type { NetworkSpec } from './types.ts';
 import {
-  RESERVED_NAMES,
   VL_HOST,
   containerName,
   explorerHostPort,
@@ -36,21 +35,18 @@ import {
   hostPorts,
   nodeName,
   ports,
+  validateSpec,
 } from './types.ts';
 
 export async function createNetwork(
   spec: NetworkSpec,
   outDir = 'workspace',
 ): Promise<string> {
+  validateSpec(spec);
   const dir = join(outDir, spec.name);
   // Testnet publishes nothing (routed through Traefik instead), so only
   // standalone networks can collide on host ports.
   if (spec.type === 'standalone') await assertPortsFree(spec, outDir);
-  if (spec.type === 'testnet' && RESERVED_NAMES.has(spec.name)) {
-    throw new Error(
-      `"${spec.name}" is reserved (it is a service subdomain of a root network); pick another name`,
-    );
-  }
   if (spec.type === 'testnet') await assertHostBaseFree(spec, outDir);
   // Non-recursive mkdir is the atomic claim: two concurrent creates of one
   // name can't both pass an existsSync check.
@@ -290,7 +286,7 @@ export async function resetNetworkData(dir: string): Promise<void> {
 
 // Every network under outDir except `self`, so a duplicate name fails with
 // the mkdir "already exists" error rather than colliding with itself.
-async function otherSpecs(
+export async function otherSpecs(
   outDir: string,
   self: string,
 ): Promise<NetworkSpec[]> {
@@ -304,9 +300,12 @@ async function otherSpecs(
   for (const name of names) {
     if (name === self) continue;
     try {
-      specs.push(
-        JSON.parse(await readFile(join(outDir, name, 'network.json'), 'utf8')),
+      const spec = JSON.parse(
+        await readFile(join(outDir, name, 'network.json'), 'utf8'),
       );
+      // A copied directory or a `{}` file must not look like a network:
+      // apply would plan `remove --name <wrong>`.
+      if (spec.name === name) specs.push(spec);
     } catch {}
   }
   return specs;

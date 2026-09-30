@@ -1,17 +1,20 @@
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { createPublicKey, randomUUID, verify } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import http from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
 import { listVersions } from './binary.ts';
-import { composeOutputAsync } from './docker.ts';
+import {
+  CLI_PATH,
+  TSX_BIN,
+  composeOutputAsync,
+  listContainers,
+} from './docker.ts';
+import type { Container } from './docker.ts';
 import { NAME_RE, endpoints } from './types.ts';
 import type { NetworkSpec } from './types.ts';
 import { rpc } from './wait.ts';
-
-const execFileAsync = promisify(execFile);
 
 export type PanelOptions = {
   port: number;
@@ -247,11 +250,6 @@ function killRunning(): void {
   }
 }
 
-const TSX_BIN = fileURLToPath(
-  new URL('../node_modules/.bin/tsx', import.meta.url),
-);
-const CLI_PATH = fileURLToPath(new URL('./cli.ts', import.meta.url));
-
 function runStep(job: Job, argv: string[]): Promise<boolean> {
   const timeout = job.timeoutMs;
   return new Promise((resolve) => {
@@ -388,51 +386,6 @@ async function loadSpec(name: string): Promise<NetworkSpec | null> {
   }
 }
 
-type Container = { service: string; state: string; status: string };
-
-// One `docker ps` for every network rather than a `compose ps` per network:
-// the status path is polled every few seconds and must never wait on
-// compose. Rows are grouped by the compose project label (= network name).
-async function listContainers(): Promise<Map<string, Container[]>> {
-  const byProject = new Map<string, Container[]>();
-  let stdout = '';
-  try {
-    ({ stdout } = await execFileAsync(
-      'docker',
-      [
-        'ps',
-        '-a',
-        '--format',
-        'json',
-        '--filter',
-        'label=com.docker.compose.project',
-      ],
-      { timeout: 5000 },
-    ));
-  } catch {
-    return byProject;
-  }
-  for (const line of stdout.split('\n')) {
-    if (!line.trim()) continue;
-    let row: { Labels: string; State: string; Status: string };
-    try {
-      row = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    const labels = new Map(
-      row.Labels.split(',').map((kv) => kv.split('=', 2) as [string, string]),
-    );
-    const project = labels.get('com.docker.compose.project');
-    const service = labels.get('com.docker.compose.service');
-    if (!project || !service) continue;
-    const list = byProject.get(project) ?? [];
-    list.push({ service, state: row.State, status: row.Status });
-    byProject.set(project, list);
-  }
-  return byProject;
-}
-
 async function nodeInfo(spec: NetworkSpec) {
   try {
     const { info } = await rpc(
@@ -537,7 +490,7 @@ async function route(
   if (method === 'GET' && path === '/api/networks') {
     const names = await readdir('workspace').catch(() => [] as string[]);
     const [containers, ...networks] = await Promise.all([
-      listContainers(),
+      listContainers().catch(() => new Map<string, Container[]>()),
       ...names.map(async (name) => {
         const spec = await loadSpec(name);
         return (

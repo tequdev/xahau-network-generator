@@ -5,6 +5,13 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
+// Child `xng` invocations (the panel's job runner, `xng apply`) run the CLI
+// itself rather than a second implementation of each command.
+export const TSX_BIN = fileURLToPath(
+  new URL('../node_modules/.bin/tsx', import.meta.url),
+);
+export const CLI_PATH = fileURLToPath(new URL('./cli.ts', import.meta.url));
+
 const TRAEFIK_COMPOSE = fileURLToPath(
   new URL('../traefik/compose.yml', import.meta.url),
 );
@@ -141,4 +148,46 @@ export function ensureProxy(): void {
 
 export function proxyDown(): void {
   run(['compose', ...traefikArgs(), 'down']);
+}
+
+export type Container = { service: string; state: string; status: string };
+
+// One `docker ps` for every network rather than a `compose ps` per network:
+// the panel's status path is polled every few seconds and must never wait on
+// compose. Rows are grouped by the compose project label (= network name).
+// Throws when docker is unreachable: `xng apply` must not mistake a stopped
+// daemon for "nothing is running" (the panel catches and shows an empty list).
+export async function listContainers(): Promise<Map<string, Container[]>> {
+  const byProject = new Map<string, Container[]>();
+  const { stdout } = await execFileAsync(
+    'docker',
+    [
+      'ps',
+      '-a',
+      '--format',
+      'json',
+      '--filter',
+      'label=com.docker.compose.project',
+    ],
+    { timeout: 5000 },
+  );
+  for (const line of stdout.split('\n')) {
+    if (!line.trim()) continue;
+    let row: { Labels: string; State: string; Status: string };
+    try {
+      row = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const labels = new Map(
+      row.Labels.split(',').map((kv) => kv.split('=', 2) as [string, string]),
+    );
+    const project = labels.get('com.docker.compose.project');
+    const service = labels.get('com.docker.compose.service');
+    if (!project || !service) continue;
+    const list = byProject.get(project) ?? [];
+    list.push({ service, state: row.State, status: row.Status });
+    byProject.set(project, list);
+  }
+  return byProject;
 }
