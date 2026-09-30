@@ -115,9 +115,10 @@ TLS skips Tunnel hostnames, so this can't be done once up front: with
 on `xng create`, re-checks it (idempotently) on `xng start`/`xng reset`,
 and deletes it on `xng remove`. Everything else is one-time setup:
 
-1. Install and log in to `cf` (Node 22+): `npm i -g cf && cf auth login`, or
+1. Install and log in to `cf` (Node 22+): `npm i -g cf@0.15.0 && cf auth login`, or
    export `CLOUDFLARE_API_TOKEN` with *SSL and Certificates: Edit* on the
-   zone.
+   zone. xng is verified against that cf release (`CF_VERSION` in
+   `src/cloudflare.ts`); `xng doctor` warns when a different one is installed.
 2. Create a remotely-managed tunnel and route everything to Traefik's
    published HTTP port (keep the panel rule, if any, before the wildcard):
 

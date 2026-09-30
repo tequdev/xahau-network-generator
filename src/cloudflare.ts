@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import { hostBase } from './types.ts';
 import type { NetworkSpec } from './types.ts';
@@ -92,6 +92,26 @@ function unwrap(value: unknown): unknown {
     return (value as { result: unknown }).result;
   }
   return value;
+}
+
+// The cf release whose flags and output this module (and the contract
+// test) were verified against. Bump together with the CI job and README.
+export const CF_VERSION = '0.15.0';
+
+export function parseCfVersion(stdout: string): string | undefined {
+  return stdout.match(/\bv?(\d+\.\d+\.\d+)\b/)?.[1];
+}
+
+// Version of the installed cf, or undefined when it is missing or broken.
+export function cfVersion(
+  bin = process.env.XNG_CF_BIN || 'cf',
+): string | undefined {
+  const r = spawnSync(bin, ['--version'], {
+    encoding: 'utf8',
+    timeout: 30_000,
+  });
+  if (r.error || r.status !== 0) return undefined;
+  return parseCfVersion(r.stdout);
 }
 
 export function cfRunner(bin = process.env.XNG_CF_BIN || 'cf'): CfRunner {

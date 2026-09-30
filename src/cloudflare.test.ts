@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import {
+  CF_VERSION,
   certHosts,
   cfConfigFromEnv,
   cfRunner,
+  cfVersion,
   ensureCertificate,
+  parseCfVersion,
   removeCertificate,
 } from './cloudflare.ts';
 import type { CertificatePack, CfConfig, CfRunner } from './cloudflare.ts';
@@ -312,16 +314,26 @@ test('cfRunner: passes CLOUDFLARE_API_TOKEN through to cf', () =>
     }
   }));
 
+test('parseCfVersion reads the decorated --version output', () => {
+  assert.equal(parseCfVersion('🍊☁️  cf · v0.15.0\n────────'), '0.15.0');
+  assert.equal(parseCfVersion('not a version'), undefined);
+});
+
 // Contract test against the real cf: `--dry-run` needs no auth and prints
 // the request cf would send, proving our flag names and value shapes are
 // what the installed cf parses.
 const cfBin = process.env.XNG_CF_BIN || 'cf';
-const hasCf = spawnSync(cfBin, ['--version']).status === 0;
+const installed = cfVersion(cfBin);
 
 test(
   'cf contract: ensure/removeCertificate build the expected API requests',
-  { skip: !hasCf && 'cf CLI not installed' },
+  { skip: installed === undefined && 'cf CLI not installed' },
   async () => {
+    assert.equal(
+      installed,
+      CF_VERSION,
+      'installed cf differs from CF_VERSION; bump the constant, CI and README together',
+    );
     const real = cfRunner(cfBin);
     const requests: {
       method: string;

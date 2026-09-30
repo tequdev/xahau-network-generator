@@ -110,7 +110,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: npm i -g cf
+      # Keep in sync with CF_VERSION in src/cloudflare.ts.
+      - run: npm i -g cf@0.15.0
       - run: pnpm test
       - run: pnpm e2e:cf
         if: env.CLOUDFLARE_API_TOKEN != '' && env.XNG_CF_ZONE != ''
