@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { test } from 'node:test';
 import {
   certHosts,
   cfConfigFromEnv,
+  cfRunner,
   ensureCertificate,
   removeCertificate,
 } from './cloudflare.ts';
@@ -248,3 +253,121 @@ test('removeCertificate: deletes only packs xng ordered for this network', async
   const del = cf.calls.find((c) => c[2] === 'delete');
   assert.ok(del?.includes('--force'));
 });
+
+// A fake `cf` binary whose behaviour is picked by its first argument.
+async function withFakeCfBin(fn: (bin: string) => Promise<void>) {
+  const dir = await mkdtemp(path.join(tmpdir(), 'xng-fakecf-'));
+  const bin = path.join(dir, 'cf');
+  await writeFile(
+    bin,
+    `#!/bin/sh
+case "$1" in
+  envelope) echo '{"success":true,"errors":[],"result":[{"id":"p1"}]}' ;;
+  bare) echo '{"id":"p1"}' ;;
+  empty) ;;
+  fail) echo 'boom from cf' >&2; exit 1 ;;
+  text) echo 'not json' ;;
+  token) echo "{\\"token\\":\\"$CLOUDFLARE_API_TOKEN\\"}" ;;
+esac
+`,
+  );
+  await chmod(bin, 0o755);
+  try {
+    await fn(bin);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+test('cfRunner: parses cf output, unwrapping the API envelope', () =>
+  withFakeCfBin(async (bin) => {
+    const run = cfRunner(bin);
+    assert.deepEqual(await run(['envelope']), [{ id: 'p1' }]);
+    assert.deepEqual(await run(['bare']), { id: 'p1' });
+    assert.equal(await run(['empty']), undefined);
+  }));
+
+test('cfRunner: reports failures, bad output and a missing binary', () =>
+  withFakeCfBin(async (bin) => {
+    const run = cfRunner(bin);
+    await assert.rejects(
+      run(['fail', 'x']),
+      (e: Error) =>
+        e.message.includes('fail x') && /boom from cf/.test(e.message),
+    );
+    await assert.rejects(run(['text']), /non-JSON output/);
+    await assert.rejects(cfRunner(`${bin}-missing`)(['bare']), /not found/);
+  }));
+
+test('cfRunner: passes CLOUDFLARE_API_TOKEN through to cf', () =>
+  withFakeCfBin(async (bin) => {
+    const saved = process.env.CLOUDFLARE_API_TOKEN;
+    process.env.CLOUDFLARE_API_TOKEN = 'tok-123';
+    try {
+      assert.deepEqual(await cfRunner(bin)(['token']), { token: 'tok-123' });
+    } finally {
+      // biome-ignore lint/performance/noDelete: assigning undefined would set the string "undefined"
+      if (saved === undefined) delete process.env.CLOUDFLARE_API_TOKEN;
+      else process.env.CLOUDFLARE_API_TOKEN = saved;
+    }
+  }));
+
+// Contract test against the real cf: `--dry-run` needs no auth and prints
+// the request cf would send, proving our flag names and value shapes are
+// what the installed cf parses.
+const cfBin = process.env.XNG_CF_BIN || 'cf';
+const hasCf = spawnSync(cfBin, ['--version']).status === 0;
+
+test(
+  'cf contract: ensure/removeCertificate build the expected API requests',
+  { skip: !hasCf && 'cf CLI not installed' },
+  async () => {
+    const real = cfRunner(cfBin);
+    const requests: {
+      method: string;
+      url: string;
+      query?: unknown;
+      body?: unknown;
+    }[] = [];
+    const cf = fakeCf([], ['active']);
+    const run: CfRunner = async (args) => {
+      requests.push(
+        (await real([...args, '--dry-run'])) as (typeof requests)[number],
+      );
+      return cf.run(args);
+    };
+    await ensureCertificate(spec, cfg, { ...quiet, run });
+    await removeCertificate(spec, cfg, { log: () => {}, run });
+
+    const base =
+      'https://api.cloudflare.com/client/v4/zones/xahau-dev.net/ssl/certificate_packs';
+    const pick = ({ method, url, query, body }: (typeof requests)[number]) => ({
+      method,
+      url,
+      ...(query ? { query } : {}),
+      ...(body ? { body } : {}),
+    });
+    const list = {
+      method: 'GET',
+      url: base,
+      query: { page: 1, per_page: 50, status: 'all' },
+    };
+    assert.deepEqual(requests.map(pick), [
+      list,
+      {
+        method: 'POST',
+        url: `${base}/order`,
+        body: {
+          certificate_authority: 'google',
+          hosts: ['xahau-dev.net', '*.jshooks.xahau-dev.net'],
+          type: 'advanced',
+          validation_method: 'txt',
+          validity_days: 90,
+        },
+      },
+      { method: 'GET', url: `${base}/new-1` },
+      list,
+      { method: 'DELETE', url: `${base}/new-1` },
+    ]);
+  },
+);

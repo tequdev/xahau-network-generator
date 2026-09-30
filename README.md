@@ -159,6 +159,10 @@ for it. A root network on the zone apex needs no certificate of its own.
 Non-Enterprise zones have a cap on advanced certificate packs; check
 `cf ssl certificate-packs quota get -z <domain>` before running many networks.
 
+`pnpm e2e:cf` verifies this setup: it orders and then deletes one certificate
+pack for a throwaway network name (needs `XNG_CF_ZONE` and cf auth). CI runs
+it when the `CLOUDFLARE_API_TOKEN` secret and `XNG_CF_ZONE` variable are set.
+
 ### Web control panel
 
 `pnpm xng panel` serves a small page (`src/panel.html`) that lists every
