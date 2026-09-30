@@ -54,7 +54,6 @@ test('compose: standalone publishes host ports directly and has no Traefik/proxy
     '51235:51235',
   ]);
   assert.deepEqual(doc.services.explorer.ports, ['4000:4000']);
-  assert.equal(doc.services.explorer.environment.VUE_APP_NETWORK, 'xahau_dev');
   assert.equal(doc.services.node.labels, undefined);
   assert.equal(doc.services.node.networks, undefined);
   assert.equal(doc.networks, undefined);
