@@ -13,6 +13,11 @@ export type XahaudCfgOptions = {
 
 export function renderXahaudCfg(o: XahaudCfgOptions): string {
   const lines: string[] = [];
+  // On testnet every node's admin port is otherwise reachable from every
+  // container on the shared `proxy` network. The xahaud CLI runs inside the
+  // container and connects to this ip. Standalone publishes the admin port to
+  // the host (ledger_accept), which a container-loopback bind can't serve.
+  const adminIp = o.type === 'testnet' ? '127.0.0.1' : '0.0.0.0';
 
   lines.push('[server]');
   lines.push('port_rpc_admin_local');
@@ -24,8 +29,8 @@ export function renderXahaudCfg(o: XahaudCfgOptions): string {
 
   lines.push('[port_rpc_admin_local]');
   lines.push(`port = ${o.ports.rpcAdmin}`);
-  lines.push('ip = 0.0.0.0');
-  lines.push('admin = 0.0.0.0');
+  lines.push(`ip = ${adminIp}`);
+  lines.push(`admin = ${adminIp}`);
   lines.push('protocol = http');
   lines.push('');
 
@@ -37,8 +42,8 @@ export function renderXahaudCfg(o: XahaudCfgOptions): string {
 
   lines.push('[port_ws_admin_local]');
   lines.push(`port = ${o.ports.wsAdmin}`);
-  lines.push('ip = 0.0.0.0');
-  lines.push('admin = 0.0.0.0');
+  lines.push(`ip = ${adminIp}`);
+  lines.push(`admin = ${adminIp}`);
   lines.push('protocol = ws');
   lines.push('');
 

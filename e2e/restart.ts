@@ -56,6 +56,10 @@ async function main(): Promise<void> {
   );
   console.log(`[e2e:restart] validated ledger before: seq ${before}`);
 
+  const beforeHash = (await rpc(ep.rpc, 'ledger', { ledger_index: before }))
+    .ledger.ledger_hash;
+  assert.equal(typeof beforeHash, 'string', `no hash for ledger ${before}`);
+
   const container = containerName(spec, nodeName(spec, 0));
   const startedBefore = startedAt(container);
   console.log(`[e2e:restart] ${container} StartedAt before: ${startedBefore}`);
@@ -86,6 +90,14 @@ async function main(): Promise<void> {
     typeof after === 'number' && after >= before,
     `validated_ledger.seq went from ${before} to ${after}: network restarted from genesis instead of resuming from its validated ledger`,
   );
+  const afterHash = (await rpc(ep.rpc, 'ledger', { ledger_index: before }))
+    .ledger.ledger_hash;
+  assert.equal(
+    afterHash,
+    beforeHash,
+    `ledger ${before} hash changed: history was not resumed`,
+  );
+  console.log(`[e2e:restart] ledger ${before} hash unchanged: ${afterHash}`);
   console.log(
     `[e2e:restart] resumed from validated ledger: seq ${before} -> ${after}`,
   );

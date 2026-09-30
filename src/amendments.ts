@@ -39,7 +39,7 @@ export async function fetchFeatureSource(
   throw new Error(`could not fetch feature source for commit ${commit}`);
 }
 
-const IDENT = '[A-Za-z_][A-Za-z0-9_]*';
+const IDENT = '[A-Za-z0-9_]+';
 
 function matchNamesSupported(
   source: string,

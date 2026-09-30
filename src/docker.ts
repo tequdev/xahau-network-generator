@@ -71,6 +71,8 @@ export function composeOutput(name: string, args: string[]): string {
     ['compose', '-f', `workspace/${name}/compose.yml`, ...args],
     {
       encoding: 'utf8',
+      // A hung docker call must not defeat the caller's own deadline.
+      timeout: 120_000,
       env: {
         ...process.env,
         XNG_UID: String(process.getuid?.() ?? 0),

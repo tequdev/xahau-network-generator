@@ -79,7 +79,8 @@ export function renderCompose(spec: NetworkSpec): string {
     };
     // Only `node` (index 0) is reachable from outside the compose network:
     // on testnet, routed through Traefik; on standalone, published directly
-    // on the host via --port-offset, exactly as before Traefik existed.
+    // on the host via --port-offset, on loopback only since the admin ports
+    // trust every source.
     // Validators are always container-to-container only. On testnet the
     // peer port is never routed (xahaud peer TLS sends no SNI, so Traefik
     // can't dispatch it).
@@ -95,11 +96,11 @@ export function renderCompose(spec: NetworkSpec): string {
       } else {
         const host = hostPorts(spec);
         services[serviceName].ports = [
-          `${host.rpcAdmin}:${containerPorts.rpcAdmin}`,
-          `${host.rpcPublic}:${containerPorts.rpcPublic}`,
-          `${host.wsAdmin}:${containerPorts.wsAdmin}`,
-          `${host.wsPublic}:${containerPorts.wsPublic}`,
-          `${host.peer}:${containerPorts.peer}`,
+          `127.0.0.1:${host.rpcAdmin}:${containerPorts.rpcAdmin}`,
+          `127.0.0.1:${host.rpcPublic}:${containerPorts.rpcPublic}`,
+          `127.0.0.1:${host.wsAdmin}:${containerPorts.wsAdmin}`,
+          `127.0.0.1:${host.wsPublic}:${containerPorts.wsPublic}`,
+          `127.0.0.1:${host.peer}:${containerPorts.peer}`,
         ];
       }
     }
@@ -136,7 +137,9 @@ export function renderCompose(spec: NetworkSpec): string {
     };
 
     services.faucet = {
-      build: './faucet',
+      // Resolved against the compose file's directory (workspace/<name>/), so a
+      // faucet fix in the repo is built on the next start without copying.
+      build: '../../faucet',
       environment: {
         XAHAU_WS_URL: `ws://${containerName(spec, nodeName(spec, 0))}:${ports(spec, 0).wsPublic}`,
         PORT: '8080',
@@ -173,7 +176,10 @@ export function renderCompose(spec: NetworkSpec): string {
             ...traefikRoute(spec, 'explorer', `explorer.${base}`, 4000),
           ],
         }
-      : { ...explorerBase, ports: [`${explorerHostPort(spec)}:4000`] };
+      : {
+          ...explorerBase,
+          ports: [`127.0.0.1:${explorerHostPort(spec)}:4000`],
+        };
 
   // Fixed names (`testnet-3-explorer`) instead of compose's `-1` suffix.
   for (const [serviceName, service] of Object.entries(services)) {

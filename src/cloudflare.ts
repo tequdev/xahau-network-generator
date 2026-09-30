@@ -119,6 +119,8 @@ export function cfRunner(bin = process.env.XNG_CF_BIN || 'cf'): CfRunner {
     let stdout: string;
     try {
       ({ stdout } = await execFileAsync(bin, args, {
+        // A hung cf call must not defeat the caller's own deadline.
+        timeout: 120_000,
         maxBuffer: 16 * 1024 * 1024,
       }));
     } catch (err) {
@@ -255,7 +257,7 @@ export async function ensureCertificate(
   const existing = ownPacks(
     await listCertificatePacks(run, cfg.zone),
     hosts,
-  ).find((p) => !isDead(p.status));
+  ).find((p) => !isDead(p.status) && hosts.every((h) => p.hosts?.includes(h)));
   let pack: CertificatePack;
   if (existing) {
     pack = existing;

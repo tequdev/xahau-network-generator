@@ -9,6 +9,7 @@ import {
 const SAMPLE = `
 XRPL_FEATURE(PermissionedDomains,        Supported::no,  VoteBehavior::DefaultNo)
 XRPL_FIX    (HookMap,                    Supported::yes, VoteBehavior::DefaultYes)
+XRPL_FIX    (1578,                       Supported::yes, VoteBehavior::DefaultYes)
 XRPL_RETIRE(fixXahauV2)
 REGISTER_FEATURE(OwnerPaysFee,                  Supported::no,  VoteBehavior::DefaultNo);
 REGISTER_FIX    (fixTrustLinesToSelf,           Supported::no,  VoteBehavior::DefaultNo);
@@ -18,7 +19,12 @@ REGISTER_FIX    (fixXahauV1,           Supported::yes,  VoteBehavior::DefaultYes
 
 test('parseAmendments extracts only supported features/fixes plus retired', () => {
   const names = parseAmendments(SAMPLE);
-  assert.deepEqual(names, ['fixHookMap', 'fixXahauV2', 'fixXahauV1']);
+  assert.deepEqual(names, [
+    'fixHookMap',
+    'fix1578',
+    'fixXahauV2',
+    'fixXahauV1',
+  ]);
 });
 
 test('amendmentHash matches known sha512-derived hash', () => {

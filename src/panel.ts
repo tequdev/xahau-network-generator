@@ -236,6 +236,16 @@ const SHORT_STEP_TIMEOUT_MS = 120_000;
 const jobs: Job[] = [];
 const pending: Job[] = [];
 let draining = false;
+// The step currently running, so a panel shutdown can take it down: a
+// detached child would otherwise outlive the panel (and keep mutating).
+let running: ReturnType<typeof spawn> | undefined;
+function killRunning(): void {
+  if (running?.pid) {
+    try {
+      process.kill(-running.pid, 'SIGKILL');
+    } catch {}
+  }
+}
 
 const TSX_BIN = fileURLToPath(
   new URL('../node_modules/.bin/tsx', import.meta.url),
@@ -245,27 +255,38 @@ const CLI_PATH = fileURLToPath(new URL('./cli.ts', import.meta.url));
 function runStep(job: Job, argv: string[]): Promise<boolean> {
   const timeout = job.timeoutMs;
   return new Promise((resolve) => {
+    // tsx launches the real CLI as a child; SIGKILL on the launcher alone
+    // would orphan it (it keeps stdout open, so `close` never fires). Run in
+    // its own process group and kill the whole group on timeout.
     const child = spawn(TSX_BIN, [CLI_PATH, ...argv], {
       cwd: process.cwd(),
       env: process.env,
-      timeout,
-      killSignal: 'SIGKILL',
+      detached: true,
     });
+    running = child;
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killRunning();
+    }, timeout);
     const append = (chunk: Buffer) => {
       job.log = (job.log + chunk.toString('utf8')).slice(-MAX_LOG);
     };
     child.stdout.on('data', append);
     child.stderr.on('data', append);
     child.on('error', (err) => {
+      clearTimeout(timer);
+      running = undefined;
       job.log += `\nspawn error: ${err.message}\n`;
       resolve(false);
     });
     child.on('close', (code, signal) => {
+      clearTimeout(timer);
+      running = undefined;
       if (code === 0) return resolve(true);
-      job.log +=
-        signal === 'SIGKILL'
-          ? `\n[killed: timed out after ${timeout / 1000} s]\n`
-          : `\n[exited with code ${code ?? signal}]\n`;
+      job.log += timedOut
+        ? `\n[killed: timed out after ${timeout / 1000} s]\n`
+        : `\n[exited with code ${code ?? signal}]\n`;
       resolve(false);
     });
   });
@@ -661,6 +682,14 @@ async function route(
 }
 
 export async function startPanel(opts: PanelOptions): Promise<void> {
+  // Registered here, not at module load: cli.ts imports this file for every
+  // command.
+  for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+    process.once(sig, () => {
+      killRunning();
+      process.exit(130);
+    });
+  }
   // The CLI (run as child processes below) and the workspace scan both use
   // paths relative to the repo root, whatever directory the panel was
   // started from (systemd, cron, ...).
