@@ -1,7 +1,9 @@
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { createInterface } from 'node:readline/promises';
 import { Command, InvalidArgumentError, Option } from 'commander';
-import { latestReleaseVersion } from './binary.ts';
+import { formatPlan, parseXngYml, plan, runPlan } from './apply.ts';
+import { fetchBinary, latestReleaseVersion } from './binary.ts';
 import {
   certHosts,
   cfConfigFromEnv,
@@ -9,12 +11,19 @@ import {
   removeCertificate,
 } from './cloudflare.ts';
 import { renderCompose } from './compose.ts';
-import { compose, enableAcme, ensureProxy, proxyDown } from './docker.ts';
+import {
+  compose,
+  enableAcme,
+  ensureProxy,
+  listContainers,
+  proxyDown,
+} from './docker.ts';
 import { report, runChecks } from './doctor.ts';
-import { createNetwork, resetNetworkData } from './network.ts';
+import { createNetwork, otherSpecs, resetNetworkData } from './network.ts';
 import { startPanel } from './panel.ts';
 import {
   DEFAULT_IMPORT_VL_KEYS,
+  DOMAIN_RE,
   NAME_RE,
   defaultQuorum,
   endpoints,
@@ -47,8 +56,6 @@ function parseName(value: string): string {
   }
   return value;
 }
-
-const DOMAIN_RE = /^[a-z0-9.-]+$/;
 
 function parseDomain(value: string): string {
   if (!DOMAIN_RE.test(value)) {
@@ -159,21 +166,10 @@ program
     0,
   )
   .action(async (opts) => {
+    // A standalone is always one validator; validateSpec (below) covers the
+    // rest, so `create` and `apply` accept exactly the same specs.
     const validators = opts.type === 'standalone' ? 1 : opts.validators;
-    if (opts.root && opts.type !== 'testnet') {
-      program.error('--root is testnet only');
-    }
-    if (validators === 2) {
-      program.error(
-        '--validators must be 1 or >= 3; a 2-validator network cannot tolerate a rolling restart',
-      );
-    }
     const quorum = opts.quorum ?? defaultQuorum(validators);
-    if (quorum < 1 || quorum > validators) {
-      program.error(
-        `--quorum must be an integer in [1, ${validators}], got "${quorum}"`,
-      );
-    }
     const version = opts.version ?? (await latestReleaseVersion());
 
     const spec: NetworkSpec = {
@@ -312,6 +308,89 @@ program
     );
     await upgradeNetwork(spec, opts.version, opts.timeout * 1000);
     console.log(`upgraded network "${spec.name}" to ${opts.version}`);
+  });
+
+program
+  .command('apply')
+  .description(
+    'make workspace/ match an xng.yml: show the plan, then create/upgrade/recreate/remove/start networks (networks not in the file are removed)',
+  )
+  .option('-f, --file <path>', 'desired networks', 'xng.yml')
+  .option('-y, --yes', 'apply without asking for confirmation', false)
+  .option('--dry-run', 'print the plan and exit; change nothing', false)
+  .option(
+    '--timeout <sec>',
+    'readiness timeout in seconds for each start/upgrade',
+    intArg(1),
+    300,
+  )
+  .option(
+    '--network <name>',
+    'only plan this network (repeatable); others are neither created nor removed',
+    (value: string, prev: string[]) => [...prev, parseName(value)],
+    [] as string[],
+  )
+  .action(async (opts) => {
+    // Everything is validated before anything runs: a recreate removes the old
+    // network first, so a spec that only fails at create time would lose it.
+    const desired = parseXngYml(await readFile(opts.file, 'utf8'));
+    const cfg = cfConfigFromEnv();
+    if (cfg) for (const spec of desired) certHosts(spec, cfg.zone);
+
+    // listContainers throws when docker is down, which must abort rather than
+    // read as "nothing is running".
+    const running = new Set<string>();
+    for (const [project, list] of await listContainers()) {
+      if (list.some((c) => c.state === 'running')) running.add(project);
+    }
+
+    const actions = plan(desired, await otherSpecs('workspace'), running, {
+      only: opts.network,
+      timeout: opts.timeout,
+    });
+    console.log(formatPlan(actions, opts.file, desired));
+
+    const todo = actions.filter((a) => a.kind !== 'unchanged');
+    if (todo.length === 0) {
+      const n = actions.length;
+      console.log(
+        `\nno changes (${n} network${n === 1 ? '' : 's'} up to date)`,
+      );
+      return;
+    }
+    if (opts.dryRun) return;
+
+    if (!opts.yes) {
+      if (!process.stdin.isTTY) {
+        throw program.error('refusing to prompt without a TTY; pass -y');
+      }
+      const rl = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+      const answer = (await rl.question('\nApply? [y/N] '))
+        .trim()
+        .toLowerCase();
+      rl.close();
+      if (answer !== 'y' && answer !== 'yes') throw program.error('aborted');
+    }
+    // A version that does not exist would otherwise only fail inside a child
+    // `xng create`, after every remove already ran. Downloads are cached, and
+    // create would fetch them anyway.
+    const versions = new Set(
+      actions.flatMap((a) =>
+        a.steps.flatMap((s) => {
+          const v = s[s.indexOf('--version') + 1];
+          return s.includes('--version') && v ? [v] : [];
+        }),
+      ),
+    );
+    for (const version of versions) {
+      console.log(`fetching xahaud ${version}`);
+      await fetchBinary(version);
+    }
+    console.log();
+    if (!runPlan(actions)) process.exit(1);
   });
 
 program

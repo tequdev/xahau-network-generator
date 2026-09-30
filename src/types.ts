@@ -7,6 +7,7 @@ export const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,62}$/;
 // silently pick one of the two. Reserved outright rather than only next to
 // a root network, so a name never becomes invalid later.
 export const RESERVED_NAMES = new Set(['explorer', 'rpc', 'faucet', 'vl']);
+export const DOMAIN_RE = /^[a-z0-9.-]+$/;
 
 export type NetworkSpec = {
   name: string;
@@ -21,6 +22,74 @@ export type NetworkSpec = {
   portOffset: number; // standalone only; default 0; shifts every published host port
   importVlKeys: string[]; // default ["ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC1"]
 };
+
+// The one place every semantic rule for a spec lives, shared by `xng create`
+// and `xng apply` (which checks a whole xng.yml up front so a bad entry cannot
+// fail halfway through, after an earlier `recreate` already removed a network).
+// Throws on the first violation; messages use bare field names so they read
+// well for both a CLI flag and a yml key.
+export function validateSpec(spec: NetworkSpec): void {
+  const isInt = (n: unknown): n is number => Number.isInteger(n);
+  if (typeof spec.name !== 'string' || !NAME_RE.test(spec.name)) {
+    throw new Error(
+      `name must match ${NAME_RE} (lowercase, digits, "-", "_"), got "${spec.name}"`,
+    );
+  }
+  if (spec.type !== 'testnet' && spec.type !== 'standalone') {
+    throw new Error(
+      `type must be "testnet" or "standalone", got "${spec.type}"`,
+    );
+  }
+  if (spec.type === 'testnet' && RESERVED_NAMES.has(spec.name)) {
+    throw new Error(
+      `"${spec.name}" is reserved (it is a service subdomain of a root network); pick another name`,
+    );
+  }
+  if (typeof spec.version !== 'string' || spec.version === '') {
+    throw new Error('version must be a non-empty string');
+  }
+  if (typeof spec.domain !== 'string' || !DOMAIN_RE.test(spec.domain)) {
+    throw new Error(
+      `domain must match ${DOMAIN_RE} (lowercase letters, digits, dots, hyphens), got "${spec.domain}"`,
+    );
+  }
+  if (!isInt(spec.validators) || spec.validators < 1 || spec.validators === 2) {
+    throw new Error(
+      `validators must be 1 or an integer >= 3 (a 2-validator network cannot tolerate a rolling restart), got "${spec.validators}"`,
+    );
+  }
+  if (spec.type === 'standalone' && spec.validators !== 1) {
+    throw new Error('validators must be 1 for a standalone network');
+  }
+  if (!isInt(spec.quorum) || spec.quorum < 1 || spec.quorum > spec.validators) {
+    throw new Error(
+      `quorum must be an integer in [1, ${spec.validators}], got "${spec.quorum}"`,
+    );
+  }
+  if (!isInt(spec.networkId) || spec.networkId < 0) {
+    throw new Error(
+      `networkId must be an integer >= 0, got "${spec.networkId}"`,
+    );
+  }
+  if (
+    !isInt(spec.portOffset) ||
+    spec.portOffset < 0 ||
+    spec.portOffset > 14300
+  ) {
+    throw new Error(
+      `portOffset must be an integer in [0, 14300], got "${spec.portOffset}"`,
+    );
+  }
+  if (typeof spec.tls !== 'boolean') {
+    throw new Error(`tls must be true or false, got "${spec.tls}"`);
+  }
+  if (spec.root !== undefined && typeof spec.root !== 'boolean') {
+    throw new Error(`root must be true or false, got "${spec.root}"`);
+  }
+  if (spec.root && spec.type !== 'testnet') {
+    throw new Error('root is testnet only');
+  }
+}
 
 // Hostnames inside the network. compose.ts uses them as service names; a
 // native runner would map them via /etc/hosts. Index 0 is always the

@@ -92,6 +92,57 @@ jobs:
         if: always()
         run: pnpm xng stop --name ${{ matrix.name }}
 
+  # `xng apply` owns all of workspace/, so it gets its own job on a clean
+  # checkout rather than a matrix entry next to hand-made networks.
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      UPGRADE_TO: 2026.9.9-dev+3667
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: pre-pull docker images
+        run: |
+          (docker compose -f traefik/compose.yml pull &&
+           docker pull ghcr.io/tequdev/xrpl-technical-explorer:xahau-devnet &&
+           docker pull node:24-slim &&
+           docker pull ubuntu:noble &&
+           docker pull nginx:alpine) >/dev/null 2>&1 &
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/xahau-network-generator
+          key: xahaud-${{ env.XAHAUD_VERSION }}
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/xahau-network-generator
+          key: xahaud-${{ env.UPGRADE_TO }}
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm test
+
+      - run: pnpm e2e:apply --version "$XAHAUD_VERSION" --upgrade-to "$UPGRADE_TO" --domain localhost --timeout 600
+
+      - name: docker compose logs
+        if: failure()
+        run: docker compose -f workspace/apply1/compose.yml logs --tail 200
+
+      - name: remove networks
+        if: always()
+        run: |
+          echo 'networks: {}' > "$RUNNER_TEMP/empty.yml"
+          pnpm xng apply -y -f "$RUNNER_TEMP/empty.yml"
+
   # Runs the unit tests with the real `cf` installed, so the auth-free
   # --dry-run contract test in src/cloudflare.test.ts is never skipped. The
   # live e2e (orders and deletes one real certificate pack on the zone) only

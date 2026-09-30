@@ -1,0 +1,387 @@
+import { spawnSync } from 'node:child_process';
+import YAML from 'yaml';
+import { CLI_PATH, TSX_BIN } from './docker.ts';
+import {
+  DEFAULT_IMPORT_VL_KEYS,
+  defaultQuorum,
+  explorerHostPort,
+  hostPorts,
+  validateSpec,
+} from './types.ts';
+import type { NetworkSpec } from './types.ts';
+
+// Declarative `xng.yml` -> create/upgrade/recreate/remove/start. parseXngYml,
+// plan and formatPlan are pure; only runPlan touches the world.
+
+// Same names as network.json (NetworkSpec), so there is no translation layer.
+// These are also the keys compared against the on-disk network.json.
+const COMPARED = [
+  'type',
+  'version',
+  'validators',
+  'quorum',
+  'networkId',
+  'domain',
+  'tls',
+  'root',
+  'portOffset',
+] as const;
+const YML_KEYS: readonly string[] = COMPARED;
+
+export function parseXngYml(text: string): NetworkSpec[] {
+  let doc: unknown;
+  try {
+    doc = YAML.parse(text);
+  } catch (err) {
+    throw new Error(`invalid YAML: ${(err as Error).message}`);
+  }
+  const networks = (doc as { networks?: unknown } | null)?.networks;
+  if (
+    typeof networks !== 'object' ||
+    networks === null ||
+    Array.isArray(networks)
+  ) {
+    throw new Error('xng.yml must have a top-level `networks:` mapping');
+  }
+
+  const specs: NetworkSpec[] = [];
+  for (const [name, raw] of Object.entries(networks)) {
+    try {
+      specs.push(toSpec(name, raw));
+    } catch (err) {
+      throw new Error(`network "${name}": ${(err as Error).message}`);
+    }
+  }
+  checkAcrossNetworks(specs);
+  return specs;
+}
+
+function toSpec(name: string, raw: unknown): NetworkSpec {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error('must be a mapping (`version` is required)');
+  }
+  const entry = raw as Record<string, unknown>;
+  const unknown = Object.keys(entry).filter((k) => !YML_KEYS.includes(k));
+  if (unknown.length > 0) {
+    throw new Error(
+      `unknown key(s) ${unknown.join(', ')} (allowed: ${YML_KEYS.join(', ')})`,
+    );
+  }
+  if (entry.version === undefined) {
+    throw new Error(
+      '`version` is required (a release is never resolved implicitly, so apply stays reproducible)',
+    );
+  }
+
+  // Defaults mirror `xng create`; a standalone is always one validator.
+  const type = (entry.type ?? 'testnet') as NetworkSpec['type'];
+  const validators = (entry.validators ??
+    (type === 'standalone' ? 1 : 3)) as number;
+  const spec: NetworkSpec = {
+    name,
+    type,
+    version: entry.version as string,
+    validators,
+    quorum: (entry.quorum ?? defaultQuorum(validators)) as number,
+    networkId: (entry.networkId ?? 21339) as number,
+    domain: (entry.domain ?? '127.0.0.1.nip.io') as string,
+    tls: (entry.tls ?? false) as boolean,
+    root: (entry.root ?? false) as boolean,
+    portOffset: (entry.portOffset ?? 0) as number,
+    importVlKeys: DEFAULT_IMPORT_VL_KEYS,
+  };
+  validateSpec(spec);
+  return spec;
+}
+
+// Rules that `xng create` would only hit one network at a time, at create time.
+export function checkAcrossNetworks(specs: NetworkSpec[]): void {
+  const rootOf = new Map<string, string>();
+  const portOwner = new Map<number, string>();
+  for (const spec of specs) {
+    if (spec.root) {
+      const other = rootOf.get(spec.domain);
+      if (other) {
+        throw new Error(
+          `networks "${other}" and "${spec.name}" both set root: true on domain ${spec.domain}; only one network can serve the bare domain`,
+        );
+      }
+      rootOf.set(spec.domain, spec.name);
+    }
+    if (spec.type === 'standalone') {
+      for (const port of [
+        ...Object.values(hostPorts(spec)),
+        explorerHostPort(spec),
+      ]) {
+        const other = portOwner.get(port);
+        if (other) {
+          throw new Error(
+            `standalone networks "${other}" and "${spec.name}" both publish host port ${port}; give one a different portOffset`,
+          );
+        }
+        portOwner.set(port, spec.name);
+      }
+    }
+  }
+}
+
+export type Action = {
+  name: string;
+  kind: 'create' | 'remove' | 'upgrade' | 'recreate' | 'start' | 'unchanged';
+  diff: { key: string; from: unknown; to: unknown }[]; // upgrade/recreate
+  steps: string[][]; // xng argv, in execution order
+};
+
+// Older network.json files have no `root`; treat a missing one as false.
+function comparable(spec: NetworkSpec, key: (typeof COMPARED)[number]) {
+  return key === 'root' ? !!spec.root : spec[key];
+}
+
+function createArgv(spec: NetworkSpec): string[] {
+  return [
+    'create',
+    '--name',
+    spec.name,
+    '--type',
+    spec.type,
+    '--version',
+    spec.version,
+    '--validators',
+    String(spec.validators),
+    '--quorum',
+    String(spec.quorum),
+    '--network-id',
+    String(spec.networkId),
+    '--domain',
+    spec.domain,
+    ...(spec.tls ? ['--tls'] : []),
+    ...(spec.root ? ['--root'] : []),
+    '--port-offset',
+    String(spec.portOffset),
+  ];
+}
+
+export function plan(
+  desired: NetworkSpec[],
+  actual: NetworkSpec[],
+  running: Set<string>,
+  opts: { only?: string[]; timeout?: number } = {},
+): Action[] {
+  const timeout = String(opts.timeout ?? 300);
+  const startArgv = (name: string) => [
+    'start',
+    '--name',
+    name,
+    '--wait',
+    '--timeout',
+    timeout,
+  ];
+
+  const want = new Map(desired.map((s) => [s.name, s]));
+  const have = new Map(actual.map((s) => [s.name, s]));
+  for (const name of opts.only ?? []) {
+    if (!want.has(name) && !have.has(name)) {
+      throw new Error(
+        `--network "${name}" is in neither the yml file nor workspace/`,
+      );
+    }
+  }
+  const only = opts.only?.length ? new Set(opts.only) : undefined;
+  // The file-wide check in parseXngYml cannot see networks that --network
+  // leaves on disk as they are; a recreate that collides with one would
+  // remove the old network and then fail to create the new one.
+  if (only) {
+    checkAcrossNetworks([
+      ...desired.filter((s) => only.has(s.name)),
+      ...actual.filter((s) => !only.has(s.name)),
+    ]);
+  }
+  const names = [...new Set([...want.keys(), ...have.keys()])]
+    .filter((n) => !only || only.has(n))
+    .sort();
+
+  return names.map((name): Action => {
+    const d = want.get(name);
+    const a = have.get(name);
+    if (d && !a) {
+      return {
+        name,
+        kind: 'create',
+        diff: [],
+        steps: [createArgv(d), startArgv(name)],
+      };
+    }
+    if (!d && a) {
+      return {
+        name,
+        kind: 'remove',
+        diff: [],
+        steps: [['remove', '--name', name]],
+      };
+    }
+    if (!d || !a) throw new Error('unreachable');
+
+    const diff = COMPARED.flatMap((key) => {
+      const from = comparable(a, key);
+      const to = comparable(d, key);
+      return from === to ? [] : [{ key, from, to }];
+    });
+    if (diff.length === 0) {
+      return running.has(name)
+        ? { name, kind: 'unchanged', diff, steps: [] }
+        : { name, kind: 'start', diff, steps: [startArgv(name)] };
+    }
+    // `xng upgrade` only swaps the binary of a running testnet; anything else
+    // that changed (or a standalone, which has no upgrade) needs a new network.
+    if (diff.every((c) => c.key === 'version') && d.type === 'testnet') {
+      return {
+        name,
+        kind: 'upgrade',
+        diff,
+        steps: [
+          ...(running.has(name) ? [] : [startArgv(name)]),
+          [
+            'upgrade',
+            '--name',
+            name,
+            '--version',
+            d.version,
+            '--timeout',
+            timeout,
+          ],
+        ],
+      };
+    }
+    return {
+      name,
+      kind: 'recreate',
+      diff,
+      steps: [['remove', '--name', name], createArgv(d), startArgv(name)],
+    };
+  });
+}
+
+// Removes first (a recreate's first step included) so that moving `root` or a
+// portOffset between networks cannot trip create's own root/port checks, then
+// creates (a recreate's remaining steps included), upgrades, starts. Within a
+// phase, name order.
+export function executionSteps(actions: Action[]): string[][] {
+  // create and recreate share a rank so they interleave by name.
+  const rank = {
+    remove: 0,
+    recreate: 1,
+    create: 1,
+    upgrade: 2,
+    start: 3,
+    unchanged: 4,
+  };
+  const steps = actions
+    .filter((a) => a.kind !== 'unchanged')
+    .sort((x, y) => rank[x.kind] - rank[y.kind] || x.name.localeCompare(y.name))
+    .flatMap((a) => a.steps);
+  return [
+    ...steps
+      .filter((s) => s[0] === 'remove')
+      .sort((x, y) => (x[2] ?? '').localeCompare(y[2] ?? '')),
+    ...steps.filter((s) => s[0] !== 'remove'),
+  ];
+}
+
+const DISPLAY = [
+  ['create', '+'],
+  ['upgrade', '~'],
+  ['recreate', '!'],
+  ['remove', '-'],
+  ['start', '^'],
+  ['unchanged', '='],
+] as const;
+
+function describe(
+  a: Action,
+  spec?: NetworkSpec,
+): { detail: string; note: string } {
+  const changes = a.diff
+    .map((c) => `${c.key} ${String(c.from)} -> ${String(c.to)}`)
+    .join(', ');
+  switch (a.kind) {
+    case 'create':
+      return { detail: spec ? describeSpec(spec) : '', note: '' };
+    case 'upgrade':
+      return {
+        detail: changes,
+        note:
+          a.steps.length > 1
+            ? '(starts it first, then rolling upgrade)'
+            : '(rolling, no downtime)',
+      };
+    case 'recreate':
+      return { detail: changes, note: '(ledger data and keys are wiped)' };
+    case 'remove':
+      return { detail: '', note: '(ledger data and keys are deleted)' };
+    case 'start':
+      return { detail: '(no containers running)', note: '' };
+    default:
+      return { detail: '', note: '' };
+  }
+}
+
+function describeSpec(spec: NetworkSpec): string {
+  if (spec.type === 'standalone') {
+    return `standalone ${spec.version}, portOffset ${spec.portOffset}`;
+  }
+  const flags = [spec.tls && 'tls', spec.root && 'root'].filter(Boolean);
+  return `testnet ${spec.version}, ${spec.validators} validator${spec.validators === 1 ? '' : 's'}, ${spec.domain}${flags.length ? ` (${flags.join(', ')})` : ''}`;
+}
+
+// `desired` only supplies the one-line description of a `create`.
+export function formatPlan(
+  actions: Action[],
+  file = 'xng.yml',
+  desired: NetworkSpec[] = [],
+): string {
+  const counts = DISPLAY.filter(([k]) => k !== 'unchanged')
+    .map(([k]) => [k, actions.filter((a) => a.kind === k).length] as const)
+    .filter(([, n]) => n > 0)
+    .map(([k, n]) => `${n} to ${k}`);
+  const head = `xng apply: ${file}${counts.length ? ` -> ${counts.join(', ')}` : ''}`;
+
+  const specs = new Map(desired.map((s) => [s.name, s]));
+  const rows = DISPLAY.flatMap(([kind, sym]) =>
+    actions
+      .filter((a) => a.kind === kind)
+      .sort((x, y) => x.name.localeCompare(y.name))
+      .map((a) => ({ a, sym, ...describe(a, specs.get(a.name)) })),
+  );
+  const nameW = Math.max(0, ...rows.map((r) => r.a.name.length));
+  const lines = rows.map((r) =>
+    [r.sym, r.a.name.padEnd(nameW), r.a.kind.padEnd(9), r.detail, r.note]
+      .filter((part) => part !== '')
+      .join(' ')
+      .trimEnd(),
+  );
+  return [head, '', ...lines].join('\n');
+}
+
+// Runs each step as a child `xng` (see docker.ts for why). Stops at the first
+// failure: re-running apply recomputes from the real state, so there is no
+// rollback to get wrong. Returns whether every step succeeded.
+export function runPlan(actions: Action[]): boolean {
+  const steps = executionSteps(actions);
+  const label = (s: string[]) => `xng ${s.join(' ')}`;
+  for (const [i, step] of steps.entries()) {
+    console.log(`$ ${label(step)}`);
+    const result = spawnSync(TSX_BIN, [CLI_PATH, ...step], {
+      stdio: 'inherit',
+    });
+    if (result.error || result.status !== 0) {
+      const why = result.error
+        ? result.error.message
+        : `exited with code ${result.status ?? result.signal}`;
+      console.error(
+        `\nfailed at step ${i + 1}/${steps.length}: ${label(step)} (${why}); re-run xng apply to continue`,
+      );
+      return false;
+    }
+  }
+  return true;
+}
