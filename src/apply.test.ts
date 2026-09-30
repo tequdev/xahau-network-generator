@@ -1,7 +1,21 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
-import { executionSteps, formatPlan, parseXngYml, plan } from './apply.ts';
+import {
+  executionSteps,
+  formatPlan,
+  parseXngYml,
+  plan,
+  readWorkspace,
+} from './apply.ts';
 import { DEFAULT_IMPORT_VL_KEYS } from './types.ts';
 import type { NetworkSpec } from './types.ts';
 
@@ -392,4 +406,52 @@ test('xng.example.yml parses (the template cannot drift from the parser)', () =>
     'utf8',
   );
   assert.equal(parseXngYml(text).length, 3);
+});
+
+test('plan with a zone: removing a network outside the zone does not throw', () => {
+  const actions = plan(
+    [],
+    [created({ name: 'old', domain: 'other.example', tls: true })],
+    new Set(),
+  );
+  const out = formatPlan(actions, 'xng.yml', ZONE);
+  assert.match(out, /^- old +remove/m);
+  assert.ok(!/certificate/.test(out));
+});
+
+test('readWorkspace: valid networks are returned, anything else aborts naming the directory', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'xng-ws-'));
+  const put = (name: string, json?: unknown) => {
+    mkdirSync(join(dir, name));
+    if (json !== undefined) {
+      writeFileSync(join(dir, name, 'network.json'), JSON.stringify(json));
+    }
+  };
+  try {
+    writeFileSync(join(dir, 'stray-file'), '');
+    put('good', created({ name: 'good' }));
+    assert.deepEqual(
+      (await readWorkspace(dir)).map((s) => s.name),
+      ['good'],
+    );
+
+    put('empty');
+    await assert.rejects(
+      readWorkspace(dir),
+      /workspace\/empty is not a valid network/,
+    );
+    rmSync(join(dir, 'empty'), { recursive: true });
+
+    put('moved', created({ name: 'other' }));
+    await assert.rejects(
+      readWorkspace(dir),
+      /workspace\/moved .*name is "other"/,
+    );
+    rmSync(join(dir, 'moved'), { recursive: true });
+
+    put('x', { name: 'x' });
+    await assert.rejects(readWorkspace(dir), /workspace\/x .*type must be/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

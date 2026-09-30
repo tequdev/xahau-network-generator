@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process';
+import { readFile, readdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import YAML from 'yaml';
 import { certHosts } from './cloudflare.ts';
 import { CLI_PATH, TSX_BIN } from './docker.ts';
@@ -324,7 +326,7 @@ function describe(a: Action): { detail: string; note: string } {
     case 'remove':
       return { detail: '', note: '(ledger data and keys are deleted)' };
     case 'start':
-      return { detail: '(no containers running)', note: '' };
+      return { detail: '(containers not running)', note: '' };
     default:
       return { detail: '', note: '' };
   }
@@ -368,12 +370,20 @@ function cloudflareBlock(
   const lines = rows.flatMap(({ a }) =>
     (['from', 'to'] as const).flatMap((side) => {
       const spec = a[side];
-      const hosts = spec && certHosts(spec, cf.zone);
       const applies =
         side === 'from'
           ? ['remove', 'recreate'].includes(a.kind)
           : ['create', 'recreate'].includes(a.kind);
-      if (!hosts || !applies) return [];
+      if (!spec || !applies) return [];
+      let hosts: string[] | undefined;
+      try {
+        hosts = certHosts(spec, cf.zone);
+      } catch (err) {
+        // An on-disk network outside the zone has no pack to delete (`xng
+        // remove` only warns then); a desired one was already validated.
+        if (side === 'to') throw err;
+      }
+      if (!hosts) return [];
       const verb = side === 'from' ? 'deleted' : 'ordered';
       return [
         [
@@ -422,6 +432,35 @@ export function formatPlan(
       .trimEnd(),
   );
   return [head, '', ...lines, ...cloudflareBlock(rows, cf)].join('\n');
+}
+
+// Unlike network.ts's otherSpecs (which create's collision checks use and which
+// skips what it cannot read), apply is about to remove or recreate whatever it
+// finds, so a directory that is not a valid network aborts instead of being
+// mistaken for "absent" or for a network that differs.
+export async function readWorkspace(dir = 'workspace'): Promise<NetworkSpec[]> {
+  const specs: NetworkSpec[] = [];
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    try {
+      const spec = JSON.parse(
+        await readFile(join(dir, entry.name, 'network.json'), 'utf8'),
+      );
+      if (spec?.name !== entry.name) {
+        throw new Error(`name is "${spec?.name}", expected "${entry.name}"`);
+      }
+      // network.json files from before --port-offset existed lack it.
+      spec.portOffset ??= 0;
+      validateSpec(spec);
+      specs.push(spec);
+    } catch (err) {
+      throw new Error(
+        `workspace/${entry.name} is not a valid network (${(err as Error).message}); fix or remove that directory by hand before running xng apply`,
+      );
+    }
+  }
+  return specs;
 }
 
 // Runs each step as a child `xng` (see docker.ts for why). Stops at the first

@@ -2,7 +2,13 @@ import { readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { createInterface } from 'node:readline/promises';
 import { Command, InvalidArgumentError, Option } from 'commander';
-import { formatPlan, parseXngYml, plan, runPlan } from './apply.ts';
+import {
+  formatPlan,
+  parseXngYml,
+  plan,
+  readWorkspace,
+  runPlan,
+} from './apply.ts';
 import { fetchBinary, latestReleaseVersion } from './binary.ts';
 import {
   certHosts,
@@ -19,7 +25,7 @@ import {
   proxyDown,
 } from './docker.ts';
 import { report, runChecks } from './doctor.ts';
-import { createNetwork, otherSpecs, resetNetworkData } from './network.ts';
+import { createNetwork, resetNetworkData } from './network.ts';
 import { startPanel } from './panel.ts';
 import {
   DEFAULT_IMPORT_VL_KEYS,
@@ -341,10 +347,14 @@ program
     // read as "nothing is running".
     const running = new Set<string>();
     for (const [project, list] of await listContainers()) {
-      if (list.some((c) => c.state === 'running')) running.add(project);
+      // Every service is long-lived (restart: unless-stopped), so any
+      // container that is not running means the network needs `start`.
+      if (list.length > 0 && list.every((c) => c.state === 'running')) {
+        running.add(project);
+      }
     }
 
-    const actions = plan(desired, await otherSpecs('workspace'), running, {
+    const actions = plan(desired, await readWorkspace(), running, {
       only: opts.network,
       timeout: opts.timeout,
     });

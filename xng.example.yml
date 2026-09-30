@@ -25,18 +25,21 @@
 #   portOffset: integer in 0..14300, standalone only; shifts every
 #               published host port                           (default 0)
 networks:
-  # Root network: wss://xahau-dev.net, https://explorer.xahau-dev.net, ...
-  dev:
-    version: 2026.9.9-dev+3667
-    domain: xahau-dev.net
-    tls: true
-    root: true
-
-  # Same domain, nested under its name: wss://jshooks.xahau-dev.net, ...
+  # Nested under its name: wss://jshooks.xahau-dev.net,
+  # https://explorer.jshooks.xahau-dev.net, ...
   jshooks:
     version: 2026.9.8-jshooks+3640
     domain: xahau-dev.net
     tls: true
+
+  # Root network: wss://xahau-dev.net, https://explorer.xahau-dev.net, ...
+  # With root: true the name ("main") is only used for the workspace/
+  # directory and the container names, never in a hostname.
+  main:
+    version: 2026.9.9-dev+3667
+    domain: xahau-dev.net
+    tls: true
+    root: true
 
   # Standalone on localhost; give each standalone its own portOffset.
   s1:

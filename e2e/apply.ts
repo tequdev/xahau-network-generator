@@ -23,6 +23,8 @@ function run(
 ): { status: number | null; out: string } {
   const result = spawnSync(cmd, args, {
     encoding: 'utf8',
+    // A long create/upgrade log would exceed the 1 MiB default (ENOBUFS).
+    maxBuffer: 64 * 1024 * 1024,
     stdio: [stdin, 'pipe', 'inherit'],
   });
   if (result.error) throw result.error;
@@ -132,6 +134,7 @@ async function main(): Promise<void> {
   assert.equal(apply(['-y']).status, 0);
   assert.ok(!existsSync(`workspace/${NAME}`), 'network directory still exists');
   const ps = run('docker', ['ps', '-a', '--format', '{{.Names}}']);
+  assert.equal(ps.status, 0, 'docker ps failed');
   assert.ok(
     !ps.out.split('\n').some((n) => n.startsWith(`${NAME}-`)),
     'apply1 containers still exist',

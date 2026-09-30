@@ -179,15 +179,15 @@ commands as child processes.
 ```yaml
 # xng.yml
 networks:
-  dev:                        # the key is the network name
-    version: 2026.9.9-dev+3667   # required; "latest" is never resolved implicitly
+  jshooks:                    # the key is the network name
+    version: 2026.9.8-jshooks+3640   # required; "latest" is never resolved implicitly
+    domain: xahau-dev.net
+    tls: true
+  main:
+    version: 2026.9.9-dev+3667
     domain: xahau-dev.net
     tls: true
     root: true
-  jshooks:
-    version: 2026.9.8-jshooks+3640
-    domain: xahau-dev.net
-    tls: true
   s1:
     type: standalone
     version: 2026.6.21-release+3350
@@ -222,8 +222,8 @@ xng apply [-f xng.yml] [-y] [--dry-run] [--timeout <sec>] [--network <name>]...
 | only in `workspace/` | `remove` | `remove` |
 | testnet, only `version` differs | `upgrade` | (`start --wait` if stopped, then) `upgrade` |
 | standalone `version`, or any other key differs | `recreate` | `remove`, `create`, `start --wait` (ledger data and keys are wiped) |
-| identical, no container running | `start` | `start --wait` |
-| identical, running | `unchanged` | nothing |
+| identical, any container not running | `start` | `start --wait` |
+| identical, every container running | `unchanged` | nothing |
 
 Before any step runs, `apply` downloads every `xahaud` version it is about
 to create or upgrade to, so a mistyped version fails before anything is
@@ -238,10 +238,13 @@ will be ordered or deleted.
 
 Things to know:
 
-- `unchanged` means a container is running, not that the network is ready: a
+- `unchanged` means every container is running, not that the network is ready: a
   network whose `start --wait` timed out is `unchanged` on the next run.
 - `apply` owns all of `workspace/`: a network that is not in the file is
   removed, including ones made by hand with `xng create`. Read the plan.
+- A directory under `workspace/` without a valid `network.json` (or whose
+  `name` differs from the directory name) makes `apply` stop before doing
+  anything; fix or remove it by hand.
 - Do not run `xng panel` actions and `xng apply` at the same time.
 
 ### Web control panel
