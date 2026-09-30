@@ -1,0 +1,75 @@
+# Template for `xng apply`.
+#
+#   cp xng.example.yml xng.yml
+#   pnpm xng apply --dry-run     # show the plan, change nothing
+#   pnpm xng apply               # show the plan, ask, then apply
+#   pnpm xng apply --network s1  # plan only s1; nothing else is touched
+#
+# Networks that are in workspace/ but not in this file are REMOVED (ledger
+# data and keys included). `networks: {}` removes every network.
+#
+# Every key is spelled out below with a real value; the comment after it
+# says what else is allowed. Only `version` is required. Unknown keys are
+# an error. `version` is never resolved implicitly: pick one from
+# https://build.xahau.tech (release, dev, or a feature branch build).
+
+networks:
+  # The key is the network name: lowercase letters, digits, "-" and "_",
+  # starting with a letter or digit, at most 63 characters; it becomes the
+  # workspace/ directory, the container prefix and (unless root: true) the
+  # hostname label. A testnet cannot be named explorer, rpc, faucet or vl.
+
+  # A testnet on a real domain, nested under its name:
+  #   wss://jshooks.xahau-dev.net, https://rpc.jshooks.xahau-dev.net,
+  #   https://explorer.jshooks.xahau-dev.net, https://faucet.jshooks.xahau-dev.net
+  jshooks:
+    type: testnet                    # testnet | standalone            (default testnet)
+    version: 2026.9.8-jshooks+3640   # REQUIRED; e.g. 2026.6.21-release+3350, 2026.9.9-dev+3667
+    validators: 3                    # 1, or >= 3 (2 cannot survive a rolling restart; default 3)
+    quorum: 2                        # 1..validators (default min(ceil(0.8*n), n-1): 3->2, 5->4, 1->1)
+    networkId: 21339                 # integer >= 0                    (default 21339)
+    domain: xahau-dev.net            # lowercase letters, digits, ".", "-" (default 127.0.0.1.nip.io)
+    tls: true                        # true | false: https/wss URLs; needs `xng proxy up --acme-email`
+                                     # or XNG_CF_ZONE (Cloudflare) for real certificates (default false)
+    root: false                      # true | false, testnet only     (default false)
+
+  # The root network of the same domain, served on the bare domain:
+  #   wss://xahau-dev.net, https://explorer.xahau-dev.net, https://faucet.xahau-dev.net
+  # With root: true the name ("main") is only used for the workspace/
+  # directory and the container names, never in a hostname. One root
+  # network per domain.
+  main:
+    type: testnet
+    version: 2026.9.9-dev+3667
+    validators: 5                    # more validators: quorum default becomes 4
+    quorum: 4
+    networkId: 21339
+    domain: xahau-dev.net
+    tls: true
+    root: true
+
+  # A plain local testnet with every default: http://explorer.local.127.0.0.1.nip.io,
+  # ws://local.127.0.0.1.nip.io (127.0.0.1.nip.io resolves every subdomain
+  # to 127.0.0.1, so this works with no DNS or TLS setup).
+  local:
+    type: testnet
+    version: 2026.6.21-release+3350
+    validators: 1                    # smallest testnet; quorum is then 1
+    quorum: 1
+    networkId: 21339
+    domain: 127.0.0.1.nip.io
+    tls: false
+    root: false
+
+  # A standalone node (no consensus, ledgers close on demand), published
+  # directly on host ports: rpc admin 5005, rpc 5007, ws admin 6006,
+  # ws 6008, peer 51235, explorer 4000, each shifted by portOffset.
+  s1:
+    type: standalone
+    version: 2026.6.21-release+3350
+    validators: 1                    # always 1 for standalone
+    quorum: 1                        # always 1 for standalone
+    networkId: 21339
+    portOffset: 4000                 # 0..14300, standalone only; every standalone needs
+                                     # its own (0 -> 5005/6008/4000..., 4000 -> 9005/10008/8000...)
+                                     # `domain`, `tls` and `root` do not apply to standalone

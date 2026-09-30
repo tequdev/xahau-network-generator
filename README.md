@@ -27,6 +27,10 @@ pnpm xng upgrade --name t1 --version 2026.9.9-dev+3667
 
 # make every validator vote for (or, with --reject, veto) an amendment
 pnpm xng vote --name t1 --amendment fixSomething
+
+# declare all networks in xng.yml and let xng work out the difference
+pnpm xng apply --dry-run
+pnpm xng apply
 ```
 
 `reset` = stop, wipe ledger data, start again from genesis.
@@ -165,6 +169,84 @@ Non-Enterprise zones have a cap on advanced certificate packs; check
 pack for a throwaway network name (needs `XNG_CF_ZONE` and cf auth). CI runs
 it when the `CLOUDFLARE_API_TOKEN` secret and `XNG_CF_ZONE` variable are set.
 
+### Declarative networks: xng apply
+
+`xng apply` makes `workspace/` match a file listing the networks you want,
+like `terraform plan`/`apply`: it prints the difference, asks for
+confirmation, then runs the matching `xng create|start|upgrade|remove`
+commands as child processes.
+
+```yaml
+# xng.yml
+networks:
+  jshooks:                    # the key is the network name
+    version: 2026.9.8-jshooks+3640   # required; "latest" is never resolved implicitly
+    domain: xahau-dev.net
+    tls: true
+  main:
+    version: 2026.9.9-dev+3667
+    domain: xahau-dev.net
+    tls: true
+    root: true
+  s1:
+    type: standalone
+    version: 2026.6.21-release+3350
+    portOffset: 4000
+```
+
+[`xng.example.yml`](xng.example.yml) is a commented template listing every
+key (`cp xng.example.yml xng.yml`).
+
+The keys are those of `workspace/<name>/network.json`: `type` (default
+`testnet`), `version`, `validators` (3), `quorum`, `networkId` (21339),
+`domain` (`127.0.0.1.nip.io`), `tls` (false), `root` (false), `portOffset`
+(0). Defaults are the same as `xng create`; unknown keys are an error. The
+whole file is validated (including `XNG_CF_ZONE` certificate hosts) before
+anything runs. `networks: {}` is valid and means "remove everything".
+
+```
+xng apply [-f xng.yml] [-y] [--dry-run] [--timeout <sec>] [--network <name>]...
+```
+
+| flag | meaning |
+| --- | --- |
+| `-f, --file <path>` | desired networks (default `xng.yml`) |
+| `-y, --yes` | do not ask `Apply? [y/N]` (required without a TTY) |
+| `--dry-run` | print the plan and exit, touching nothing |
+| `--timeout <sec>` | readiness timeout for each `start --wait` / `upgrade` (default 300) |
+| `--network <name>` | plan only this network (repeatable); the rest are neither created nor removed |
+
+| state | action | what runs |
+| --- | --- | --- |
+| only in the file | `create` | `create`, then `start --wait` |
+| only in `workspace/` | `remove` | `remove` |
+| testnet, only `version` differs | `upgrade` | (`start --wait` if stopped, then) `upgrade` |
+| standalone `version`, or any other key differs | `recreate` | `remove`, `create`, `start --wait` (ledger data and keys are wiped) |
+| identical, any container not running | `start` | `start --wait` |
+| identical, every container running | `unchanged` | nothing |
+
+Before any step runs, `apply` downloads every `xahaud` version it is about
+to create or upgrade to, so a mistyped version fails before anything is
+removed. Removes run first, then creates, upgrades and starts, one step at a
+time; the first failure stops the run. Running `apply` again recomputes from
+the real state, so there is no rollback.
+
+With `XNG_CF_ZONE` set, the plan also lists the Cloudflare certificate packs
+that will be ordered (create, recreate) or deleted (remove, recreate); when it
+is not set and a `tls` testnet is affected, the plan warns that no certificate
+will be ordered or deleted.
+
+Things to know:
+
+- `unchanged` means every container is running, not that the network is ready: a
+  network whose `start --wait` timed out is `unchanged` on the next run.
+- `apply` owns all of `workspace/`: a network that is not in the file is
+  removed, including ones made by hand with `xng create`. Read the plan.
+- A directory under `workspace/` without a valid `network.json` (or whose
+  `name` differs from the directory name) makes `apply` stop before doing
+  anything; fix or remove it by hand.
+- Do not run `xng panel` actions and `xng apply` at the same time.
+
 ### Web control panel
 
 `pnpm xng panel` serves a small page (`src/panel.html`) that lists every
@@ -213,4 +295,5 @@ pnpm format   # biome format --write
 pnpm test     # node:test over src/**/*.test.ts
 pnpm e2e      # end-to-end check against a running network
 pnpm e2e:restart --name t1 -- <reboot-simulating command>  # e.g. CI uses `sudo systemctl restart docker`
+pnpm e2e:apply --version <ver> --upgrade-to <ver>  # xng apply end to end; needs an empty workspace/ (aborts otherwise)
 ```
