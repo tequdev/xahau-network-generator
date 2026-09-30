@@ -169,6 +169,27 @@ test('ensureCertificate: reuses an existing live pack (idempotent start)', async
   );
 });
 
+test('ensureCertificate: a pack missing a requested host is not reused', async () => {
+  const nested = { ...spec, domain: 'dev.example.com' };
+  const cf = fakeCf(
+    [
+      {
+        id: 'p1',
+        type: 'advanced',
+        status: 'active',
+        hosts: ['example.com', '*.jshooks.dev.example.com'],
+      },
+    ],
+    ['active'],
+  );
+  await ensureCertificate(
+    nested,
+    { ...cfg, zone: 'example.com' },
+    { ...quiet, run: cf.run },
+  );
+  assert.ok(cf.calls.some((c) => c[2] === 'create'));
+});
+
 test('ensureCertificate: a timed-out pack is replaced, a failing one throws', async () => {
   const cf = fakeCf(
     [

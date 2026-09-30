@@ -40,7 +40,9 @@ reboot the network (and the shared Traefik) comes back on its own and each
 node resumes from its last validated ledger (`--load`; standalone
 `-a --load`), never from genesis — `xng reset` is the only thing that goes
 back to genesis. `xng start`/`xng reset` re-render compose.yml, so networks
-created before this existed pick it up on their next start.
+created before this existed pick it up on their next start. xahaud.cfg and
+keys are generated at create time only, so a network created by an older xng
+keeps its config; `xng remove` + `xng create` picks up config changes.
 
 `upgrade` (testnet only) replaces the xahaud binary one node at a time —
 `node` first, then each validator in order — waiting for each to rejoin
@@ -282,10 +284,10 @@ testnet's services join the same shared `proxy` network, a bare service name
 would be ambiguous between testnets running side by side.
 
 **standalone** networks are unaffected by Traefik: they publish their ports
-directly on `localhost` exactly as before (rpc admin 5005, rpc public 5007,
-ws admin 6006, ws public 6008, peer 51235, explorer 4000). `--port-offset N`
-shifts every one of those ports so several standalone networks can run side
-by side.
+directly on the host, bound to `127.0.0.1` only since the admin ports trust
+every client (rpc admin 5005, rpc public 5007, ws admin 6006, ws public 6008,
+peer 51235, explorer 4000). `--port-offset N` shifts every one of those ports
+so several standalone networks can run side by side.
 
 ## Development
 

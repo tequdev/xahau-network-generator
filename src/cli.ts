@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { createInterface } from 'node:readline/promises';
@@ -262,11 +263,14 @@ program
   .description('docker compose down -v + delete the network directory')
   .requiredOption('--name <name>', 'network name', parseName)
   .action(async (opts) => {
-    try {
+    // A failed teardown must abort: deleting the directory would orphan the
+    // containers/volumes. Only a half-created network (no compose.yml) skips it.
+    if (existsSync(`workspace/${opts.name}/compose.yml`)) {
       compose(opts.name, ['down', '-v']);
-    } catch (err) {
-      // A half-created network has no compose.yml; still remove the directory.
-      console.warn(err instanceof Error ? err.message : err);
+    } else {
+      console.warn(
+        `network "${opts.name}" is half-created (no compose.yml); removing the directory only`,
+      );
     }
     // Before deleting the directory: network.json is what says which
     // certificate pack belongs to this network.

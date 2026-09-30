@@ -66,3 +66,19 @@ test('validators keep 256 ledgers, node keeps 10000', () => {
   assert.ok(node.includes('online_delete=10000\n'));
   assert.ok(node.includes('[ledger_history]\n10000\n'));
 });
+
+test('admin ports bind 127.0.0.1 on testnet, 0.0.0.0 on standalone; public stays open', () => {
+  const section = (cfg: string, name: string) =>
+    cfg.split(/\n(?=\[)/).find((s) => s.startsWith(`[${name}]`)) ?? '';
+  const tn = renderXahaudCfg(cfgOpts);
+  for (const name of ['port_rpc_admin_local', 'port_ws_admin_local']) {
+    const s = section(tn, name);
+    assert.match(s, /ip = 127\.0\.0\.1/);
+    assert.match(s, /admin = 127\.0\.0\.1/);
+  }
+  assert.match(section(tn, 'port_rpc_public'), /ip = 0\.0\.0\.0/);
+  const sa = renderXahaudCfg({ ...cfgOpts, type: 'standalone' });
+  for (const name of ['port_rpc_admin_local', 'port_ws_admin_local']) {
+    assert.match(section(sa, name), /admin = 0\.0\.0\.0/);
+  }
+});

@@ -1,8 +1,6 @@
-import { existsSync } from 'node:fs';
 import {
   chmod,
   copyFile,
-  cp,
   link,
   mkdir,
   readFile,
@@ -11,7 +9,6 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   amendmentHash,
   commitFromReleaseinfo,
@@ -34,13 +31,12 @@ import {
   VL_HOST,
   containerName,
   explorerHostPort,
+  hostBase,
   hostPorts,
   nodeName,
   ports,
   validateSpec,
 } from './types.ts';
-
-const REPO_FAUCET_DIR = fileURLToPath(new URL('../faucet', import.meta.url));
 
 export async function createNetwork(
   spec: NetworkSpec,
@@ -48,16 +44,23 @@ export async function createNetwork(
 ): Promise<string> {
   validateSpec(spec);
   const dir = join(outDir, spec.name);
-  if (existsSync(dir)) {
-    throw new Error(
-      `network directory "${dir}" already exists; run \`xng remove --name ${spec.name}\` first`,
-    );
-  }
   // Testnet publishes nothing (routed through Traefik instead), so only
   // standalone networks can collide on host ports.
   if (spec.type === 'standalone') await assertPortsFree(spec, outDir);
-  if (spec.root) await assertRootFree(spec, outDir);
-  await mkdir(dir, { recursive: true });
+  if (spec.type === 'testnet') await assertHostBaseFree(spec, outDir);
+  // Non-recursive mkdir is the atomic claim: two concurrent creates of one
+  // name can't both pass an existsSync check.
+  try {
+    await mkdir(outDir, { recursive: true });
+    await mkdir(dir);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+      throw new Error(
+        `network directory "${dir}" already exists; run \`xng remove --name ${spec.name}\` first`,
+      );
+    }
+    throw err;
+  }
 
   // Anything failing past this point (binary 404, amendment source fetch,
   // ...) would otherwise leave a directory with only network.json in it,
@@ -127,7 +130,9 @@ async function populateNetwork(spec: NetworkSpec, dir: string): Promise<void> {
   await mkdir(join(dir, 'nodes'), { recursive: true });
 
   if (spec.type === 'testnet') {
-    await mkdir(join(dir, 'keys'), { recursive: true });
+    // Owner-only: the dir mode covers every key file, since workspace/ may
+    // sit on a shared machine.
+    await mkdir(join(dir, 'keys'), { recursive: true, mode: 0o700 });
     await mkdir(join(dir, 'vl'), { recursive: true });
 
     const validatorKeysList = [];
@@ -195,7 +200,10 @@ async function populateNetwork(spec: NetworkSpec, dir: string): Promise<void> {
         vlUrl: `http://${containerName(spec, VL_HOST)}/vl.json`,
         importVlKeys: spec.importVlKeys,
       } satisfies XahaudCfgOptions;
-      await writeFile(join(nodeDir, 'xahaud.cfg'), renderXahaudCfg(cfgOpts));
+      // Holds the validator token.
+      await writeFile(join(nodeDir, 'xahaud.cfg'), renderXahaudCfg(cfgOpts), {
+        mode: 0o600,
+      });
       await writeFile(
         join(nodeDir, 'validators.txt'),
         renderValidatorsTxt(cfgOpts),
@@ -258,27 +266,13 @@ async function populateNetwork(spec: NetworkSpec, dir: string): Promise<void> {
     );
   }
 
-  // 5. faucet (testnet only)
-  if (spec.type === 'testnet') {
-    if (existsSync(REPO_FAUCET_DIR)) {
-      await cp(REPO_FAUCET_DIR, join(dir, 'faucet'), {
-        recursive: true,
-        filter: (src) => !src.split('/').includes('node_modules'),
-      });
-    } else {
-      console.warn(
-        `warning: repo faucet/ directory not found at ${REPO_FAUCET_DIR}; skipping faucet copy`,
-      );
-    }
-  }
-
-  // 6. compose
+  // 5. compose
   await writeFile(join(dir, 'compose.yml'), renderCompose(spec));
 }
 
 // Deletes each node's ledger data (nodedb under nodes/*/db) so the network
 // restarts from genesis on next `compose up`, while keeping everything else
-// (xahaud.cfg, validators.txt, genesis.json, keys/, vl/, faucet/) in place.
+// (xahaud.cfg, validators.txt, genesis.json, keys/, vl/) in place.
 export async function resetNetworkData(dir: string): Promise<void> {
   const nodesDir = join(dir, 'nodes');
   const nodeDirs = await readdir(nodesDir).catch(() => []);
@@ -290,7 +284,12 @@ export async function resetNetworkData(dir: string): Promise<void> {
   }
 }
 
-export async function otherSpecs(outDir: string): Promise<NetworkSpec[]> {
+// Every network under outDir except `self`, so a duplicate name fails with
+// the mkdir "already exists" error rather than colliding with itself.
+export async function otherSpecs(
+  outDir: string,
+  self: string,
+): Promise<NetworkSpec[]> {
   let names: string[] = [];
   try {
     names = await readdir(outDir);
@@ -299,6 +298,7 @@ export async function otherSpecs(outDir: string): Promise<NetworkSpec[]> {
   }
   const specs: NetworkSpec[] = [];
   for (const name of names) {
+    if (name === self) continue;
     try {
       const spec = JSON.parse(
         await readFile(join(outDir, name, 'network.json'), 'utf8'),
@@ -311,13 +311,14 @@ export async function otherSpecs(outDir: string): Promise<NetworkSpec[]> {
   return specs;
 }
 
-// A root network owns `<sub>.<domain>` outright, so two of them on one
-// domain would register identical Traefik Host() rules.
-async function assertRootFree(spec: NetworkSpec, outDir: string) {
-  for (const other of await otherSpecs(outDir)) {
-    if (other.root && other.domain === spec.domain) {
+// Two testnets with the same hostBase would register identical Traefik
+// Host() rules. Not only root-vs-root: a non-root `t1` on example.com and a
+// root network on t1.example.com collide too.
+async function assertHostBaseFree(spec: NetworkSpec, outDir: string) {
+  for (const other of await otherSpecs(outDir, spec.name)) {
+    if (other.type === 'testnet' && hostBase(other) === hostBase(spec)) {
       throw new Error(
-        `network "${other.name}" already serves the bare domain ${spec.domain}; remove it or drop --root`,
+        `network "${other.name}" already serves ${hostBase(spec)} (its routed hostnames would be identical); pick another name/domain or drop --root`,
       );
     }
   }
@@ -331,7 +332,7 @@ async function assertPortsFree(spec: NetworkSpec, outDir: string) {
     ...Object.values(hostPorts(spec)),
     explorerHostPort(spec),
   ]);
-  for (const other of await otherSpecs(outDir)) {
+  for (const other of await otherSpecs(outDir, spec.name)) {
     if (other.type !== 'standalone') continue;
     const otherPorts = [
       ...Object.values(hostPorts(other)),

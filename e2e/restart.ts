@@ -56,6 +56,10 @@ async function main(): Promise<void> {
   );
   console.log(`[e2e:restart] validated ledger before: seq ${before}`);
 
+  const beforeHash = (await rpc(ep.rpc, 'ledger', { ledger_index: before }))
+    .ledger.ledger_hash;
+  assert.equal(typeof beforeHash, 'string', `no hash for ledger ${before}`);
+
   const container = containerName(spec, nodeName(spec, 0));
   const startedBefore = startedAt(container);
   console.log(`[e2e:restart] ${container} StartedAt before: ${startedBefore}`);
@@ -81,11 +85,36 @@ async function main(): Promise<void> {
     'node container was not restarted by the reboot-simulating command (restart policy not applied?)',
   );
 
-  const after = (await rpc(ep.rpc, 'server_info')).info.validated_ledger?.seq;
-  assert.ok(
-    typeof after === 'number' && after >= before,
-    `validated_ledger.seq went from ${before} to ${after}: network restarted from genesis instead of resuming from its validated ledger`,
+  // `full` right after --load only means the old ledger was reloaded; the
+  // reboot can catch one validator a ledger ahead of the rest, and the
+  // network then spends up to a minute agreeing on the next ledger. Resumed
+  // means a new ledger validated on top of the old one, so wait for that
+  // before checking history (and before the next `pnpm e2e` submits).
+  const deadline = Date.now() + timeoutSec * 1000;
+  let after: number | undefined;
+  for (;;) {
+    after = (await rpc(ep.rpc, 'server_info')).info.validated_ledger?.seq;
+    assert.ok(
+      typeof after === 'number' && after >= before,
+      `validated_ledger.seq went from ${before} to ${after}: network restarted from genesis instead of resuming from its validated ledger`,
+    );
+    // Standalone only closes ledgers on ledger_accept, so reload is enough.
+    if (spec.type === 'standalone' || after > before) break;
+    assert.ok(
+      Date.now() < deadline,
+      `validated_ledger.seq stayed at ${before} after the reboot: consensus did not resume`,
+    );
+    console.log(`[e2e:restart] waiting for a ledger past ${before}...`);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+  const afterHash = (await rpc(ep.rpc, 'ledger', { ledger_index: before }))
+    .ledger.ledger_hash;
+  assert.equal(
+    afterHash,
+    beforeHash,
+    `ledger ${before} hash changed: history was not resumed`,
   );
+  console.log(`[e2e:restart] ledger ${before} hash unchanged: ${afterHash}`);
   console.log(
     `[e2e:restart] resumed from validated ledger: seq ${before} -> ${after}`,
   );

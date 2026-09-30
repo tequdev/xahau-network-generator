@@ -72,8 +72,19 @@ async function currentSeq(
   service: string,
   isPrimary: boolean,
 ): Promise<number> {
-  const info = await fetchInfo(spec, service, isPrimary);
-  return info.validated_ledger?.seq ?? 0;
+  try {
+    const info = await fetchInfo(spec, service, isPrimary);
+    return info.validated_ledger?.seq ?? 0;
+  } catch (err) {
+    // A broken binary from a previous upgrade must not block upgrading back.
+    // A node started with --load reports its old validated seq at once, so a
+    // silent validator must advance past `node`'s current ledger instead.
+    const message = err instanceof Error ? err.message : String(err);
+    console.log(
+      `[${spec.name}] ${service}: not answering (${message}); upgrading anyway`,
+    );
+    return isPrimary ? 0 : currentSeq(spec, nodeName(spec, 0), true);
+  }
 }
 
 // Polls `service` every 2s until it reports the new version, a healthy

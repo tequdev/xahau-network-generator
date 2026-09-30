@@ -47,13 +47,13 @@ test('compose: standalone publishes host ports directly and has no Traefik/proxy
   // biome-ignore lint/suspicious/noExplicitAny: compose.yml service shape has no fixed schema here
   const doc = parse(renderCompose(standaloneSpec)) as any;
   assert.deepEqual(doc.services.node.ports, [
-    '5005:5005',
-    '5007:5007',
-    '6006:6006',
-    '6008:6008',
-    '51235:51235',
+    '127.0.0.1:5005:5005',
+    '127.0.0.1:5007:5007',
+    '127.0.0.1:6006:6006',
+    '127.0.0.1:6008:6008',
+    '127.0.0.1:51235:51235',
   ]);
-  assert.deepEqual(doc.services.explorer.ports, ['4000:4000']);
+  assert.deepEqual(doc.services.explorer.ports, ['127.0.0.1:4000:4000']);
   assert.equal(doc.services.node.labels, undefined);
   assert.equal(doc.services.node.networks, undefined);
   assert.equal(doc.networks, undefined);

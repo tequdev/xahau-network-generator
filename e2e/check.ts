@@ -100,7 +100,7 @@ async function checkTestnet(
   assert.equal(
     first.status,
     200,
-    'faucet /accounts (generated) did not return 200',
+    `faucet /accounts (generated) did not return 200: ${await first.clone().text()}`,
   );
   const firstBody = await first.json();
   assert.ok(
@@ -127,7 +127,7 @@ async function checkTestnet(
   assert.equal(
     second.status,
     200,
-    'faucet /accounts (top-up) did not return 200',
+    `faucet /accounts (top-up) did not return 200: ${await second.clone().text()}`,
   );
   const secondBody = await second.json();
   assert.ok(

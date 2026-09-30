@@ -11,6 +11,15 @@ const { Client, ECDSA, Wallet, isValidClassicAddress, xahToDrops } = xahau;
 const WS_URL = process.env.XAHAU_WS_URL ?? 'ws://localhost:6006';
 const PORT = Number(process.env.PORT ?? 8080);
 const DEFAULT_XRP_AMOUNT = process.env.DEFAULT_XRP_AMOUNT ?? '1000';
+const MAX_XRP_AMOUNT = Number(process.env.MAX_XRP_AMOUNT ?? '10000');
+if (!Number.isFinite(MAX_XRP_AMOUNT) || MAX_XRP_AMOUNT <= 0) {
+  console.error('[faucet] MAX_XRP_AMOUNT must be a positive number');
+  process.exit(1);
+}
+// A flood would otherwise queue requests that each time out after 60 s.
+// ponytail: global counter; per-IP limits if abuse ever matters.
+const MAX_IN_FLIGHT = 20;
+let inFlight = 0;
 
 const FAUCET_KEY_FILE = process.env.FAUCET_KEY_FILE;
 if (!FAUCET_KEY_FILE) {
@@ -173,13 +182,31 @@ async function handleAccounts(
   }
 
   const amount = String(body.xrpAmount ?? DEFAULT_XRP_AMOUNT);
+  let drops: string;
+  try {
+    drops = xahToDrops(amount);
+  } catch (err) {
+    sendJson(res, 400, {
+      error: `invalid xrpAmount: ${(err as Error).message}`,
+    });
+    return;
+  }
+  if (
+    BigInt(drops) <= 0n ||
+    BigInt(drops) > BigInt(MAX_XRP_AMOUNT) * 1_000_000n
+  ) {
+    sendJson(res, 400, {
+      error: `xrpAmount must be in (0, ${MAX_XRP_AMOUNT}]`,
+    });
+    return;
+  }
 
   const next = submitQueue.then(async () => {
     const tx = {
       TransactionType: 'Payment' as const,
       Account: wallet.classicAddress,
       Destination: destination,
-      Amount: xahToDrops(amount),
+      Amount: drops,
     };
     const submitResult = await client.submitAndWait(tx, {
       wallet,
@@ -207,7 +234,24 @@ async function handleAccounts(
       setTimeout(() => reject(new Error('payment timed out')), 60_000).unref(),
     ),
   ]);
-  const result = await guarded;
+  let result: Awaited<typeof next>;
+  try {
+    result = await guarded;
+  } catch (err) {
+    // The payment may still complete (timeout, node restart mid-flight), so a
+    // generated wallet's secret goes back with the error.
+    if (!generatedSecret) throw err;
+    console.error(`[faucet] /accounts error: ${(err as Error).message}`);
+    sendJson(res, 500, {
+      error: (err as Error).message,
+      account: {
+        classicAddress: destination,
+        address: destination,
+        secret: generatedSecret,
+      },
+    });
+    return;
+  }
 
   console.log(
     `[faucet] funded ${destination} with ${amount} XRP (hash ${result.hash})`,
@@ -253,10 +297,19 @@ const server = createServer((req, res) => {
       sendJson(res, 503, { error: 'faucet not ready' });
       return;
     }
-    handleAccounts(req, res).catch((err) => {
-      console.error(`[faucet] /accounts error: ${(err as Error).message}`);
-      sendJson(res, 500, { error: (err as Error).message });
-    });
+    if (inFlight >= MAX_IN_FLIGHT) {
+      sendJson(res, 503, { error: 'faucet busy, retry later' });
+      return;
+    }
+    inFlight++;
+    handleAccounts(req, res)
+      .catch((err) => {
+        console.error(`[faucet] /accounts error: ${(err as Error).message}`);
+        sendJson(res, 500, { error: (err as Error).message });
+      })
+      .finally(() => {
+        inFlight--;
+      });
     return;
   }
 
