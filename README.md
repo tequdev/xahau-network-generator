@@ -7,6 +7,7 @@ CLI that generates and runs disposable Xahau `testnet` (N validators) or
 
 ```sh
 pnpm install
+pnpm xng doctor   # docker, compose, build.xahau.tech reachable? optional features (proxy, TLS, Cloudflare) on/off
 
 # create a network (downloads/caches the xahaud binary, derives amendments,
 # generates keys/genesis/config into workspace/<name>/)

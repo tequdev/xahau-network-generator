@@ -11,7 +11,7 @@ const TRAEFIK_COMPOSE = fileURLToPath(
 const TRAEFIK_ACME_COMPOSE = fileURLToPath(
   new URL('../traefik/compose.acme.yml', import.meta.url),
 );
-const TRAEFIK_ACME_ENV = fileURLToPath(
+export const TRAEFIK_ACME_ENV = fileURLToPath(
   new URL('../traefik/acme.env', import.meta.url),
 );
 
