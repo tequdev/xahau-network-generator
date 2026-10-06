@@ -9,6 +9,7 @@ import {
   defaultQuorum,
   explorerHostPort,
   hostPorts,
+  nodeConfigLines,
   validateSpec,
 } from './types.ts';
 import type { NetworkSpec } from './types.ts';
@@ -28,6 +29,7 @@ const COMPARED = [
   'tls',
   'root',
   'portOffset',
+  'nodeConfig',
 ] as const;
 const YML_KEYS: readonly string[] = COMPARED;
 
@@ -93,6 +95,9 @@ function toSpec(name: string, raw: unknown): NetworkSpec {
     portOffset: (entry.portOffset ?? 0) as number,
     importVlKeys: DEFAULT_IMPORT_VL_KEYS,
   };
+  if (entry.nodeConfig !== undefined) {
+    spec.nodeConfig = nodeConfigLines(entry.nodeConfig);
+  }
   validateSpec(spec);
   return spec;
 }
@@ -137,8 +142,10 @@ export type Action = {
   to?: NetworkSpec; // desired spec (absent for remove)
 };
 
-// Older network.json files have no `root`; treat a missing one as false.
+// Older network.json files have no `root` or `nodeConfig`; treat a missing one
+// as false / {} (nodeConfig as JSON so `===` compares it by value).
 function comparable(spec: NetworkSpec, key: (typeof COMPARED)[number]) {
+  if (key === 'nodeConfig') return JSON.stringify(spec.nodeConfig ?? {});
   return key === 'root' ? !!spec.root : spec[key];
 }
 
@@ -163,6 +170,9 @@ function createArgv(spec: NetworkSpec): string[] {
     ...(spec.root ? ['--root'] : []),
     '--port-offset',
     String(spec.portOffset),
+    ...(spec.nodeConfig
+      ? ['--node-config', JSON.stringify(spec.nodeConfig)]
+      : []),
   ];
 }
 

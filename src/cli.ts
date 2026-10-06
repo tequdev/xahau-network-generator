@@ -34,6 +34,7 @@ import {
   NAME_RE,
   defaultQuorum,
   endpoints,
+  nodeConfigLines,
   nodeName,
 } from './types.ts';
 import type { NetworkSpec } from './types.ts';
@@ -172,6 +173,10 @@ program
     intArg(0, 14300),
     0,
   )
+  .option(
+    '--node-config <json>',
+    'node only: extra/overriding xahaud.cfg sections as JSON, {"section": "line" | ["lines"] | {"key": "value"}}',
+  )
   .action(async (opts) => {
     // A standalone is always one validator; validateSpec (below) covers the
     // rest, so `create` and `apply` accept exactly the same specs.
@@ -192,6 +197,17 @@ program
       portOffset: opts.portOffset,
       importVlKeys: DEFAULT_IMPORT_VL_KEYS,
     };
+    if (opts.nodeConfig !== undefined) {
+      let raw: unknown;
+      try {
+        raw = JSON.parse(opts.nodeConfig);
+      } catch (err) {
+        throw new Error(
+          `--node-config: invalid JSON: ${(err as Error).message}`,
+        );
+      }
+      spec.nodeConfig = nodeConfigLines(raw);
+    }
 
     // Fail before generating anything if the domain is outside the zone.
     const cfg = cfConfigFromEnv();

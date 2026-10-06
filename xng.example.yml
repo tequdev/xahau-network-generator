@@ -60,6 +60,19 @@ networks:
     domain: 127.0.0.1.nip.io
     tls: false
     root: false
+    # Extra/overriding xahaud.cfg sections for `node` only; validators are
+    # unaffected (so validator-only sections such as [voting] do nothing
+    # here). A section xng already writes is replaced whole, any other is
+    # appended. Changing it recreates the network.
+    nodeConfig:
+      ledger_history: 50000          # one line (xng writes 10000)
+      node_db:                       # a mapping: "key = value" lines
+        type: NuDB
+        path: db/nudb
+        advisory_delete: 0
+        online_delete: 50000         # must be >= ledger_history
+      rpc_startup:                   # a list: one line each
+        - '{ "command": "log_level", "severity": "debug" }'
 
   # A standalone node (no consensus, ledgers close on demand), published
   # directly on host ports: rpc admin 5005, rpc 5007, ws admin 6006,

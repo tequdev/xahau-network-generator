@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULT_IMPORT_VL_KEYS, defaultQuorum, endpoints } from './types.ts';
+import {
+  DEFAULT_IMPORT_VL_KEYS,
+  defaultQuorum,
+  endpoints,
+  nodeConfigLines,
+  validateSpec,
+} from './types.ts';
 import type { NetworkSpec } from './types.ts';
 
 test('defaultQuorum: single validator stays 1', () => {
@@ -35,4 +41,53 @@ test('endpoints: root testnet uses the bare domain, named testnet nests under it
   );
   assert.equal(endpoints(spec).ws, 'wss://dev.xahau-dev.net');
   assert.equal(endpoints(spec).faucet, 'https://faucet.dev.xahau-dev.net');
+});
+
+test('nodeConfigLines: scalar, list and mapping become lines', () => {
+  assert.deepEqual(
+    nodeConfigLines({
+      node_size: 'huge',
+      ledger_history: 50000,
+      rpc_startup: ['a', 'b'],
+      voting: { reference_fee: 100, flag: true },
+    }),
+    {
+      node_size: ['huge'],
+      ledger_history: ['50000'],
+      rpc_startup: ['a', 'b'],
+      voting: ['reference_fee = 100', 'flag = true'],
+    },
+  );
+});
+
+test('nodeConfigLines: rejects nested values, bad section names and multi-line scalars', () => {
+  assert.throws(() => nodeConfigLines([]), /nodeConfig must be a mapping/);
+  assert.throws(() => nodeConfigLines({ a: { b: { c: 1 } } }), /nodeConfig/);
+  assert.throws(() => nodeConfigLines({ a: [['x']] }), /nodeConfig/);
+  assert.throws(() => nodeConfigLines({ a: null }), /nodeConfig/);
+  assert.throws(() => nodeConfigLines({ '': 'x' }), /section name/);
+  assert.throws(() => nodeConfigLines({ 'a]': 'x' }), /section name/);
+  assert.throws(() => nodeConfigLines({ 'a\nb': 'x' }), /section name/);
+  assert.throws(() => nodeConfigLines({ a: 'x\ny' }), /newline/);
+});
+
+test('validateSpec: nodeConfig must map sections to string lists', () => {
+  const spec: NetworkSpec = {
+    name: 'a',
+    type: 'testnet',
+    version: 'x',
+    validators: 1,
+    quorum: 1,
+    networkId: 1,
+    domain: 'a.b',
+    tls: false,
+    portOffset: 0,
+    importVlKeys: [],
+  };
+  validateSpec({ ...spec, nodeConfig: { s: ['l'] } });
+  const bad = (nodeConfig: unknown) =>
+    validateSpec({ ...spec, nodeConfig: nodeConfig as never });
+  assert.throws(() => bad({ s: 'l' }), /^Error: nodeConfig/);
+  assert.throws(() => bad({ s: [1] }), /^Error: nodeConfig/);
+  assert.throws(() => bad([]), /^Error: nodeConfig/);
 });

@@ -9,134 +9,137 @@ export type XahaudCfgOptions = {
   vlKeyHex?: string; // testnet only
   vlUrl?: string; // testnet only
   importVlKeys: string[];
+  nodeConfig?: Record<string, string[]>; // `node` only; replaces/extends sections
 };
 
 export function renderXahaudCfg(o: XahaudCfgOptions): string {
-  const lines: string[] = [];
+  const sections: [string, string[]][] = [];
   // On testnet every node's admin port is otherwise reachable from every
   // container on the shared `proxy` network. The xahaud CLI runs inside the
   // container and connects to this ip. Standalone publishes the admin port to
   // the host (ledger_accept), which a container-loopback bind can't serve.
   const adminIp = o.type === 'testnet' ? '127.0.0.1' : '0.0.0.0';
 
-  lines.push('[server]');
-  lines.push('port_rpc_admin_local');
-  lines.push('port_rpc_public');
-  lines.push('port_ws_admin_local');
-  lines.push('port_ws_public');
-  lines.push('port_peer');
-  lines.push('');
+  sections.push([
+    'server',
+    [
+      'port_rpc_admin_local',
+      'port_rpc_public',
+      'port_ws_admin_local',
+      'port_ws_public',
+      'port_peer',
+    ],
+  ]);
 
-  lines.push('[port_rpc_admin_local]');
-  lines.push(`port = ${o.ports.rpcAdmin}`);
-  lines.push(`ip = ${adminIp}`);
-  lines.push(`admin = ${adminIp}`);
-  lines.push('protocol = http');
-  lines.push('');
+  sections.push([
+    'port_rpc_admin_local',
+    [
+      `port = ${o.ports.rpcAdmin}`,
+      `ip = ${adminIp}`,
+      `admin = ${adminIp}`,
+      'protocol = http',
+    ],
+  ]);
 
-  lines.push('[port_rpc_public]');
-  lines.push(`port = ${o.ports.rpcPublic}`);
-  lines.push('ip = 0.0.0.0');
-  lines.push('protocol = http');
-  lines.push('');
+  sections.push([
+    'port_rpc_public',
+    [`port = ${o.ports.rpcPublic}`, 'ip = 0.0.0.0', 'protocol = http'],
+  ]);
 
-  lines.push('[port_ws_admin_local]');
-  lines.push(`port = ${o.ports.wsAdmin}`);
-  lines.push(`ip = ${adminIp}`);
-  lines.push(`admin = ${adminIp}`);
-  lines.push('protocol = ws');
-  lines.push('');
+  sections.push([
+    'port_ws_admin_local',
+    [
+      `port = ${o.ports.wsAdmin}`,
+      `ip = ${adminIp}`,
+      `admin = ${adminIp}`,
+      'protocol = ws',
+    ],
+  ]);
 
-  lines.push('[port_ws_public]');
-  lines.push(`port = ${o.ports.wsPublic}`);
-  lines.push('ip = 0.0.0.0');
-  lines.push('protocol = ws');
-  lines.push('');
+  sections.push([
+    'port_ws_public',
+    [`port = ${o.ports.wsPublic}`, 'ip = 0.0.0.0', 'protocol = ws'],
+  ]);
 
-  lines.push('[port_peer]');
-  lines.push(`port = ${o.ports.peer}`);
-  lines.push('ip = 0.0.0.0');
-  lines.push('protocol = peer');
-  lines.push('');
+  sections.push([
+    'port_peer',
+    [`port = ${o.ports.peer}`, 'ip = 0.0.0.0', 'protocol = peer'],
+  ]);
 
   // Not tiny: its 30s ledger cache (medium: 180s) drops the unvalidated
   // ledger a peer asks for while re-syncing after `xng upgrade`, and the
   // 1-validator e2e then never confirms a payment.
-  lines.push('[node_size]');
-  lines.push('small');
-  lines.push('');
+  sections.push(['node_size', ['small']]);
 
   // Validators only need enough history to serve peers; `node` keeps more
   // for users and the explorer.
   const history = o.token ? 256 : 10000;
-  lines.push('[node_db]');
-  lines.push('type=NuDB');
-  lines.push('path=db/nudb');
-  lines.push('advisory_delete=0');
-  lines.push(`online_delete=${history}`);
-  lines.push('');
+  sections.push([
+    'node_db',
+    [
+      'type=NuDB',
+      'path=db/nudb',
+      'advisory_delete=0',
+      `online_delete=${history}`,
+    ],
+  ]);
 
-  lines.push('[database_path]');
-  lines.push('db');
-  lines.push('');
+  sections.push(['database_path', ['db']]);
 
-  lines.push('[ledger_history]');
-  lines.push(String(history));
-  lines.push('');
+  sections.push(['ledger_history', [String(history)]]);
 
-  lines.push('[network_id]');
-  lines.push(String(o.networkId));
-  lines.push('');
+  sections.push(['network_id', [String(o.networkId)]]);
 
-  lines.push('[peer_private]');
-  lines.push('0');
-  lines.push('');
+  sections.push(['peer_private', ['0']]);
 
   // xahaud's floor is 1 minute (default 2 weeks); votes cast with `xng vote`
   // then take effect at the next flag ledger after a minute of majority.
-  lines.push('[amendment_majority_time]');
-  lines.push('1 minutes');
-  lines.push('');
+  sections.push(['amendment_majority_time', ['1 minutes']]);
 
   if (o.type === 'testnet') {
     // Default minimum is 1 peer; a single-validator network has none and would
     // stay DISCONNECTED (consensus never runs) without this.
-    lines.push('[network_quorum]');
-    lines.push('0');
-    lines.push('');
+    sections.push(['network_quorum', ['0']]);
   }
 
   if (o.type === 'testnet' && o.peers.length > 0) {
-    lines.push('[ips_fixed]');
-    for (const peer of o.peers) lines.push(peer);
-    lines.push('');
+    sections.push(['ips_fixed', o.peers]);
   }
 
   if (o.type === 'testnet' && o.token) {
-    lines.push('[validator_token]');
-    lines.push(o.token);
-    lines.push('');
+    sections.push(['validator_token', [o.token]]);
   }
 
-  lines.push('[validators_file]');
-  lines.push('validators.txt');
-  lines.push('');
+  sections.push(['validators_file', ['validators.txt']]);
 
-  lines.push('[rpc_startup]');
-  lines.push('{ "command": "log_level", "severity": "warning" }');
-  lines.push('');
+  sections.push([
+    'rpc_startup',
+    ['{ "command": "log_level", "severity": "warning" }'],
+  ]);
 
-  lines.push('[ssl_verify]');
-  lines.push('0');
-  lines.push('');
+  sections.push(['ssl_verify', ['0']]);
 
-  lines.push('[voting]');
-  lines.push('account_reserve = 1000000');
-  lines.push('owner_reserve = 200000');
-  lines.push('reference_fee = 10');
-  lines.push('');
+  sections.push([
+    'voting',
+    [
+      'account_reserve = 1000000',
+      'owner_reserve = 200000',
+      'reference_fee = 10',
+    ],
+  ]);
 
-  return lines.join('\n');
+  // A section xng already writes is replaced in place, not repeated: xahaud
+  // reads single-value sections (node_size, ...) only when they have exactly
+  // one line. Unknown sections go last.
+  for (const [name, userLines] of Object.entries(o.nodeConfig ?? {})) {
+    const existing = sections.find(([n]) => n === name);
+    if (existing) existing[1] = userLines;
+    else sections.push([name, userLines]);
+  }
+
+  return sections
+    .flatMap(([name, lines]) => [`[${name}]`, ...lines, ''])
+    .join('\n');
 }
 
 // xahaud reads [import_vl_keys] only from the validators file, so all

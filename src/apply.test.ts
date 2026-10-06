@@ -455,3 +455,45 @@ test('readWorkspace: valid networks are returned, anything else aborts naming th
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('parseXngYml: nodeConfig is normalized to section -> lines', () => {
+  const [spec] = desiredOf(
+    `  dev:\n    version: ${V2}\n    nodeConfig:\n      node_size: huge\n      voting:\n        reference_fee: 100`,
+  );
+  assert.deepEqual(spec?.nodeConfig, {
+    node_size: ['huge'],
+    voting: ['reference_fee = 100'],
+  });
+  assert.throws(
+    () => desiredOf(`  dev:\n    version: ${V2}\n    nodeConfig: 5`),
+    /nodeConfig must be a mapping/,
+  );
+});
+
+test('plan: a nodeConfig change recreates and create carries --node-config', () => {
+  const actions = plan(
+    desiredOf(
+      `  t1:\n    version: ${V1}\n    nodeConfig:\n      node_size: huge`,
+    ),
+    [created({ name: 't1' })],
+    new Set(['t1']),
+  );
+  assert.equal(actions[0]?.kind, 'recreate');
+  assert.equal(actions[0]?.diff[0]?.key, 'nodeConfig');
+  assert.ok(
+    argv(actions[0]?.steps ?? [])[1]?.endsWith(
+      `--node-config {"node_size":["huge"]}`,
+    ),
+  );
+});
+
+test('plan: a missing or empty nodeConfig on disk matches a yml without one', () => {
+  for (const nodeConfig of [undefined, {}]) {
+    const actions = plan(
+      desiredOf(`  t1:\n    version: ${V1}`),
+      [created({ name: 't1', nodeConfig })],
+      new Set(['t1']),
+    );
+    assert.equal(actions[0]?.kind, 'unchanged');
+  }
+});

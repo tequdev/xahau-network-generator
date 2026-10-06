@@ -82,3 +82,27 @@ test('admin ports bind 127.0.0.1 on testnet, 0.0.0.0 on standalone; public stays
     assert.match(section(sa, name), /admin = 0\.0\.0\.0/);
   }
 });
+
+test('renderXahaudCfg: nodeConfig replaces a section the generator writes, in place', () => {
+  const cfg = renderXahaudCfg({
+    ...cfgOpts,
+    nodeConfig: { node_size: ['huge'] },
+  });
+  assert.ok(cfg.includes('[node_size]\nhuge\n'));
+  assert.ok(!cfg.includes('[node_size]\nsmall'));
+  assert.equal(cfg.split('[node_size]').length, 2);
+});
+
+test('renderXahaudCfg: nodeConfig appends an unknown section at the end', () => {
+  const cfg = renderXahaudCfg({
+    ...cfgOpts,
+    nodeConfig: { foo: ['a', 'b = 1'] },
+  });
+  assert.ok(cfg.endsWith('[foo]\na\nb = 1\n'));
+});
+
+test('renderXahaudCfg: empty or absent nodeConfig renders the plain cfg', () => {
+  const plain = renderXahaudCfg(cfgOpts);
+  assert.equal(renderXahaudCfg({ ...cfgOpts, nodeConfig: {} }), plain);
+  assert.equal(renderXahaudCfg({ ...cfgOpts, nodeConfig: undefined }), plain);
+});
