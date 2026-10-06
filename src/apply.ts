@@ -6,10 +6,10 @@ import { certHosts } from './cloudflare.ts';
 import { CLI_PATH, TSX_BIN } from './docker.ts';
 import {
   DEFAULT_IMPORT_VL_KEYS,
+  configSections,
   defaultQuorum,
   explorerHostPort,
   hostPorts,
-  nodeConfigLines,
   validateSpec,
 } from './types.ts';
 import type { NetworkSpec } from './types.ts';
@@ -30,6 +30,7 @@ const COMPARED = [
   'root',
   'portOffset',
   'nodeConfig',
+  'validatorConfig',
 ] as const;
 const YML_KEYS: readonly string[] = COMPARED;
 
@@ -96,7 +97,13 @@ function toSpec(name: string, raw: unknown): NetworkSpec {
     importVlKeys: DEFAULT_IMPORT_VL_KEYS,
   };
   if (entry.nodeConfig !== undefined) {
-    spec.nodeConfig = nodeConfigLines(entry.nodeConfig);
+    spec.nodeConfig = configSections('nodeConfig', entry.nodeConfig);
+  }
+  if (entry.validatorConfig !== undefined) {
+    spec.validatorConfig = configSections(
+      'validatorConfig',
+      entry.validatorConfig,
+    );
   }
   validateSpec(spec);
   return spec;
@@ -142,10 +149,13 @@ export type Action = {
   to?: NetworkSpec; // desired spec (absent for remove)
 };
 
-// Older network.json files have no `root` or `nodeConfig`; treat a missing one
-// as false / {} (nodeConfig as JSON so `===` compares it by value).
+// Older network.json files have no `root`, `nodeConfig` or `validatorConfig`;
+// treat a missing one as false / {} (the configs as JSON so `===` compares
+// them by value).
 function comparable(spec: NetworkSpec, key: (typeof COMPARED)[number]) {
-  if (key === 'nodeConfig') return JSON.stringify(spec.nodeConfig ?? {});
+  if (key === 'nodeConfig' || key === 'validatorConfig') {
+    return JSON.stringify(spec[key] ?? {});
+  }
   return key === 'root' ? !!spec.root : spec[key];
 }
 
@@ -172,6 +182,9 @@ function createArgv(spec: NetworkSpec): string[] {
     String(spec.portOffset),
     ...(spec.nodeConfig
       ? ['--node-config', JSON.stringify(spec.nodeConfig)]
+      : []),
+    ...(spec.validatorConfig
+      ? ['--validator-config', JSON.stringify(spec.validatorConfig)]
       : []),
   ];
 }

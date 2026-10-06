@@ -9,7 +9,7 @@ export type XahaudCfgOptions = {
   vlKeyHex?: string; // testnet only
   vlUrl?: string; // testnet only
   importVlKeys: string[];
-  nodeConfig?: Record<string, string[]>; // `node` only; replaces/extends sections
+  overrides?: Record<string, string[]>; // extra/overriding sections; the caller picks nodeConfig or validatorConfig
 };
 
 export function renderXahaudCfg(o: XahaudCfgOptions): string {
@@ -131,7 +131,7 @@ export function renderXahaudCfg(o: XahaudCfgOptions): string {
   // A section xng already writes is replaced in place, not repeated: xahaud
   // reads single-value sections (node_size, ...) only when they have exactly
   // one line. Unknown sections go last.
-  for (const [name, userLines] of Object.entries(o.nodeConfig ?? {})) {
+  for (const [name, userLines] of Object.entries(o.overrides ?? {})) {
     const existing = sections.find(([n]) => n === name);
     if (existing) existing[1] = userLines;
     else sections.push([name, userLines]);

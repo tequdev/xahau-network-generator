@@ -32,6 +32,16 @@ networks:
     tls: true                        # true | false: https/wss URLs; needs `xng proxy up --acme-email`
                                      # or XNG_CF_ZONE (Cloudflare) for real certificates (default false)
     root: false                      # true | false, testnet only     (default false)
+    # Extra/overriding xahaud.cfg sections for the validators v1..vN only;
+    # `node` is unaffected. Testnet only; same shapes and rules as nodeConfig
+    # (see `local` below). Changing it recreates the network.
+    validatorConfig:
+      voting:                        # fee votes are cast by validators
+        reference_fee: 100
+        account_reserve: 1000000
+        owner_reserve: 200000
+      rpc_startup:
+        - '{ "command": "log_level", "severity": "info" }'
 
   # The root network of the same domain, served on the bare domain:
   #   wss://xahau-dev.net, https://explorer.xahau-dev.net, https://faucet.xahau-dev.net

@@ -199,6 +199,7 @@ async function populateNetwork(spec: NetworkSpec, dir: string): Promise<void> {
         vlKeyHex: publisher.master.publicKey,
         vlUrl: `http://${containerName(spec, VL_HOST)}/vl.json`,
         importVlKeys: spec.importVlKeys,
+        overrides: spec.validatorConfig,
       } satisfies XahaudCfgOptions;
       // Holds the validator token.
       await writeFile(join(nodeDir, 'xahaud.cfg'), renderXahaudCfg(cfgOpts), {
@@ -232,7 +233,7 @@ async function populateNetwork(spec: NetworkSpec, dir: string): Promise<void> {
       vlKeyHex: publisher.master.publicKey,
       vlUrl: `http://${containerName(spec, VL_HOST)}/vl.json`,
       importVlKeys: spec.importVlKeys,
-      nodeConfig: spec.nodeConfig,
+      overrides: spec.nodeConfig,
     } satisfies XahaudCfgOptions;
     await writeFile(
       join(primaryNodeDir, 'xahaud.cfg'),
@@ -255,7 +256,7 @@ async function populateNetwork(spec: NetworkSpec, dir: string): Promise<void> {
       ports: ports(spec, 0),
       peers: [],
       importVlKeys: spec.importVlKeys,
-      nodeConfig: spec.nodeConfig,
+      overrides: spec.nodeConfig,
     } satisfies XahaudCfgOptions;
     await writeFile(join(nodeDir, 'xahaud.cfg'), renderXahaudCfg(cfgOpts));
     await writeFile(
