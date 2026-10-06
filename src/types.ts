@@ -20,8 +20,55 @@ export type NetworkSpec = {
   tls: boolean; // testnet only; default false; true renders https/wss endpoint URLs
   root?: boolean; // testnet only; default false; true serves the bare domain (`<sub>.<domain>`) instead of `<sub>.<name>.<domain>`
   portOffset: number; // standalone only; default 0; shifts every published host port
+  nodeConfig?: Record<string, string[]>; // `node` (index 0) only: extra/overriding xahaud.cfg sections, section -> lines; validators never get it
+  validatorConfig?: Record<string, string[]>; // testnet validators v1..vN only: same shape as nodeConfig; `node` never gets it
   importVlKeys: string[]; // default ["ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC1"]
 };
+
+type ConfigKey = 'nodeConfig' | 'validatorConfig';
+const CONFIG_KEYS: ConfigKey[] = ['nodeConfig', 'validatorConfig'];
+
+function checkSectionName(key: ConfigKey, name: string): void {
+  if (name === '' || /[[\]\n\r]/.test(name)) {
+    throw new Error(
+      `${key} section name must be non-empty with no "[", "]" or newline, got "${name}"`,
+    );
+  }
+}
+
+// Loose yml/JSON shape -> section -> lines. A scalar is one line, a list one
+// line per item, a mapping `key = value` lines.
+export function configSections(
+  key: ConfigKey,
+  raw: unknown,
+): Record<string, string[]> {
+  const bad = `${key} must be a mapping of section -> line | [lines] | {key: value}`;
+  const isObj = (v: unknown): v is Record<string, unknown> =>
+    typeof v === 'object' && v !== null && !Array.isArray(v);
+  const scalar = (v: unknown): string => {
+    if (typeof v === 'string') {
+      if (/[\r\n]/.test(v)) {
+        throw new Error(
+          `${key}: a line must not contain a newline (use a list for several lines)`,
+        );
+      }
+      return v;
+    }
+    if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+    throw new Error(bad);
+  };
+  if (!isObj(raw)) throw new Error(bad);
+  const out: Record<string, string[]> = {};
+  for (const [name, v] of Object.entries(raw)) {
+    checkSectionName(key, name);
+    out[name] = Array.isArray(v)
+      ? v.map(scalar)
+      : isObj(v)
+        ? Object.entries(v).map(([k, x]) => `${k} = ${scalar(x)}`)
+        : [scalar(v)];
+  }
+  return out;
+}
 
 // The one place every semantic rule for a spec lives, shared by `xng create`
 // and `xng apply` (which checks a whole xng.yml up front so a bad entry cannot
@@ -88,6 +135,26 @@ export function validateSpec(spec: NetworkSpec): void {
   }
   if (spec.root && spec.type !== 'testnet') {
     throw new Error('root is testnet only');
+  }
+  if (spec.validatorConfig !== undefined && spec.type !== 'testnet') {
+    throw new Error('validatorConfig is testnet only');
+  }
+  for (const key of CONFIG_KEYS) {
+    const sections = spec[key] as unknown;
+    if (sections === undefined) continue;
+    if (
+      typeof sections !== 'object' ||
+      sections === null ||
+      Array.isArray(sections)
+    ) {
+      throw new Error(`${key} must be a mapping of section -> [lines]`);
+    }
+    for (const [name, lines] of Object.entries(sections)) {
+      checkSectionName(key, name);
+      if (!Array.isArray(lines) || lines.some((l) => typeof l !== 'string')) {
+        throw new Error(`${key}.${name} must be a list of strings`);
+      }
+    }
   }
 }
 

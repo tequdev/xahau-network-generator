@@ -32,6 +32,7 @@ import {
   DEFAULT_IMPORT_VL_KEYS,
   DOMAIN_RE,
   NAME_RE,
+  configSections,
   defaultQuorum,
   endpoints,
   nodeName,
@@ -62,6 +63,21 @@ function parseName(value: string): string {
     );
   }
   return value;
+}
+
+// --node-config / --validator-config: JSON -> section -> lines.
+function parseConfigFlag(
+  key: 'nodeConfig' | 'validatorConfig',
+  json: string,
+): Record<string, string[]> {
+  const flag = key === 'nodeConfig' ? '--node-config' : '--validator-config';
+  let raw: unknown;
+  try {
+    raw = JSON.parse(json);
+  } catch (err) {
+    throw new Error(`${flag}: invalid JSON: ${(err as Error).message}`);
+  }
+  return configSections(key, raw);
 }
 
 function parseDomain(value: string): string {
@@ -172,6 +188,14 @@ program
     intArg(0, 14300),
     0,
   )
+  .option(
+    '--node-config <json>',
+    'node only: extra/overriding xahaud.cfg sections as JSON, {"section": "line" | ["lines"] | {"key": "value"}}',
+  )
+  .option(
+    '--validator-config <json>',
+    'testnet validators only: extra/overriding xahaud.cfg sections as JSON, same shape as --node-config',
+  )
   .action(async (opts) => {
     // A standalone is always one validator; validateSpec (below) covers the
     // rest, so `create` and `apply` accept exactly the same specs.
@@ -192,6 +216,15 @@ program
       portOffset: opts.portOffset,
       importVlKeys: DEFAULT_IMPORT_VL_KEYS,
     };
+    if (opts.nodeConfig !== undefined) {
+      spec.nodeConfig = parseConfigFlag('nodeConfig', opts.nodeConfig);
+    }
+    if (opts.validatorConfig !== undefined) {
+      spec.validatorConfig = parseConfigFlag(
+        'validatorConfig',
+        opts.validatorConfig,
+      );
+    }
 
     // Fail before generating anything if the domain is outside the zone.
     const cfg = cfConfigFromEnv();

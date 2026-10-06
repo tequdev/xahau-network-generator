@@ -32,6 +32,16 @@ networks:
     tls: true                        # true | false: https/wss URLs; needs `xng proxy up --acme-email`
                                      # or XNG_CF_ZONE (Cloudflare) for real certificates (default false)
     root: false                      # true | false, testnet only     (default false)
+    # Extra/overriding xahaud.cfg sections for the validators v1..vN only;
+    # `node` is unaffected. Testnet only; same shapes and rules as nodeConfig
+    # (see `local` below). Changing it recreates the network.
+    validatorConfig:
+      voting:                        # fee votes are cast by validators
+        reference_fee: 100
+        account_reserve: 1000000
+        owner_reserve: 200000
+      rpc_startup:
+        - '{ "command": "log_level", "severity": "info" }'
 
   # The root network of the same domain, served on the bare domain:
   #   wss://xahau-dev.net, https://explorer.xahau-dev.net, https://faucet.xahau-dev.net
@@ -60,6 +70,19 @@ networks:
     domain: 127.0.0.1.nip.io
     tls: false
     root: false
+    # Extra/overriding xahaud.cfg sections for `node` only; validators are
+    # unaffected (so validator-only sections such as [voting] do nothing
+    # here). A section xng already writes is replaced whole, any other is
+    # appended. Changing it recreates the network.
+    nodeConfig:
+      ledger_history: 50000          # one line (xng writes 10000)
+      node_db:                       # a mapping: "key = value" lines
+        type: NuDB
+        path: db/nudb
+        advisory_delete: 0
+        online_delete: 50000         # must be >= ledger_history
+      rpc_startup:                   # a list: one line each
+        - '{ "command": "log_level", "severity": "debug" }'
 
   # A standalone node (no consensus, ledgers close on demand), published
   # directly on host ports: rpc admin 5005, rpc 5007, ws admin 6006,

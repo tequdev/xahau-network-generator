@@ -6,6 +6,7 @@ import { certHosts } from './cloudflare.ts';
 import { CLI_PATH, TSX_BIN } from './docker.ts';
 import {
   DEFAULT_IMPORT_VL_KEYS,
+  configSections,
   defaultQuorum,
   explorerHostPort,
   hostPorts,
@@ -28,6 +29,8 @@ const COMPARED = [
   'tls',
   'root',
   'portOffset',
+  'nodeConfig',
+  'validatorConfig',
 ] as const;
 const YML_KEYS: readonly string[] = COMPARED;
 
@@ -93,6 +96,15 @@ function toSpec(name: string, raw: unknown): NetworkSpec {
     portOffset: (entry.portOffset ?? 0) as number,
     importVlKeys: DEFAULT_IMPORT_VL_KEYS,
   };
+  if (entry.nodeConfig !== undefined) {
+    spec.nodeConfig = configSections('nodeConfig', entry.nodeConfig);
+  }
+  if (entry.validatorConfig !== undefined) {
+    spec.validatorConfig = configSections(
+      'validatorConfig',
+      entry.validatorConfig,
+    );
+  }
   validateSpec(spec);
   return spec;
 }
@@ -137,8 +149,13 @@ export type Action = {
   to?: NetworkSpec; // desired spec (absent for remove)
 };
 
-// Older network.json files have no `root`; treat a missing one as false.
+// Older network.json files have no `root`, `nodeConfig` or `validatorConfig`;
+// treat a missing one as false / {} (the configs as JSON so `===` compares
+// them by value).
 function comparable(spec: NetworkSpec, key: (typeof COMPARED)[number]) {
+  if (key === 'nodeConfig' || key === 'validatorConfig') {
+    return JSON.stringify(spec[key] ?? {});
+  }
   return key === 'root' ? !!spec.root : spec[key];
 }
 
@@ -163,6 +180,12 @@ function createArgv(spec: NetworkSpec): string[] {
     ...(spec.root ? ['--root'] : []),
     '--port-offset',
     String(spec.portOffset),
+    ...(spec.nodeConfig
+      ? ['--node-config', JSON.stringify(spec.nodeConfig)]
+      : []),
+    ...(spec.validatorConfig
+      ? ['--validator-config', JSON.stringify(spec.validatorConfig)]
+      : []),
   ];
 }
 
