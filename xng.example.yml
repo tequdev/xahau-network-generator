@@ -17,7 +17,7 @@ networks:
   # The key is the network name: lowercase letters, digits, "-" and "_",
   # starting with a letter or digit, at most 63 characters; it becomes the
   # workspace/ directory, the container prefix and (unless root: true) the
-  # hostname label. A testnet cannot be named explorer, rpc, faucet or vl.
+  # hostname label. A testnet cannot be named explorer, rpc, faucet, vl or pwa.
 
   # A testnet on a real domain, nested under its name:
   #   wss://jshooks.xahau-dev.net, https://rpc.jshooks.xahau-dev.net,
@@ -32,6 +32,8 @@ networks:
     tls: true                        # true | false: https/wss URLs; needs `xng proxy up --acme-email`
                                      # or XNG_CF_ZONE (Cloudflare) for real certificates (default false)
     root: false                      # true | false, testnet only     (default false)
+    pwa: false                       # true | false, testnet only     (default false): node serves
+                                     # AppLoader documents at pwa.<name>.<domain> (needs a xahaud build with PR #793)
     # Extra/overriding xahaud.cfg sections for the validators v1..vN only;
     # `node` is unaffected. Testnet only; same shapes and rules as nodeConfig
     # (see `local` below). Changing it recreates the network.

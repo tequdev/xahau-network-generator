@@ -159,3 +159,13 @@ test('compose: a root network hangs every service off the bare domain', () => {
   assert.ok(labels.some((l) => l.startsWith('traefik.http.routers.dev-ws.')));
   assert.equal(doc.services.node.container_name, 'dev-node');
 });
+
+test('compose: pwa adds a pwa.<base> router to port 8088 on node only when set', () => {
+  const labels = (spec: NetworkSpec) =>
+    // biome-ignore lint/suspicious/noExplicitAny: compose.yml service shape has no fixed schema here
+    (parse(renderCompose(spec)) as any).services.node.labels.join('\n');
+  assert.ok(!labels(testnetSpec).includes('pwa'));
+  const on = labels({ ...testnetSpec, pwa: true });
+  assert.ok(on.includes('pwa.testnet-3.127.0.0.1.nip.io'));
+  assert.ok(on.includes('=8088'));
+});

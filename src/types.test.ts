@@ -153,3 +153,38 @@ test('validateSpec: validatorConfig is testnet only and checked like nodeConfig'
     /validatorConfig is testnet only/,
   );
 });
+
+test('endpoints: pwa only when set; validateSpec rejects bad pwa', () => {
+  const spec: NetworkSpec = {
+    name: 'dev',
+    type: 'testnet',
+    version: 'x',
+    validators: 3,
+    quorum: 2,
+    networkId: 21339,
+    domain: 'example.com',
+    tls: true,
+    portOffset: 0,
+    importVlKeys: DEFAULT_IMPORT_VL_KEYS,
+  };
+  assert.equal(endpoints(spec).pwa, undefined);
+  assert.equal(
+    endpoints({ ...spec, pwa: true }).pwa,
+    'https://pwa.dev.example.com',
+  );
+  assert.throws(
+    () =>
+      validateSpec({
+        ...spec,
+        type: 'standalone',
+        validators: 1,
+        quorum: 1,
+        pwa: true,
+      }),
+    /pwa is testnet only/,
+  );
+  assert.throws(
+    () => validateSpec({ ...spec, pwa: 'yes' as unknown as boolean }),
+    /pwa must be true or false/,
+  );
+});

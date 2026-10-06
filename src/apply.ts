@@ -28,6 +28,7 @@ const COMPARED = [
   'domain',
   'tls',
   'root',
+  'pwa',
   'portOffset',
   'nodeConfig',
   'validatorConfig',
@@ -93,6 +94,7 @@ function toSpec(name: string, raw: unknown): NetworkSpec {
     domain: (entry.domain ?? '127.0.0.1.nip.io') as string,
     tls: (entry.tls ?? false) as boolean,
     root: (entry.root ?? false) as boolean,
+    pwa: (entry.pwa ?? false) as boolean,
     portOffset: (entry.portOffset ?? 0) as number,
     importVlKeys: DEFAULT_IMPORT_VL_KEYS,
   };
@@ -149,14 +151,15 @@ export type Action = {
   to?: NetworkSpec; // desired spec (absent for remove)
 };
 
-// Older network.json files have no `root`, `nodeConfig` or `validatorConfig`;
+// Older network.json files have no `root`, `pwa`, `nodeConfig` or `validatorConfig`;
 // treat a missing one as false / {} (the configs as JSON so `===` compares
 // them by value).
 function comparable(spec: NetworkSpec, key: (typeof COMPARED)[number]) {
   if (key === 'nodeConfig' || key === 'validatorConfig') {
     return JSON.stringify(spec[key] ?? {});
   }
-  return key === 'root' ? !!spec.root : spec[key];
+  if (key === 'root' || key === 'pwa') return !!spec[key];
+  return spec[key];
 }
 
 function createArgv(spec: NetworkSpec): string[] {
@@ -178,6 +181,7 @@ function createArgv(spec: NetworkSpec): string[] {
     spec.domain,
     ...(spec.tls ? ['--tls'] : []),
     ...(spec.root ? ['--root'] : []),
+    ...(spec.pwa ? ['--pwa'] : []),
     '--port-offset',
     String(spec.portOffset),
     ...(spec.nodeConfig
@@ -359,7 +363,11 @@ function describeSpec(spec: NetworkSpec): string {
   if (spec.type === 'standalone') {
     return `standalone ${spec.version}, portOffset ${spec.portOffset}`;
   }
-  const flags = [spec.tls && 'tls', spec.root && 'root'].filter(Boolean);
+  const flags = [
+    spec.tls && 'tls',
+    spec.root && 'root',
+    spec.pwa && 'pwa',
+  ].filter(Boolean);
   return `testnet ${spec.version}, ${spec.validators} validator${spec.validators === 1 ? '' : 's'}, ${spec.domain}${flags.length ? ` (${flags.join(', ')})` : ''}`;
 }
 

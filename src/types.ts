@@ -6,7 +6,13 @@ export const NAME_RE = /^[a-z0-9][a-z0-9_-]{0,62}$/;
 // - the very hostname a root network's explorer uses - and Traefik would
 // silently pick one of the two. Reserved outright rather than only next to
 // a root network, so a name never becomes invalid later.
-export const RESERVED_NAMES = new Set(['explorer', 'rpc', 'faucet', 'vl']);
+export const RESERVED_NAMES = new Set([
+  'explorer',
+  'rpc',
+  'faucet',
+  'vl',
+  'pwa',
+]);
 export const DOMAIN_RE = /^[a-z0-9.-]+$/;
 
 export type NetworkSpec = {
@@ -19,6 +25,7 @@ export type NetworkSpec = {
   domain: string; // testnet only; default '127.0.0.1.nip.io'; hostnames are `<sub>.<name>.<domain>`
   tls: boolean; // testnet only; default false; true renders https/wss endpoint URLs
   root?: boolean; // testnet only; default false; true serves the bare domain (`<sub>.<domain>`) instead of `<sub>.<name>.<domain>`
+  pwa?: boolean; // testnet only; default false; node (index 0) serves on-ledger AppLoader documents (xahaud PR #793 `protocol = pwa`) at pwa.<base> through Traefik
   portOffset: number; // standalone only; default 0; shifts every published host port
   nodeConfig?: Record<string, string[]>; // `node` (index 0) only: extra/overriding xahaud.cfg sections, section -> lines; validators never get it
   validatorConfig?: Record<string, string[]>; // testnet validators v1..vN only: same shape as nodeConfig; `node` never gets it
@@ -136,6 +143,12 @@ export function validateSpec(spec: NetworkSpec): void {
   if (spec.root && spec.type !== 'testnet') {
     throw new Error('root is testnet only');
   }
+  if (spec.pwa !== undefined && typeof spec.pwa !== 'boolean') {
+    throw new Error(`pwa must be true or false, got "${spec.pwa}"`);
+  }
+  if (spec.pwa && spec.type !== 'testnet') {
+    throw new Error('pwa is testnet only');
+  }
   if (spec.validatorConfig !== undefined && spec.type !== 'testnet') {
     throw new Error('validatorConfig is testnet only');
   }
@@ -200,6 +213,7 @@ export type Ports = {
   wsAdmin: number;
   wsPublic: number;
   peer: number;
+  pwa: number;
 };
 
 const CONTAINER_PORTS: Ports = {
@@ -208,6 +222,7 @@ const CONTAINER_PORTS: Ports = {
   wsAdmin: 6006,
   wsPublic: 6008,
   peer: 51235,
+  pwa: 8088,
 };
 
 // Container ports are identical for every node (validator or `node`); kept
@@ -221,7 +236,9 @@ export function ports(_spec: NetworkSpec, _i: number): Ports {
 // only `node` (index 0) does, shifted by --port-offset alone (no per-index
 // term now that just one node is ever published per network). Standalone
 // only — testnet publishes nothing and is routed through Traefik instead.
-export function hostPorts(spec: NetworkSpec): Ports {
+// No pwa: it is testnet-only and never published, and listing it here would
+// make the standalone port-collision checks reject offsets that are fine.
+export function hostPorts(spec: NetworkSpec): Omit<Ports, 'pwa'> {
   const { portOffset } = spec;
   return {
     rpcAdmin: CONTAINER_PORTS.rpcAdmin + portOffset,
@@ -249,6 +266,7 @@ export type Endpoints = {
   explorer: string;
   faucet?: string;
   vl?: string;
+  pwa?: string;
   rpcAdmin?: string;
   wsAdmin?: string;
 };
@@ -272,6 +290,7 @@ export function endpoints(spec: NetworkSpec): Endpoints {
       explorer: `${httpScheme}://explorer.${base}`,
       faucet: `${httpScheme}://faucet.${base}`,
       vl: `${httpScheme}://vl.${base}`,
+      ...(spec.pwa ? { pwa: `${httpScheme}://pwa.${base}` } : {}),
     };
   }
   const host = hostPorts(spec);

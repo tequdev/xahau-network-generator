@@ -185,7 +185,7 @@
 
   function endpointLinks(ep) {
     const wrap = el('span', { class: 'endpoints' });
-    for (const key of ['ws', 'rpc', 'explorer', 'faucet', 'vl']) {
+    for (const key of ['ws', 'rpc', 'explorer', 'faucet', 'vl', 'pwa']) {
       if (!ep[key]) continue;
       wrap.appendChild(el('a', { href: ep[key], target: '_blank', rel: 'noopener', text: key }));
     }

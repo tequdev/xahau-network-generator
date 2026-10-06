@@ -26,7 +26,11 @@ import {
   proxyDown,
 } from './docker.ts';
 import { report, runChecks } from './doctor.ts';
-import { createNetwork, resetNetworkData } from './network.ts';
+import {
+  createNetwork,
+  refreshPwaGateway,
+  resetNetworkData,
+} from './network.ts';
 import { startPanel } from './panel.ts';
 import {
   DEFAULT_IMPORT_VL_KEYS,
@@ -121,6 +125,7 @@ function printEndpoints(spec: NetworkSpec, dir: string): void {
   console.log(`  explorer: ${ep.explorer}`);
   if (ep.faucet) console.log(`  faucet:   ${ep.faucet}`);
   if (ep.vl) console.log(`  vl:       ${ep.vl}`);
+  if (ep.pwa) console.log(`  pwa:      ${ep.pwa}`);
   if (ep.rpcAdmin) console.log(`  rpc admin: ${ep.rpcAdmin}`);
   if (ep.wsAdmin) console.log(`  ws admin:  ${ep.wsAdmin}`);
 }
@@ -183,6 +188,11 @@ program
     false,
   )
   .option(
+    '--pwa',
+    'testnet only: serve on-ledger AppLoader documents (xahaud PR #793 `protocol = pwa`) at pwa.<name>.<domain> through Traefik',
+    false,
+  )
+  .option(
     '--port-offset <n>',
     'standalone only: shift every published host port by this amount',
     intArg(0, 14300),
@@ -213,6 +223,7 @@ program
       domain: opts.domain,
       tls: opts.tls,
       root: opts.root,
+      pwa: opts.pwa,
       portOffset: opts.portOffset,
       importVlKeys: DEFAULT_IMPORT_VL_KEYS,
     };
@@ -256,6 +267,7 @@ program
     // lets networks created by an older xng pick up compose changes (e.g.
     // the restart policy) on their next start.
     await writeFile(`workspace/${opts.name}/compose.yml`, renderCompose(spec));
+    await refreshPwaGateway(spec, `workspace/${opts.name}`);
     // --build so a changed faucet/ is always rebuilt; a no-op when unchanged.
     compose(opts.name, ['up', '-d', '--build']);
     await syncCertificate(spec, { fatal: false });
@@ -284,6 +296,7 @@ program
     await resetNetworkData(`workspace/${opts.name}`);
     if (spec.type === 'testnet') ensureProxy();
     await writeFile(`workspace/${opts.name}/compose.yml`, renderCompose(spec));
+    await refreshPwaGateway(spec, `workspace/${opts.name}`);
     compose(opts.name, ['up', '-d', '--build']);
     await syncCertificate(spec, { fatal: false });
     if (opts.wait) {

@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { renderValidatorsTxt, renderXahaudCfg } from './config.ts';
+import {
+  renderValidatorsTxt,
+  renderXahaudCfg,
+  withPwaGateway,
+} from './config.ts';
 import type { XahaudCfgOptions } from './config.ts';
 import { containerName, nodeName } from './types.ts';
 import type { NetworkSpec } from './types.ts';
@@ -24,6 +28,7 @@ const ports = {
   wsAdmin: 6006,
   wsPublic: 6008,
   peer: 51235,
+  pwa: 8088,
 };
 
 const cfgOpts: XahaudCfgOptions = {
@@ -105,4 +110,29 @@ test('renderXahaudCfg: empty or absent overrides renders the plain cfg', () => {
   const plain = renderXahaudCfg(cfgOpts);
   assert.equal(renderXahaudCfg({ ...cfgOpts, overrides: {} }), plain);
   assert.equal(renderXahaudCfg({ ...cfgOpts, overrides: undefined }), plain);
+});
+
+test('xahaud.cfg: pwaGateway adds a pwa-only [port_pwa] behind secure_gateway', () => {
+  const cfg = renderXahaudCfg({ ...cfgOpts, pwaGateway: ['172.18.0.0/16'] });
+  assert.ok(cfg.includes('port_peer\nport_pwa\n'));
+  assert.ok(
+    cfg.includes(
+      '[port_pwa]\nport = 8088\nip = 0.0.0.0\nprotocol = pwa\nsecure_gateway = 172.18.0.0/16\n',
+    ),
+  );
+});
+
+test('xahaud.cfg: no pwa port without pwaGateway', () => {
+  assert.ok(!renderXahaudCfg(cfgOpts).includes('port_pwa'));
+});
+
+test('withPwaGateway rewrites only the secure_gateway line', () => {
+  const cfg = renderXahaudCfg({ ...cfgOpts, pwaGateway: ['172.18.0.0/16'] });
+  const next = withPwaGateway(cfg, ['172.31.0.0/16', 'fd00::/64']);
+  assert.ok(next.includes('secure_gateway = 172.31.0.0/16, fd00::/64\n'));
+  assert.ok(!next.includes('172.18.0.0/16'));
+  assert.equal(
+    next.replace(/^secure_gateway = .*$/m, ''),
+    cfg.replace(/^secure_gateway = .*$/m, ''),
+  );
 });
