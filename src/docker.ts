@@ -138,11 +138,37 @@ function run(args: string[]): void {
 // Creates the shared `proxy` network every generated network's routed
 // services join, and starts the single Traefik instance (traefik/compose.yml)
 // that routes them all by subdomain. Idempotent; called by `xng start`/`reset`.
-export function ensureProxy(): void {
+function ensureProxyNetwork(): void {
   const inspect = spawnSync('docker', ['network', 'inspect', 'proxy'], {
     stdio: 'ignore',
   });
   if (inspect.status !== 0) run(['network', 'create', 'proxy']);
+}
+
+// xahaud's pwa `secure_gateway` must name the proxy's address, and Traefik's
+// container IP is dynamic, so the network's subnet(s) are used instead.
+export function proxySubnets(): string[] {
+  ensureProxyNetwork();
+  const out = spawnSync(
+    'docker',
+    [
+      'network',
+      'inspect',
+      'proxy',
+      '--format',
+      '{{range .IPAM.Config}}{{.Subnet}} {{end}}',
+    ],
+    { encoding: 'utf8' },
+  );
+  const subnets = (out.stdout ?? '').split(/\s+/).filter(Boolean);
+  if (out.status !== 0 || subnets.length === 0) {
+    throw new Error('could not read the subnets of the docker network "proxy"');
+  }
+  return subnets;
+}
+
+export function ensureProxy(): void {
+  ensureProxyNetwork();
   run(['compose', ...traefikArgs(), 'up', '-d']);
 }
 

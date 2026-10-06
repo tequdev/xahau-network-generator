@@ -17,8 +17,13 @@ import {
 } from './amendments.ts';
 import { fetchBinary } from './binary.ts';
 import { renderCompose } from './compose.ts';
-import { renderValidatorsTxt, renderXahaudCfg } from './config.ts';
+import {
+  renderValidatorsTxt,
+  renderXahaudCfg,
+  withPwaGateway,
+} from './config.ts';
 import type { XahaudCfgOptions } from './config.ts';
+import { proxySubnets } from './docker.ts';
 import { buildGenesis } from './genesis.ts';
 import {
   createFaucetKeys,
@@ -232,6 +237,7 @@ async function populateNetwork(spec: NetworkSpec, dir: string): Promise<void> {
       peers: primaryPeers,
       vlKeyHex: publisher.master.publicKey,
       vlUrl: `http://${containerName(spec, VL_HOST)}/vl.json`,
+      ...(spec.pwa ? { pwaGateway: proxySubnets() } : {}),
       importVlKeys: spec.importVlKeys,
       overrides: spec.nodeConfig,
     } satisfies XahaudCfgOptions;
@@ -285,6 +291,18 @@ export async function resetNetworkData(dir: string): Promise<void> {
       force: true,
     });
   }
+}
+
+// Rewrites `node`'s pwa secure_gateway from the current `proxy` subnets (see
+// withPwaGateway); a no-op for networks without pwa.
+export async function refreshPwaGateway(
+  spec: NetworkSpec,
+  dir: string,
+): Promise<void> {
+  if (!spec.pwa) return;
+  const path = join(dir, 'nodes', nodeName(spec, 0), 'xahaud.cfg');
+  const cfg = await readFile(path, 'utf8');
+  await writeFile(path, withPwaGateway(cfg, proxySubnets()));
 }
 
 // Every network under outDir except `self`, so a duplicate name fails with

@@ -92,6 +92,9 @@ export function renderCompose(spec: NetworkSpec): string {
           'traefik.docker.network=proxy',
           ...traefikRoute(spec, 'ws', base, containerPorts.wsPublic),
           ...traefikRoute(spec, 'rpc', `rpc.${base}`, containerPorts.rpcPublic),
+          ...(spec.pwa
+            ? traefikRoute(spec, 'pwa', `pwa.${base}`, containerPorts.pwa)
+            : []),
         ];
       } else {
         const host = hostPorts(spec);

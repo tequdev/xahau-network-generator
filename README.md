@@ -201,16 +201,19 @@ key (`cp xng.example.yml xng.yml`).
 
 The keys are those of `workspace/<name>/network.json`: `type` (default
 `testnet`), `version`, `validators` (3), `quorum`, `networkId` (21339),
-`domain` (`127.0.0.1.nip.io`), `tls` (false), `root` (false), `portOffset`
-(0), `nodeConfig`, `validatorConfig`. `nodeConfig` (also `xng create
---node-config <json>`) adds or overrides `xahaud.cfg` sections of the
+`domain` (`127.0.0.1.nip.io`), `tls` (false), `root` (false), `pwa` (false),
+`portOffset` (0), `nodeConfig`, `validatorConfig`. `nodeConfig` (also `xng
+create --node-config <json>`) adds or overrides `xahaud.cfg` sections of the
 non-validating `node` only: a section xng already writes is replaced, any
 other is appended; changing it recreates the network. `validatorConfig`
 (`--validator-config <json>`) does the same for the testnet validators
-v1..vN only, never `node`. Defaults are the same as `xng create`; unknown
-keys are an error. The whole file is validated (including `XNG_CF_ZONE`
-certificate hosts) before anything runs. `networks: {}` is valid and means
-"remove everything".
+v1..vN only, never `node`. `pwa` (`--pwa`) adds a xahaud `protocol = pwa`
+port on `node`, routed at `pwa.<name>.<domain>`, with `secure_gateway` set
+to the `proxy` Docker network's subnets so only Traefik can reach it (as
+xahaud PR #793 requires); it needs a xahaud build containing that PR.
+Defaults are the same as `xng create`; unknown keys are an error. The whole
+file is validated (including `XNG_CF_ZONE` certificate hosts) before
+anything runs. `networks: {}` is valid and means "remove everything".
 
 ```
 xng apply [-f xng.yml] [-y] [--dry-run] [--timeout <sec>] [--network <name>]...

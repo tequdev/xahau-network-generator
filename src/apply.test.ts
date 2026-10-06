@@ -60,6 +60,7 @@ test('parseXngYml: a minimal entry gets the same defaults as xng create', () => 
     domain: '127.0.0.1.nip.io',
     tls: false,
     root: false,
+    pwa: false,
     portOffset: 0,
     importVlKeys: DEFAULT_IMPORT_VL_KEYS,
   });
@@ -88,6 +89,7 @@ test('parseXngYml: every validateSpec rule is enforced', () => {
     [`  a:\n    version: ${V1}\n    quorum: 4`, /quorum must be/],
     [`  a:\n    version: ${V1}\n    portOffset: 14301`, /portOffset must be/],
     [`  a:\n    version: ${V1}\n    tls: "yes"`, /tls must be/],
+    [`  a:\n    version: ${V1}\n    pwa: "yes"`, /pwa must be/],
     [
       `  a:\n    type: standalone\n    version: ${V1}\n    root: true`,
       /root is testnet only/,
@@ -531,4 +533,14 @@ test('plan: a validatorConfig change recreates and create carries --validator-co
       `--validator-config {"node_size":["huge"]}`,
     ),
   );
+});
+
+test('plan: enabling pwa recreates the network', () => {
+  const actions = plan(
+    desiredOf(`  t1:\n    version: ${V1}\n    pwa: true`),
+    [created({ name: 't1' })],
+    new Set(['t1']),
+  );
+  assert.equal(actions[0]?.kind, 'recreate');
+  assert.deepEqual(actions[0]?.diff, [{ key: 'pwa', from: false, to: true }]);
 });
