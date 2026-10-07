@@ -21,10 +21,11 @@ function traefikRoute(
   router: string,
   host: string,
   port: number,
+  extraRule = '',
 ): string[] {
   const routerName = `${spec.name}-${router}`;
   return [
-    `traefik.http.routers.${routerName}.rule=Host(\`${host}\`)`,
+    `traefik.http.routers.${routerName}.rule=Host(\`${host}\`)${extraRule}`,
     `traefik.http.routers.${routerName}.entrypoints=web,websecure`,
     `traefik.http.routers.${routerName}.service=${routerName}`,
     `traefik.http.services.${routerName}.loadbalancer.server.port=${port}`,
@@ -90,7 +91,16 @@ export function renderCompose(spec: NetworkSpec): string {
         services[serviceName].labels = [
           'traefik.enable=true',
           'traefik.docker.network=proxy',
-          ...traefikRoute(spec, 'ws', base, containerPorts.wsPublic),
+          // A root network shares the bare domain between wss and the landing
+          // page: only WebSocket upgrades go to the node. Traefik ranks
+          // routers by rule length, so this longer rule beats the site's.
+          ...traefikRoute(
+            spec,
+            'ws',
+            base,
+            containerPorts.wsPublic,
+            spec.root ? ' && HeaderRegexp(`Upgrade`, `(?i)^websocket$$`)' : '',
+          ),
           ...traefikRoute(spec, 'rpc', `rpc.${base}`, containerPorts.rpcPublic),
           ...(spec.pwa
             ? traefikRoute(spec, 'pwa', `pwa.${base}`, containerPorts.pwa)
@@ -138,6 +148,23 @@ export function renderCompose(spec: NetworkSpec): string {
         retries: 15,
       },
     };
+
+    if (spec.root) {
+      // One directory mount: writeSiteIndex copies the repo's site/ next to
+      // networks.json. A file mount would pin the inode (a rewritten
+      // networks.json stays stale), and a second mount nested inside a
+      // read-only one cannot be created by Docker.
+      services.site = {
+        image: 'nginx:alpine',
+        volumes: ['./site:/usr/share/nginx/html:ro'],
+        networks: ['default', 'proxy'],
+        labels: [
+          'traefik.enable=true',
+          'traefik.docker.network=proxy',
+          ...traefikRoute(spec, 'site', base, 80),
+        ],
+      };
+    }
 
     services.faucet = {
       // Resolved against the compose file's directory (workspace/<name>/), so a

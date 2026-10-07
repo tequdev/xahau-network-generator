@@ -30,6 +30,7 @@ import {
   createNetwork,
   refreshPwaGateway,
   resetNetworkData,
+  writeSiteIndex,
 } from './network.ts';
 import { startPanel } from './panel.ts';
 import {
@@ -117,6 +118,13 @@ async function loadSpec(name: string): Promise<NetworkSpec> {
   }
 }
 
+// Stubs for networks on another host have nothing to start, stop or upgrade.
+function assertLocal(spec: NetworkSpec): void {
+  if (spec.external) {
+    program.error(`network "${spec.name}" is external (runs on another host)`);
+  }
+}
+
 function printEndpoints(spec: NetworkSpec, dir: string): void {
   const ep = endpoints(spec);
   console.log(`created network "${spec.name}" at ${dir}`);
@@ -193,6 +201,11 @@ program
     false,
   )
   .option(
+    '--external',
+    "testnet only: register a network that runs on another host so it appears on this host's landing page; writes network.json only",
+    false,
+  )
+  .option(
     '--port-offset <n>',
     'standalone only: shift every published host port by this amount',
     intArg(0, 14300),
@@ -206,12 +219,32 @@ program
     '--validator-config <json>',
     'testnet validators only: extra/overriding xahaud.cfg sections as JSON, same shape as --node-config',
   )
-  .action(async (opts) => {
+  .action(async (opts, cmd) => {
+    // An external stub carries only its hostnames; anything else baked into
+    // it would make `apply` see a difference against the yml and recreate it.
+    if (opts.external) {
+      const stray = [
+        'version',
+        'validators',
+        'quorum',
+        'networkId',
+        'portOffset',
+        'nodeConfig',
+        'validatorConfig',
+      ].filter((k) => cmd.getOptionValueSource(k) === 'cli');
+      if (stray.length > 0) {
+        throw program.error(
+          `--external takes only --domain, --tls and --pwa (got ${stray.join(', ')})`,
+        );
+      }
+    }
     // A standalone is always one validator; validateSpec (below) covers the
     // rest, so `create` and `apply` accept exactly the same specs.
     const validators = opts.type === 'standalone' ? 1 : opts.validators;
     const quorum = opts.quorum ?? defaultQuorum(validators);
-    const version = opts.version ?? (await latestReleaseVersion());
+    const version = opts.external
+      ? ''
+      : (opts.version ?? (await latestReleaseVersion()));
 
     const spec: NetworkSpec = {
       name: opts.name,
@@ -224,6 +257,7 @@ program
       tls: opts.tls,
       root: opts.root,
       pwa: opts.pwa,
+      external: opts.external,
       portOffset: opts.portOffset,
       importVlKeys: DEFAULT_IMPORT_VL_KEYS,
     };
@@ -239,10 +273,12 @@ program
 
     // Fail before generating anything if the domain is outside the zone.
     const cfg = cfConfigFromEnv();
-    if (cfg) certHosts(spec, cfg.zone);
+    if (cfg && !spec.external) certHosts(spec, cfg.zone);
 
     const dir = await createNetwork(spec);
+    await writeSiteIndex();
     printEndpoints(spec, dir);
+    if (spec.external) return;
     try {
       await syncCertificate(spec, { fatal: true });
     } catch (err) {
@@ -262,11 +298,13 @@ program
   .option('--timeout <sec>', 'readiness timeout in seconds', intArg(1), 300)
   .action(async (opts) => {
     const spec = await loadSpec(opts.name);
+    assertLocal(spec);
     if (spec.type === 'testnet') ensureProxy();
     // compose.yml is a pure function of network.json, so re-rendering here
     // lets networks created by an older xng pick up compose changes (e.g.
     // the restart policy) on their next start.
     await writeFile(`workspace/${opts.name}/compose.yml`, renderCompose(spec));
+    await writeSiteIndex(); // before `up`: the root's ./site mount must exist
     await refreshPwaGateway(spec, `workspace/${opts.name}`);
     // --build so a changed faucet/ is always rebuilt; a no-op when unchanged.
     compose(opts.name, ['up', '-d', '--build']);
@@ -280,7 +318,8 @@ program
   .command('stop')
   .description('docker compose down')
   .requiredOption('--name <name>', 'network name', parseName)
-  .action((opts) => {
+  .action(async (opts) => {
+    assertLocal(await loadSpec(opts.name));
     compose(opts.name, ['down']);
   });
 
@@ -292,10 +331,12 @@ program
   .option('--timeout <sec>', 'readiness timeout in seconds', intArg(1), 300)
   .action(async (opts) => {
     const spec = await loadSpec(opts.name);
+    assertLocal(spec);
     compose(opts.name, ['down']);
     await resetNetworkData(`workspace/${opts.name}`);
     if (spec.type === 'testnet') ensureProxy();
     await writeFile(`workspace/${opts.name}/compose.yml`, renderCompose(spec));
+    await writeSiteIndex();
     await refreshPwaGateway(spec, `workspace/${opts.name}`);
     compose(opts.name, ['up', '-d', '--build']);
     await syncCertificate(spec, { fatal: false });
@@ -309,23 +350,28 @@ program
   .description('docker compose down -v + delete the network directory')
   .requiredOption('--name <name>', 'network name', parseName)
   .action(async (opts) => {
+    // network.json says whether this is an external stub (nothing to tear
+    // down) and which certificate pack belongs to the network, so it is read
+    // before anything is deleted.
+    const spec: NetworkSpec | undefined = await readFile(
+      `workspace/${opts.name}/network.json`,
+      'utf8',
+    )
+      .then(JSON.parse)
+      .catch(() => undefined);
     // A failed teardown must abort: deleting the directory would orphan the
     // containers/volumes. Only a half-created network (no compose.yml) skips it.
     if (existsSync(`workspace/${opts.name}/compose.yml`)) {
       compose(opts.name, ['down', '-v']);
-    } else {
+    } else if (!spec?.external) {
       console.warn(
         `network "${opts.name}" is half-created (no compose.yml); removing the directory only`,
       );
     }
-    // Before deleting the directory: network.json is what says which
-    // certificate pack belongs to this network.
     const cfg = cfConfigFromEnv();
-    if (cfg) {
+    if (cfg && !spec?.external) {
       try {
-        const spec: NetworkSpec = JSON.parse(
-          await readFile(`workspace/${opts.name}/network.json`, 'utf8'),
-        );
+        if (!spec) throw new Error('network.json is unreadable');
         await removeCertificate(spec, cfg);
       } catch (err) {
         console.warn(
@@ -334,6 +380,7 @@ program
       }
     }
     await rm(`workspace/${opts.name}`, { recursive: true, force: true });
+    await writeSiteIndex();
   });
 
 program
@@ -351,6 +398,7 @@ program
   )
   .action(async (opts) => {
     const spec = await loadSpec(opts.name);
+    assertLocal(spec);
     if (spec.type !== 'testnet') {
       throw program.error(
         'xng upgrade is testnet only; use `xng remove`/`create` for standalone',
@@ -391,7 +439,9 @@ program
     // network first, so a spec that only fails at create time would lose it.
     const desired = parseXngYml(await readFile(opts.file, 'utf8'));
     const cfg = cfConfigFromEnv();
-    if (cfg) for (const spec of desired) certHosts(spec, cfg.zone);
+    if (cfg) {
+      for (const spec of desired) if (!spec.external) certHosts(spec, cfg.zone);
+    }
 
     // listContainers throws when docker is down, which must abort rather than
     // read as "nothing is running".
@@ -463,6 +513,7 @@ program
   .option('--reject', 'veto instead of accept', false)
   .action(async (opts) => {
     const spec = await loadSpec(opts.name);
+    assertLocal(spec);
     if (spec.type !== 'testnet') {
       throw program.error('xng vote is testnet only');
     }

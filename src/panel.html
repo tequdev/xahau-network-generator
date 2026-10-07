@@ -221,7 +221,7 @@
       const tr = el('tr', {});
       tr.appendChild(el('td', { text: spec.name }));
       tr.appendChild(el('td', { text: spec.version }));
-      tr.appendChild(el('td', { text: spec.type + (spec.root ? ' (root)' : '') }));
+      tr.appendChild(el('td', { text: spec.type + (spec.root ? ' (root)' : '') + (spec.external ? ' [external]' : '') }));
       tr.appendChild(el('td', { text: String(spec.validators) }));
       tr.appendChild(el('td', { text: total ? running + '/' + total + ' running' : '-' }));
       tr.appendChild(el('td', { text: info ? (info.server_state || '-') : 'unreachable' }));
@@ -231,6 +231,11 @@
       tr.appendChild(el('td', {}, [endpointLinks(n.endpoints)]));
 
       const actions = el('td', { class: 'actions' });
+      if (spec.external) {
+        tr.appendChild(actions);
+        tbody.appendChild(tr);
+        continue;
+      }
       actions.appendChild(el('button', {
         text: 'Start', onclick: () => runAction(spec.name, 'start'),
       }));

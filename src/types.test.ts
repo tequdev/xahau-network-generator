@@ -188,3 +188,25 @@ test('endpoints: pwa only when set; validateSpec rejects bad pwa', () => {
     /pwa must be true or false/,
   );
 });
+
+test('validateSpec: external cannot be root and needs no version', () => {
+  const stub: NetworkSpec = {
+    name: 'foo',
+    type: 'testnet',
+    version: '',
+    validators: 3,
+    quorum: 2,
+    networkId: 21339,
+    domain: 'example.com',
+    tls: true,
+    external: true,
+    portOffset: 0,
+    importVlKeys: DEFAULT_IMPORT_VL_KEYS,
+  };
+  validateSpec(stub);
+  assert.throws(() => validateSpec({ ...stub, root: true }), /cannot be root/);
+  assert.throws(
+    () => validateSpec({ ...stub, version: '', external: false }),
+    /version/,
+  );
+});

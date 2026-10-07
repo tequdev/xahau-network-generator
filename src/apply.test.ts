@@ -61,6 +61,7 @@ test('parseXngYml: a minimal entry gets the same defaults as xng create', () => 
     tls: false,
     root: false,
     pwa: false,
+    external: false,
     portOffset: 0,
     importVlKeys: DEFAULT_IMPORT_VL_KEYS,
   });
@@ -543,4 +544,55 @@ test('plan: enabling pwa recreates the network', () => {
   );
   assert.equal(actions[0]?.kind, 'recreate');
   assert.deepEqual(actions[0]?.diff, [{ key: 'pwa', from: false, to: true }]);
+});
+
+const EXT =
+  '  foo:\n    external: true\n    domain: xahau-dev.net\n    tls: true';
+
+test('parseXngYml: an external entry needs no version and only takes domain, tls, pwa', () => {
+  const [spec] = desiredOf(EXT);
+  assert.equal(spec?.external, true);
+  assert.equal(spec?.version, '');
+  for (const key of ['version: x', 'validators: 3', 'type: testnet']) {
+    assert.throws(
+      () => desiredOf(`${EXT}\n    ${key}`),
+      /do not apply to an external network/,
+    );
+  }
+  assert.throws(() => desiredOf(`${EXT}\n    root: true`), /root/);
+});
+
+test('plan: external create has no start; identical external is unchanged even when not running', () => {
+  const [d] = desiredOf(EXT);
+  assert.ok(d);
+  const [create] = plan([d], [], new Set());
+  assert.equal(create?.kind, 'create');
+  assert.deepEqual(create?.steps, [
+    [
+      'create',
+      '--name',
+      'foo',
+      '--external',
+      '--domain',
+      'xahau-dev.net',
+      '--tls',
+    ],
+  ]);
+  assert.ok(!create?.steps[0]?.includes('--version'));
+  assert.equal(plan([d], [d], new Set())[0]?.kind, 'unchanged');
+});
+
+test('plan: local -> external recreates without a trailing start', () => {
+  const [d] = desiredOf(EXT);
+  assert.ok(d);
+  const [a] = plan(
+    [d],
+    [created({ name: 'foo', domain: 'xahau-dev.net', tls: true })],
+    new Set(['foo']),
+  );
+  assert.equal(a?.kind, 'recreate');
+  assert.deepEqual(
+    a?.steps.map((s) => s[0]),
+    ['remove', 'create'],
+  );
 });

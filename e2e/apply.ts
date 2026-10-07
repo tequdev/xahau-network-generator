@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
 import { mkdtempSync } from 'node:fs';
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -75,8 +75,16 @@ async function main(): Promise<void> {
       version: v,
       validators: 1,
       domain: values.domain,
+      root: true, // serves the landing page, whose networks.json lists ext1
     },
   });
+  // Runs on "another host": apply only registers it.
+  const ext1 = { ext1: { external: true, domain: values.domain } };
+  const listed = async () =>
+    (
+      JSON.parse(await readFile(`workspace/${NAME}/site/networks.json`, 'utf8'))
+        .networks as { name: string }[]
+    ).map((n) => n.name);
 
   // 1-3: nothing happens without confirmation.
   await writeYml(apply1(version));
@@ -92,9 +100,12 @@ async function main(): Promise<void> {
     'refused apply created the network',
   );
 
-  // 4: create + start --wait.
+  // 4: create + start --wait; the external network is only a stub.
+  await writeYml({ ...apply1(version), ...ext1 });
   assert.equal(apply(['-y', '--timeout', timeout]).status, 0);
   e2e();
+  assert.deepEqual(readdirSync('workspace/ext1'), ['network.json']);
+  assert.deepEqual(await listed(), [NAME, 'ext1']);
 
   // 5: idempotent.
   r = apply(['--dry-run']);
@@ -102,6 +113,12 @@ async function main(): Promise<void> {
   r = apply(['-y']);
   assert.equal(r.status, 0);
   assert.match(r.out, /no changes/);
+
+  // 5b: dropping the external network removes it from the landing list.
+  await writeYml(apply1(version));
+  assert.equal(apply(['-y']).status, 0);
+  assert.ok(!existsSync('workspace/ext1'), 'external stub still exists');
+  assert.deepEqual(await listed(), [NAME]);
 
   // 6: version change is a rolling upgrade.
   await writeYml(apply1(upgradeTo));

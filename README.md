@@ -13,6 +13,8 @@ pnpm xng doctor   # docker, compose, build.xahau.tech reachable? optional featur
 # generates keys/genesis/config into workspace/<name>/)
 pnpm xng create --name t1 --type testnet --validators 3
 pnpm xng create --name s1 --type standalone
+# register a testnet that runs on another host (network.json only, nothing started)
+pnpm xng create --name foo --external --domain xahau-dev.net --tls
 
 # start it (docker compose up -d), optionally waiting for readiness
 pnpm xng start --name t1 --wait
@@ -94,6 +96,39 @@ xng create --name dev --root --version 2026.9.9-dev+3667 --domain xahau-dev.net 
 `--root` puts a network on the bare domain instead of `<name>.<domain>`;
 only one root network per domain is allowed, and the names `explorer`,
 `rpc`, `faucet`, `vl` are reserved so they can't shadow its subdomains.
+
+**Landing page.** A root network also serves `https://<domain>/`: a page
+listing every network on the domain with live status, endpoints and a
+faucet. `wss://<domain>` stays on the same host (Traefik sends only
+WebSocket upgrades to the node). The page is the repo's `site/` directory,
+copied into the root network's `site/` on every `start`/`reset`, so edits
+show up on the next start; the list of networks next to it
+(`site/networks.json`) is rewritten on every `create`, `remove`, `start` and
+`reset`, with no restart needed.
+
+![landing page](assets/landing.png)
+
+**`external: true`.** Devnets may run on several servers. Declare the ones
+that run elsewhere in this server's `xng.yml` so they appear on its landing
+page; only their hostnames are known here and nothing is started:
+
+```yaml
+networks:
+  main:
+    version: 2026.9.9-dev+3667
+    domain: xahau-dev.net
+    tls: true
+    root: true
+  foo:                       # runs on another server
+    external: true
+    domain: xahau-dev.net
+    tls: true
+```
+
+Only `domain`, `tls` and `pwa` are allowed on an external network (it
+cannot be `root`), and `start`/`stop`/`reset`/`upgrade`/`vote` refuse it.
+DNS (`foo.<domain>` and `*.foo.<domain>` to the other server) and its certificate are yours to
+arrange there.
 
 Setup on the host — pick one of the two ways to get certificates:
 
@@ -202,7 +237,7 @@ key (`cp xng.example.yml xng.yml`).
 The keys are those of `workspace/<name>/network.json`: `type` (default
 `testnet`), `version`, `validators` (3), `quorum`, `networkId` (21339),
 `domain` (`127.0.0.1.nip.io`), `tls` (false), `root` (false), `pwa` (false),
-`portOffset` (0), `nodeConfig`, `validatorConfig`. `nodeConfig` (also `xng
+`external` (false), `portOffset` (0), `nodeConfig`, `validatorConfig`. `nodeConfig` (also `xng
 create --node-config <json>`) adds or overrides `xahaud.cfg` sections of the
 non-validating `node` only: a section xng already writes is replaced, any
 other is appended; changing it recreates the network. `validatorConfig`
@@ -234,6 +269,8 @@ xng apply [-f xng.yml] [-y] [--dry-run] [--timeout <sec>] [--network <name>]...
 | testnet, only `version` differs | `upgrade` | (`start --wait` if stopped, then) `upgrade` |
 | standalone `version`, or any other key differs | `recreate` | `remove`, `create`, `start --wait` (ledger data and keys are wiped) |
 | identical, any container not running | `start` | `start --wait` |
+| `external: true`, only in the file | `create` | `create --external` (no `start`) |
+| `external: true`, identical | `unchanged` | nothing (containers are not looked at) |
 | identical, every container running | `unchanged` | nothing |
 
 Before any step runs, `apply` downloads every `xahaud` version it is about

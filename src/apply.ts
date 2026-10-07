@@ -29,11 +29,13 @@ const COMPARED = [
   'tls',
   'root',
   'pwa',
+  'external',
   'portOffset',
   'nodeConfig',
   'validatorConfig',
 ] as const;
 const YML_KEYS: readonly string[] = COMPARED;
+const EXTERNAL_KEYS = ['external', 'domain', 'tls', 'pwa'];
 
 export function parseXngYml(text: string): NetworkSpec[] {
   let doc: unknown;
@@ -74,7 +76,16 @@ function toSpec(name: string, raw: unknown): NetworkSpec {
       `unknown key(s) ${unknown.join(', ')} (allowed: ${YML_KEYS.join(', ')})`,
     );
   }
-  if (entry.version === undefined) {
+  const external = entry.external === true;
+  if (external) {
+    const extra = Object.keys(entry).filter((k) => !EXTERNAL_KEYS.includes(k));
+    if (extra.length > 0) {
+      throw new Error(
+        `key(s) ${extra.join(', ')} do not apply to an external network (allowed: ${EXTERNAL_KEYS.join(', ')})`,
+      );
+    }
+  }
+  if (entry.version === undefined && !external) {
     throw new Error(
       '`version` is required (a release is never resolved implicitly, so apply stays reproducible)',
     );
@@ -87,7 +98,7 @@ function toSpec(name: string, raw: unknown): NetworkSpec {
   const spec: NetworkSpec = {
     name,
     type,
-    version: entry.version as string,
+    version: (entry.version ?? '') as string,
     validators,
     quorum: (entry.quorum ?? defaultQuorum(validators)) as number,
     networkId: (entry.networkId ?? 21339) as number,
@@ -95,6 +106,7 @@ function toSpec(name: string, raw: unknown): NetworkSpec {
     tls: (entry.tls ?? false) as boolean,
     root: (entry.root ?? false) as boolean,
     pwa: (entry.pwa ?? false) as boolean,
+    external,
     portOffset: (entry.portOffset ?? 0) as number,
     importVlKeys: DEFAULT_IMPORT_VL_KEYS,
   };
@@ -158,11 +170,25 @@ function comparable(spec: NetworkSpec, key: (typeof COMPARED)[number]) {
   if (key === 'nodeConfig' || key === 'validatorConfig') {
     return JSON.stringify(spec[key] ?? {});
   }
-  if (key === 'root' || key === 'pwa') return !!spec[key];
+  if (key === 'root' || key === 'pwa' || key === 'external') {
+    return !!spec[key];
+  }
   return spec[key];
 }
 
 function createArgv(spec: NetworkSpec): string[] {
+  if (spec.external) {
+    return [
+      'create',
+      '--name',
+      spec.name,
+      '--external',
+      '--domain',
+      spec.domain,
+      ...(spec.tls ? ['--tls'] : []),
+      ...(spec.pwa ? ['--pwa'] : []),
+    ];
+  }
   return [
     'create',
     '--name',
@@ -241,7 +267,7 @@ export function plan(
         kind: 'create',
         to: d,
         diff: [],
-        steps: [createArgv(d), startArgv(name)],
+        steps: d.external ? [createArgv(d)] : [createArgv(d), startArgv(name)],
       };
     }
     if (!d && a) {
@@ -262,7 +288,7 @@ export function plan(
       return from === to ? [] : [{ key, from, to }];
     });
     if (diff.length === 0) {
-      return running.has(name)
+      return running.has(name) || d.external
         ? { name, kind: 'unchanged', diff, steps: [], ...both }
         : { name, kind: 'start', diff, steps: [startArgv(name)], ...both };
     }
@@ -293,7 +319,11 @@ export function plan(
       kind: 'recreate',
       ...both,
       diff,
-      steps: [['remove', '--name', name], createArgv(d), startArgv(name)],
+      steps: [
+        ['remove', '--name', name],
+        createArgv(d),
+        ...(d.external ? [] : [startArgv(name)]),
+      ],
     };
   });
 }
@@ -364,10 +394,14 @@ function describeSpec(spec: NetworkSpec): string {
     return `standalone ${spec.version}, portOffset ${spec.portOffset}`;
   }
   const flags = [
+    spec.external && 'external',
     spec.tls && 'tls',
     spec.root && 'root',
     spec.pwa && 'pwa',
   ].filter(Boolean);
+  if (spec.external) {
+    return `testnet on another host, ${spec.domain} (${flags.join(', ')})`;
+  }
   return `testnet ${spec.version}, ${spec.validators} validator${spec.validators === 1 ? '' : 's'}, ${spec.domain}${flags.length ? ` (${flags.join(', ')})` : ''}`;
 }
 
@@ -405,7 +439,7 @@ function cloudflareBlock(
         side === 'from'
           ? ['remove', 'recreate'].includes(a.kind)
           : ['create', 'recreate'].includes(a.kind);
-      if (!spec || !applies) return [];
+      if (!spec || !applies || spec.external) return [];
       let hosts: string[] | undefined;
       try {
         hosts = certHosts(spec, cf.zone);
@@ -437,7 +471,7 @@ function cloudflareBlock(
 // Without a zone the apex is unknown, but a root network normally sits on
 // it and needs no pack of its own, so it is left out of the warning.
 function isTlsTestnet(spec?: NetworkSpec): boolean {
-  return spec?.type === 'testnet' && spec.tls && !spec.root;
+  return spec?.type === 'testnet' && spec.tls && !spec.root && !spec.external;
 }
 
 export function formatPlan(

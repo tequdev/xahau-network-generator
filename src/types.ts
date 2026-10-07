@@ -26,6 +26,7 @@ export type NetworkSpec = {
   tls: boolean; // testnet only; default false; true renders https/wss endpoint URLs
   root?: boolean; // testnet only; default false; true serves the bare domain (`<sub>.<domain>`) instead of `<sub>.<name>.<domain>`
   pwa?: boolean; // testnet only; default false; node (index 0) serves on-ledger AppLoader documents (xahaud PR #793 `protocol = pwa`) at pwa.<base> through Traefik
+  external?: boolean; // testnet only; default false; runs on another host, only its hostnames are known here (network.json is a stub with version "")
   portOffset: number; // standalone only; default 0; shifts every published host port
   nodeConfig?: Record<string, string[]>; // `node` (index 0) only: extra/overriding xahaud.cfg sections, section -> lines; validators never get it
   validatorConfig?: Record<string, string[]>; // testnet validators v1..vN only: same shape as nodeConfig; `node` never gets it
@@ -99,7 +100,10 @@ export function validateSpec(spec: NetworkSpec): void {
       `"${spec.name}" is reserved (it is a service subdomain of a root network); pick another name`,
     );
   }
-  if (typeof spec.version !== 'string' || spec.version === '') {
+  if (
+    typeof spec.version !== 'string' ||
+    (spec.version === '' && !spec.external)
+  ) {
     throw new Error('version must be a non-empty string');
   }
   if (typeof spec.domain !== 'string' || !DOMAIN_RE.test(spec.domain)) {
@@ -142,6 +146,17 @@ export function validateSpec(spec: NetworkSpec): void {
   }
   if (spec.root && spec.type !== 'testnet') {
     throw new Error('root is testnet only');
+  }
+  if (spec.external !== undefined && typeof spec.external !== 'boolean') {
+    throw new Error(`external must be true or false, got "${spec.external}"`);
+  }
+  if (spec.external && spec.type !== 'testnet') {
+    throw new Error('external is testnet only');
+  }
+  if (spec.external && spec.root) {
+    throw new Error(
+      "an external network cannot be root (the landing page is served by this host's root network)",
+    );
   }
   if (spec.pwa !== undefined && typeof spec.pwa !== 'boolean') {
     throw new Error(`pwa must be true or false, got "${spec.pwa}"`);

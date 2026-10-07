@@ -142,13 +142,15 @@ test('compose: a root network hangs every service off the bare domain', () => {
     ...doc.services.explorer.labels,
     ...doc.services.faucet.labels,
     ...doc.services.vl.labels,
+    ...doc.services.site.labels,
   ];
   const hosts = labels
     .filter((l) => l.includes('.rule=Host'))
-    .map((l) => l.replace(/.*Host\(`(.*)`\).*/, '$1'))
+    .map((l) => l.replace(/.*Host\(`([^`]*)`\).*/, '$1'))
     .sort();
   assert.deepEqual(hosts, [
-    '127.0.0.1.nip.io',
+    '127.0.0.1.nip.io', // ws
+    '127.0.0.1.nip.io', // site
     'explorer.127.0.0.1.nip.io',
     'faucet.127.0.0.1.nip.io',
     'rpc.127.0.0.1.nip.io',
@@ -168,4 +170,31 @@ test('compose: pwa adds a pwa.<base> router to port 8088 on node only when set',
   const on = labels({ ...testnetSpec, pwa: true });
   assert.ok(on.includes('pwa.testnet-3.127.0.0.1.nip.io'));
   assert.ok(on.includes('=8088'));
+});
+
+test('compose: a root network serves the landing page and splits the bare domain by Upgrade header; a non-root one does not', () => {
+  const root = parse(
+    renderCompose({ ...testnetSpec, name: 'dev', root: true }),
+  );
+  assert.deepEqual(root.services.site.volumes, [
+    './site:/usr/share/nginx/html:ro',
+  ]);
+  const rule = (labels: string[], router: string) =>
+    labels.find((l) =>
+      l.startsWith(`traefik.http.routers.dev-${router}.rule=`),
+    );
+  assert.equal(
+    rule(root.services.site.labels, 'site'),
+    'traefik.http.routers.dev-site.rule=Host(`127.0.0.1.nip.io`)',
+  );
+  assert.ok(
+    rule(root.services.node.labels, 'ws')?.includes('HeaderRegexp(`Upgrade`'),
+  );
+
+  const plain = parse(renderCompose({ ...testnetSpec, name: 'dev' }));
+  assert.equal(plain.services.site, undefined);
+  assert.equal(
+    rule(plain.services.node.labels, 'ws'),
+    'traefik.http.routers.dev-ws.rule=Host(`dev.127.0.0.1.nip.io`)',
+  );
 });

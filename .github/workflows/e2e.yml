@@ -25,7 +25,7 @@ jobs:
             args: "--type testnet --validators 3 --domain localhost"
             upgrade_to: 2026.9.9-dev+3667
           - name: testnet-1
-            args: "--type testnet --validators 1 --domain localhost"
+            args: "--type testnet --validators 1 --domain localhost --root"
             upgrade_to: 2026.9.9-dev+3667
           - name: standalone
             args: "--type standalone"
