@@ -210,3 +210,27 @@ test('validateSpec: external cannot be root and needs no version', () => {
     /version/,
   );
 });
+
+test('endpoints: debugstream is a testnet-only path under the ws host', () => {
+  const spec: NetworkSpec = {
+    name: 'dev',
+    type: 'testnet',
+    version: 'x',
+    validators: 3,
+    quorum: 2,
+    networkId: 21339,
+    domain: 'example.com',
+    tls: true,
+    portOffset: 0,
+    importVlKeys: DEFAULT_IMPORT_VL_KEYS,
+  };
+  assert.equal(
+    endpoints(spec).debugstream,
+    'wss://dev.example.com/debugstream/',
+  );
+  assert.equal(
+    endpoints({ ...spec, type: 'standalone', validators: 1, quorum: 1 })
+      .debugstream,
+    undefined,
+  );
+});

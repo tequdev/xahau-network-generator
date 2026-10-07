@@ -230,6 +230,7 @@ function endpoints(ep) {
   const row = (label, val, link) => $('div', { className: 'ep' },
     $('div', {}, $('small', { textContent: label }), link ? ext(val, val) : $('span', { textContent: val })), copyBtn(val));
   const list = $('div', { className: 'eps' }, row('JSON-RPC', ep.rpc), row('Explorer', ep.explorer, true), row('Validator list', ep.vl));
+  if (ep.debugstream) list.append(row('Debug stream', ep.debugstream));
   if (ep.pwa) list.append(row('App loader', ep.pwa));
   return $('div', { className: 'card' },
     head('Endpoint', copyBtn(ep.ws, 'Copy', 'btn glass')),

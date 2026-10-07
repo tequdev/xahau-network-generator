@@ -77,6 +77,14 @@ export function renderCompose(spec: NetworkSpec): string {
         `./bin/${serviceName}/xahaud:/usr/local/bin/xahaud:ro`,
         `./nodes/${nodeDir}:/node`,
       ],
+      // xahaud writes its log to stderr, and `node` logs the View partition
+      // at trace, so docker's default unbounded json-file log would grow
+      // without limit; 60 MB is plenty for `docker logs` debugging.
+      // Validators get the same cap to keep the services uniform.
+      logging: {
+        driver: 'json-file',
+        options: { 'max-size': '20m', 'max-file': '3' },
+      },
     };
     // Only `node` (index 0) is reachable from outside the compose network:
     // on testnet, routed through Traefik; on standalone, published directly
@@ -93,13 +101,18 @@ export function renderCompose(spec: NetworkSpec): string {
           'traefik.docker.network=proxy',
           // A root network shares the bare domain between wss and the landing
           // page: only WebSocket upgrades go to the node. Traefik ranks
-          // routers by rule length, so this longer rule beats the site's.
+          // routers by rule length, so this longer rule beats the site's; it
+          // would also beat the debugstream one, hence the path exclusion.
+          // A non-root ws router stays plain Host(): the debugstream rule is
+          // longer and wins on its path by itself.
           ...traefikRoute(
             spec,
             'ws',
             base,
             containerPorts.wsPublic,
-            spec.root ? ' && HeaderRegexp(`Upgrade`, `(?i)^websocket$$`)' : '',
+            spec.root
+              ? ` && HeaderRegexp(\`Upgrade\`, \`(?i)^websocket$$\`) && !PathPrefix(\`/debugstream/\`)`
+              : '',
           ),
           ...traefikRoute(spec, 'rpc', `rpc.${base}`, containerPorts.rpcPublic),
           ...(spec.pwa
@@ -181,6 +194,31 @@ export function renderCompose(spec: NetworkSpec): string {
         'traefik.enable=true',
         'traefik.docker.network=proxy',
         ...traefikRoute(spec, 'faucet', `faucet.${base}`, 8080),
+      ],
+      depends_on: [nodeName(spec, 0)],
+    };
+
+    services.debugstream = {
+      // Built from the repo like faucet, so a fix is picked up on next start.
+      build: '../../debugstream',
+      environment: { LOG_FILE: '/log/debug.log', PORT: '8080' },
+      // Hard ceiling for a sidecar that only tails a file; node itself is
+      // ~40 MB RSS. Docker restarts it (unless-stopped) if it is ever hit.
+      mem_limit: '128m',
+      // Read-write: the service truncates the file once it grows past a cap
+      // (10 MiB by default), so the log never accumulates on disk.
+      volumes: [`./nodes/${nodeName(spec, 0)}/log:/log`],
+      networks: ['default', 'proxy'],
+      labels: [
+        'traefik.enable=true',
+        'traefik.docker.network=proxy',
+        ...traefikRoute(
+          spec,
+          'debugstream',
+          base,
+          8080,
+          ' && PathPrefix(`/debugstream/`)',
+        ),
       ],
       depends_on: [nodeName(spec, 0)],
     };

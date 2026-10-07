@@ -281,6 +281,7 @@ export type Endpoints = {
   explorer: string;
   faucet?: string;
   vl?: string;
+  debugstream?: string; // testnet only; ws(s)://<base>/debugstream/, append an r-address to filter (same path as xahau-test.net)
   pwa?: string;
   rpcAdmin?: string;
   wsAdmin?: string;
@@ -305,6 +306,7 @@ export function endpoints(spec: NetworkSpec): Endpoints {
       explorer: `${httpScheme}://explorer.${base}`,
       faucet: `${httpScheme}://faucet.${base}`,
       vl: `${httpScheme}://vl.${base}`,
+      debugstream: `${wsScheme}://${base}/debugstream/`,
       ...(spec.pwa ? { pwa: `${httpScheme}://pwa.${base}` } : {}),
     };
   }

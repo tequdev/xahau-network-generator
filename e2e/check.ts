@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
@@ -8,6 +9,12 @@ import { endpoints, nodeName } from '../src/types.ts';
 import type { NetworkSpec } from '../src/types.ts';
 import { parseServerInfoOutput } from '../src/upgrade.ts';
 import { rpc } from '../src/wait.ts';
+import {
+  TRACE_HOOK_MESSAGE,
+  TRACE_HOOK_ON,
+  TRACE_HOOK_WASM_HEX,
+  signTx,
+} from './trace-hook.ts';
 
 const GENESIS_SECRET = 'snoPBrXtMeMyMHUVTgbuqAfg1SUTb';
 const GENESIS_ADDRESS = 'rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh';
@@ -116,6 +123,117 @@ async function checkLanding(spec: NetworkSpec): Promise<void> {
   console.log('[e2e] landing page, networks.json and ws upgrade ok');
 }
 
+// Signs `tx` with `seed` (adds Sequence, NetworkID, LastLedgerSequence), submits it
+// to the public RPC and waits until it is validated.
+async function submitAndValidate(
+  spec: NetworkSpec,
+  rpcUrl: string,
+  seed: string,
+  tx: Record<string, unknown>,
+): Promise<void> {
+  const acct = await rpc(rpcUrl, 'account_info', {
+    account: tx.Account,
+    ledger_index: 'current',
+  });
+  const { tx_blob } = signTx(
+    {
+      ...tx,
+      NetworkID: spec.networkId,
+      Sequence: acct.account_data.Sequence,
+      LastLedgerSequence: acct.ledger_current_index + 20,
+    },
+    seed,
+  );
+  const submitted = await rpc(rpcUrl, 'submit', { tx_blob });
+  assert.equal(
+    submitted.engine_result,
+    'tesSUCCESS',
+    `${tx.TransactionType} submit failed: ${submitted.engine_result} ${submitted.engine_result_message}`,
+  );
+  const hash = submitted.tx_json.hash;
+  const deadline = Date.now() + 60_000;
+  for (;;) {
+    const res = await rpc(rpcUrl, 'tx', { transaction: hash }).catch(
+      () => undefined,
+    );
+    if (res?.validated) {
+      assert.equal(
+        res.meta.TransactionResult,
+        'tesSUCCESS',
+        `${tx.TransactionType} ${hash} validated as ${res.meta.TransactionResult}`,
+      );
+      return;
+    }
+    assert.ok(
+      Date.now() < deadline,
+      `${tx.TransactionType} ${hash} not validated within 60s`,
+    );
+    await sleep(2000);
+  }
+}
+
+// Installs a hook that calls trace() on `address`, triggers it with a Payment,
+// and expects the trace line to arrive on the network's debug stream WebSocket.
+async function checkDebugStream(
+  spec: NetworkSpec,
+  address: string,
+  seed: string,
+): Promise<void> {
+  const ep = endpoints(spec);
+  assert.ok(ep.debugstream, 'testnet spec missing debugstream endpoint');
+
+  await submitAndValidate(spec, ep.rpc, seed, {
+    TransactionType: 'SetHook',
+    Account: address,
+    Fee: '10000000',
+    Hooks: [
+      {
+        Hook: {
+          CreateCode: TRACE_HOOK_WASM_HEX,
+          HookOn: TRACE_HOOK_ON,
+          HookNamespace: '0'.repeat(64),
+          HookApiVersion: 0,
+          Flags: 1,
+        },
+      },
+    ],
+  });
+  console.log(`[e2e] trace hook installed on ${address}`);
+
+  const lines: string[] = [];
+  const ws = new WebSocket(`${ep.debugstream}${address}`);
+  ws.addEventListener('message', (e) => lines.push(String(e.data)));
+  try {
+    // A failed connect surfaces as the 15s timeout (EventTarget `once` has no
+    // special 'error' handling), which is good enough for an e2e.
+    await once(ws, 'open', { signal: AbortSignal.timeout(15_000) });
+
+    await submitAndValidate(spec, ep.rpc, seed, {
+      TransactionType: 'Payment',
+      Account: address,
+      Destination: GENESIS_ADDRESS,
+      Amount: '1000000',
+      Fee: '1000000',
+    });
+
+    const deadline = Date.now() + 60_000;
+    const match = () =>
+      lines.find(
+        (l) =>
+          l.includes(`HookTrace[${address}`) && l.includes(TRACE_HOOK_MESSAGE),
+      );
+    while (!match() && Date.now() < deadline) await sleep(500);
+    const line = match();
+    assert.ok(
+      line,
+      `no HookTrace line on debugstream within 60s; last lines: ${JSON.stringify(lines.slice(-5))}`,
+    );
+    console.log(`[e2e] debugstream delivered: ${line.trim()}`);
+  } finally {
+    ws.close();
+  }
+}
+
 async function checkTestnet(
   spec: NetworkSpec,
   expectVersion?: string,
@@ -204,6 +322,12 @@ async function checkTestnet(
   );
 
   if (expectVersion) checkVersion(spec, info2.info, expectVersion);
+
+  await checkDebugStream(
+    spec,
+    firstBody.account.classicAddress,
+    firstBody.account.secret,
+  );
 
   const faucetKeysPath = path.resolve(
     'workspace',

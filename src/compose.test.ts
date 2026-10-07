@@ -187,8 +187,9 @@ test('compose: a root network serves the landing page and splits the bare domain
     rule(root.services.site.labels, 'site'),
     'traefik.http.routers.dev-site.rule=Host(`127.0.0.1.nip.io`)',
   );
-  assert.ok(
-    rule(root.services.node.labels, 'ws')?.includes('HeaderRegexp(`Upgrade`'),
+  assert.equal(
+    rule(root.services.node.labels, 'ws'),
+    'traefik.http.routers.dev-ws.rule=Host(`127.0.0.1.nip.io`) && HeaderRegexp(`Upgrade`, `(?i)^websocket$$`) && !PathPrefix(`/debugstream/`)',
   );
 
   const plain = parse(renderCompose({ ...testnetSpec, name: 'dev' }));
@@ -197,4 +198,32 @@ test('compose: a root network serves the landing page and splits the bare domain
     rule(plain.services.node.labels, 'ws'),
     'traefik.http.routers.dev-ws.rule=Host(`dev.127.0.0.1.nip.io`)',
   );
+});
+
+test('compose: testnet runs a debugstream service tailing node/log; standalone has none', () => {
+  // biome-ignore lint/suspicious/noExplicitAny: compose.yml service shape has no fixed schema here
+  const doc = parse(renderCompose(testnetSpec)) as any;
+  const ds = doc.services.debugstream;
+  assert.equal(ds.build, '../../debugstream');
+  assert.ok(ds.volumes.includes('./nodes/node/log:/log'));
+  assert.equal(ds.ports, undefined);
+  assert.equal(ds.mem_limit, '128m');
+  const labels = ds.labels.join('\n');
+  assert.ok(
+    labels.includes(
+      'Host(`testnet-3.127.0.0.1.nip.io`) && PathPrefix(`/debugstream/`)',
+    ),
+  );
+  assert.ok(labels.includes('=8080'));
+  // biome-ignore lint/suspicious/noExplicitAny: compose.yml service shape has no fixed schema here
+  const sa = parse(renderCompose(standaloneSpec)) as any;
+  assert.equal(sa.services.debugstream, undefined);
+});
+
+test('compose: xahaud services cap their docker log', () => {
+  for (const spec of [testnetSpec, standaloneSpec]) {
+    // biome-ignore lint/suspicious/noExplicitAny: compose.yml service shape has no fixed schema here
+    const doc = parse(renderCompose(spec)) as any;
+    assert.equal(doc.services.node.logging.options['max-size'], '20m');
+  }
 });
