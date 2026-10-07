@@ -217,3 +217,78 @@ export async function listContainers(): Promise<Map<string, Container[]>> {
   }
   return byProject;
 }
+
+// Pure part of staleProjects: a project is stale when one of its containers
+// runs an image ID other than the local ID of the same reference. A reference
+// with no local image (absent from localIds) is not stale.
+export function staleFromInspect(
+  rows: { project: string; image: string; imageId: string }[],
+  localIds: Map<string, string>,
+): Set<string> {
+  const stale = new Set<string>();
+  for (const { project, image, imageId } of rows) {
+    const local = localIds.get(image);
+    if (project && local && local !== imageId) stale.add(project);
+  }
+  return stale;
+}
+
+// Compose projects (= network names) with a container older than the image now
+// present locally (e.g. after `docker pull` of a floating tag). Throws like
+// listContainers: `xng apply` must not read a docker error as "nothing stale".
+export async function staleProjects(): Promise<Set<string>> {
+  const docker = async (args: string[]) =>
+    (await execFileAsync('docker', args, { timeout: 5000 })).stdout;
+  const ids = (
+    await docker([
+      'ps',
+      '-a',
+      '-q',
+      '--filter',
+      'label=com.docker.compose.project',
+    ])
+  )
+    .split('\n')
+    .filter(Boolean);
+  if (ids.length === 0) return new Set();
+
+  const rows = (
+    await docker([
+      'inspect',
+      '--format',
+      '{{index .Config.Labels "com.docker.compose.project"}}\t{{.Config.Image}}\t{{.Image}}',
+      ...ids,
+    ])
+  )
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      const [project = '', image = '', imageId = ''] = line.split('\t');
+      return { project, image, imageId };
+    });
+
+  const refs = [...new Set(rows.map((r) => r.image))];
+  const localIds = new Map<string, string>();
+  const inspect = (list: string[]) =>
+    docker(['image', 'inspect', '--format', '{{.Id}}', ...list]);
+  try {
+    (await inspect(refs))
+      .split('\n')
+      .filter(Boolean)
+      .forEach((id, i) => localIds.set(refs[i] as string, id));
+  } catch {
+    // A ref gone locally fails the batch; retry one by one, skipping only
+    // those (any other docker error still aborts apply).
+    for (const ref of refs) {
+      try {
+        localIds.set(ref, (await inspect([ref])).trim());
+      } catch (err) {
+        if (
+          !String((err as { stderr?: string }).stderr).includes('No such image')
+        )
+          throw err;
+      }
+    }
+  }
+  return staleFromInspect(rows, localIds);
+}

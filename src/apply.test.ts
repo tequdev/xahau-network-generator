@@ -10,12 +10,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import {
+  composeDrifted,
   executionSteps,
   formatPlan,
   parseXngYml,
   plan,
   readWorkspace,
 } from './apply.ts';
+import { renderCompose } from './compose.ts';
 import { DEFAULT_IMPORT_VL_KEYS } from './types.ts';
 import type { NetworkSpec } from './types.ts';
 
@@ -243,6 +245,68 @@ test('plan: matching but stopped is a start', () => {
   assert.deepEqual(argv(actions[0]?.steps ?? []), [
     'start --name t1 --wait --timeout 300',
   ]);
+});
+
+test('plan: identical running network that is stale is a refresh', () => {
+  const actions = plan(
+    desiredOf(`  t1:\n    version: ${V1}`),
+    [created({ name: 't1' })],
+    new Set(['t1']),
+    { stale: new Set(['t1']) },
+  );
+  assert.equal(actions[0]?.kind, 'refresh');
+  assert.deepEqual(argv(actions[0]?.steps ?? []), [
+    'start --name t1 --wait --timeout 300',
+  ]);
+});
+
+test('plan: stopped stays a start, external stays unchanged when stale', () => {
+  const stale = new Set(['t1', 'x']);
+  const [start] = plan(
+    desiredOf(`  t1:\n    version: ${V1}`),
+    [created({ name: 't1' })],
+    new Set(),
+    { stale },
+  );
+  assert.equal(start?.kind, 'start');
+  const ext = created({
+    name: 'x',
+    domain: 'xahau-dev.net',
+    external: true,
+    version: '',
+  });
+  const [x] = plan(
+    desiredOf('  x:\n    external: true\n    domain: xahau-dev.net'),
+    [ext],
+    new Set(),
+    { stale },
+  );
+  assert.equal(x?.kind, 'unchanged');
+});
+
+test('plan: a stale running relabel ends with start', () => {
+  const [d] = desiredOf(`  foo:\n    version: ${V1}\n    displayName: Foo`);
+  assert.ok(d);
+  const [a] = plan([d], [created({ name: 'foo' })], new Set(['foo']), {
+    stale: new Set(['foo']),
+  });
+  assert.equal(a?.kind, 'relabel');
+  assert.equal(a?.steps.at(-1)?.[0], 'start');
+});
+
+test('composeDrifted: compares the rendered compose.yml, read-only', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'xng-drift-'));
+  try {
+    const spec = created({ name: 't1' });
+    assert.equal(await composeDrifted(spec, dir), true); // missing
+    writeFileSync(join(dir, 'compose.yml'), renderCompose(spec));
+    assert.equal(await composeDrifted(spec, dir), false);
+    writeFileSync(join(dir, 'compose.yml'), `${renderCompose(spec)}# x\n`);
+    assert.equal(await composeDrifted(spec, dir), true);
+    assert.equal(await composeDrifted({ ...spec, external: true }, dir), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('executionSteps: removes, then creates, then upgrades, then starts', () => {
@@ -684,4 +748,16 @@ test('formatPlan counts and marks a relabel', () => {
   const out = formatPlan(plan([d], [a], new Set()));
   assert.match(out, /1 to relabel/);
   assert.match(out, /# foo\s+relabel/);
+});
+
+test('formatPlan counts and marks a refresh', () => {
+  const [d] = desiredOf(`  foo:\n    version: ${V1}`);
+  assert.ok(d);
+  const out = formatPlan(
+    plan([d], [created({ name: 'foo' })], new Set(['foo']), {
+      stale: new Set(['foo']),
+    }),
+  );
+  assert.match(out, /1 to refresh/);
+  assert.match(out, /\* foo\s+refresh/);
 });
