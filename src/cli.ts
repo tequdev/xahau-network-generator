@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { createInterface } from 'node:readline/promises';
 import { Command, InvalidArgumentError, Option } from 'commander';
 import {
+  composeDrifted,
   formatPlan,
   parseXngYml,
   plan,
@@ -24,6 +25,7 @@ import {
   ensureProxy,
   listContainers,
   proxyDown,
+  staleProjects,
 } from './docker.ts';
 import { report, runChecks } from './doctor.ts';
 import {
@@ -110,14 +112,19 @@ function intArg(min: number, max = Number.POSITIVE_INFINITY) {
 
 async function loadSpec(name: string): Promise<NetworkSpec> {
   const path = `workspace/${name}/network.json`;
+  let spec: NetworkSpec;
   try {
-    return JSON.parse(await readFile(path, 'utf8'));
+    spec = JSON.parse(await readFile(path, 'utf8'));
   } catch {
     // `throw` here (rather than a bare statement) is what lets TS see this
     // catch block as diverging, since `never`-returning methods (unlike
     // plain functions) aren't narrowed for control flow by themselves.
     throw program.error(`no network named "${name}" found (expected ${path})`);
   }
+  // network.json files from before --port-offset existed lack it (as in
+  // readWorkspace); hostPorts would otherwise render NaN into compose.yml.
+  spec.portOffset ??= 0;
+  return spec;
 }
 
 // Stubs for networks on another host have nothing to start, stop or upgrade.
@@ -492,7 +499,18 @@ program
       }
     }
 
-    const actions = plan(desired, await readWorkspace(), running, {
+    // Networks whose compose.yml would render differently, or that run an image
+    // older than the one pulled locally: `start` fixes both.
+    const stale = await staleProjects();
+    const actual = await readWorkspace();
+    for (const spec of actual) {
+      if (await composeDrifted(spec, `workspace/${spec.name}`)) {
+        stale.add(spec.name);
+      }
+    }
+
+    const actions = plan(desired, actual, running, {
+      stale,
       only: opts.network,
       timeout: opts.timeout,
     });

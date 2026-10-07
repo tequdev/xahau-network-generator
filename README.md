@@ -296,9 +296,10 @@ xng apply [-f xng.yml] [-y] [--dry-run] [--timeout <sec>] [--network <name>]...
 | standalone `version`, or any other key differs | `recreate` | `remove`, `create`, `start --wait` (ledger data and keys are wiped) |
 | identical but `displayName`/`displayShortName` | `relabel` | `label` (`start --wait` if stopped); no recreate |
 | identical, any container not running | `start` | `start --wait` |
+| identical, running, but `compose.yml` would render differently (xng updated) or a container runs an older image than the one pulled locally | `refresh` | `start --wait` (only the changed containers are recreated) |
 | `external: true`, only in the file | `create` | `create --external` (no `start`) |
 | `external: true`, identical | `unchanged` | nothing (containers are not looked at) |
-| identical, every container running | `unchanged` | nothing |
+| identical, every container running, and nothing to refresh | `unchanged` | nothing |
 
 Before any step runs, `apply` downloads every `xahaud` version it is about
 to create or upgrade to, so a mistyped version fails before anything is
@@ -315,6 +316,8 @@ Things to know:
 
 - `unchanged` means every container is running, not that the network is ready: a
   network whose `start --wait` timed out is `unchanged` on the next run.
+- `docker pull <image>` (e.g. the explorer's `xahau-devnet` tag) followed by
+  `xng apply` rolls the new image out; `apply` never pulls by itself.
 - `apply` owns all of `workspace/`: a network that is not in the file is
   removed, including ones made by hand with `xng create`. Read the plan.
 - A directory under `workspace/` without a valid `network.json` (or whose

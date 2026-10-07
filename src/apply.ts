@@ -3,6 +3,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import YAML from 'yaml';
 import { certHosts } from './cloudflare.ts';
+import { renderCompose } from './compose.ts';
 import { CLI_PATH, TSX_BIN } from './docker.ts';
 import {
   DEFAULT_IMPORT_VL_KEYS,
@@ -169,6 +170,7 @@ export type Action = {
     | 'recreate'
     | 'relabel'
     | 'start'
+    | 'refresh'
     | 'unchanged';
   diff: { key: string; from: unknown; to: unknown }[]; // upgrade/recreate
   steps: string[][]; // xng argv, in execution order
@@ -244,7 +246,7 @@ export function plan(
   desired: NetworkSpec[],
   actual: NetworkSpec[],
   running: Set<string>,
-  opts: { only?: string[]; timeout?: number } = {},
+  opts: { only?: string[]; timeout?: number; stale?: Set<string> } = {},
 ): Action[] {
   const timeout = String(opts.timeout ?? 300);
   const startArgv = (name: string) => [
@@ -309,6 +311,7 @@ export function plan(
       return from === to ? [] : [{ key, from, to }];
     });
     const stopped = !running.has(name) && !d.external;
+    const stale = !d.external && !!opts.stale?.has(name);
     if (diff.length === 0) {
       // Raw values on purpose: a label that is unset on one side differs.
       const labels = LABELS.flatMap((key) =>
@@ -330,14 +333,14 @@ export function plan(
               '--display-short-name',
               d.displayShortName ?? '',
             ],
-            ...(stopped ? [startArgv(name)] : []),
+            ...(stopped || stale ? [startArgv(name)] : []),
           ],
           ...both,
         };
       }
-      return stopped
-        ? { name, kind: 'start', diff, steps: [startArgv(name)], ...both }
-        : { name, kind: 'unchanged', diff, steps: [], ...both };
+      const kind = stopped ? 'start' : stale ? 'refresh' : 'unchanged';
+      const steps = kind === 'unchanged' ? [] : [startArgv(name)];
+      return { name, kind, diff, steps, ...both };
     }
     // `xng upgrade` only swaps the binary of a running testnet; anything else
     // that changed (or a standalone, which has no upgrade) needs a new network.
@@ -388,6 +391,7 @@ export function executionSteps(actions: Action[]): string[][] {
     upgrade: 2,
     relabel: 3,
     start: 3,
+    refresh: 3,
     unchanged: 4,
   };
   const steps = actions
@@ -409,6 +413,7 @@ const DISPLAY = [
   ['relabel', '#'],
   ['remove', '-'],
   ['start', '^'],
+  ['refresh', '*'],
   ['unchanged', '='],
 ] as const;
 
@@ -435,6 +440,11 @@ function describe(a: Action): { detail: string; note: string } {
       return { detail: '', note: '(ledger data and keys are deleted)' };
     case 'start':
       return { detail: '(containers not running)', note: '' };
+    case 'refresh':
+      return {
+        detail: '(compose.yml or an image changed)',
+        note: '(start recreates only those containers)',
+      };
     default:
       return { detail: '', note: '' };
   }
@@ -579,6 +589,19 @@ export async function readWorkspace(dir = 'workspace'): Promise<NetworkSpec[]> {
     }
   }
   return specs;
+}
+
+// Whether `xng start` would write a different compose.yml (xng itself changed).
+// Read-only, so plan and --dry-run leave workspace/ alone.
+export async function composeDrifted(
+  spec: NetworkSpec,
+  dir: string,
+): Promise<boolean> {
+  if (spec.external) return false;
+  const current = await readFile(join(dir, 'compose.yml'), 'utf8').catch(
+    () => undefined,
+  );
+  return current !== renderCompose(spec);
 }
 
 // Runs each step as a child `xng` (see docker.ts for why). Stops at the first
