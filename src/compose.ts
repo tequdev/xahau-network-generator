@@ -21,17 +21,11 @@ function traefikRoute(
   router: string,
   host: string,
   port: number,
-  pathPrefix?: string,
+  extraRule = '',
 ): string[] {
   const routerName = `${spec.name}-${router}`;
-  // Traefik v3 ranks routers by rule length, so a Host && PathPrefix rule
-  // wins over the plain Host() ws router on the same host without touching
-  // it (Issue #19 assumed the ws rule would need splitting; it doesn't).
-  const rule = pathPrefix
-    ? `Host(\`${host}\`) && PathPrefix(\`${pathPrefix}\`)`
-    : `Host(\`${host}\`)`;
   return [
-    `traefik.http.routers.${routerName}.rule=${rule}`,
+    `traefik.http.routers.${routerName}.rule=Host(\`${host}\`)${extraRule}`,
     `traefik.http.routers.${routerName}.entrypoints=web,websecure`,
     `traefik.http.routers.${routerName}.service=${routerName}`,
     `traefik.http.services.${routerName}.loadbalancer.server.port=${port}`,
@@ -105,7 +99,21 @@ export function renderCompose(spec: NetworkSpec): string {
         services[serviceName].labels = [
           'traefik.enable=true',
           'traefik.docker.network=proxy',
-          ...traefikRoute(spec, 'ws', base, containerPorts.wsPublic),
+          // A root network shares the bare domain between wss and the landing
+          // page: only WebSocket upgrades go to the node. Traefik ranks
+          // routers by rule length, so this longer rule beats the site's; it
+          // would also beat the debugstream one, hence the path exclusion.
+          // A non-root ws router stays plain Host(): the debugstream rule is
+          // longer and wins on its path by itself.
+          ...traefikRoute(
+            spec,
+            'ws',
+            base,
+            containerPorts.wsPublic,
+            spec.root
+              ? ' && HeaderRegexp(`Upgrade`, `(?i)^websocket$$`) && !PathPrefix(`/debugstream/`)'
+              : '',
+          ),
           ...traefikRoute(spec, 'rpc', `rpc.${base}`, containerPorts.rpcPublic),
           ...(spec.pwa
             ? traefikRoute(spec, 'pwa', `pwa.${base}`, containerPorts.pwa)
@@ -154,6 +162,23 @@ export function renderCompose(spec: NetworkSpec): string {
       },
     };
 
+    if (spec.root) {
+      // One directory mount: writeSiteIndex copies the repo's site/ next to
+      // networks.json. A file mount would pin the inode (a rewritten
+      // networks.json stays stale), and a second mount nested inside a
+      // read-only one cannot be created by Docker.
+      services.site = {
+        image: 'nginx:alpine',
+        volumes: ['./site:/usr/share/nginx/html:ro'],
+        networks: ['default', 'proxy'],
+        labels: [
+          'traefik.enable=true',
+          'traefik.docker.network=proxy',
+          ...traefikRoute(spec, 'site', base, 80),
+        ],
+      };
+    }
+
     services.faucet = {
       // Resolved against the compose file's directory (workspace/<name>/), so a
       // faucet fix in the repo is built on the next start without copying.
@@ -187,7 +212,13 @@ export function renderCompose(spec: NetworkSpec): string {
       labels: [
         'traefik.enable=true',
         'traefik.docker.network=proxy',
-        ...traefikRoute(spec, 'debugstream', base, 8080, '/debugstream/'),
+        ...traefikRoute(
+          spec,
+          'debugstream',
+          base,
+          8080,
+          ' && PathPrefix(`/debugstream/`)',
+        ),
       ],
       depends_on: [nodeName(spec, 0)],
     };

@@ -88,6 +88,41 @@ function checkVersion(
   );
 }
 
+// A root network serves the landing page on the bare domain, next to its
+// wss endpoint (Traefik splits them by the Upgrade header).
+async function checkLanding(spec: NetworkSpec): Promise<void> {
+  const http = spec.tls ? 'https' : 'http';
+  const page = await fetch(`${http}://${spec.domain}/`, {
+    signal: AbortSignal.timeout(10_000),
+  });
+  assert.equal(page.status, 200, 'landing page did not return 200');
+  assert.match(page.headers.get('content-type') ?? '', /text\/html/);
+  const index = await fetch(`${http}://${spec.domain}/networks.json`, {
+    signal: AbortSignal.timeout(10_000),
+  });
+  assert.equal(index.status, 200, 'networks.json did not return 200');
+  const names = (
+    (await index.json()) as { networks: { name: string }[] }
+  ).networks.map((n) => n.name);
+  assert.ok(names.includes(spec.name), `networks.json lacks ${spec.name}`);
+
+  const ws = new WebSocket(endpoints(spec).ws);
+  const result = await new Promise<{ info?: unknown }>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error('ws server_info timed out after 15s')),
+      15_000,
+    );
+    ws.onopen = () => ws.send(JSON.stringify({ command: 'server_info' }));
+    ws.onerror = () => reject(new Error('ws connection failed'));
+    ws.onmessage = (e) => {
+      clearTimeout(timer);
+      resolve(JSON.parse(String(e.data)).result);
+    };
+  }).finally(() => ws.close());
+  assert.ok(result?.info, 'ws server_info returned no result.info');
+  console.log('[e2e] landing page, networks.json and ws upgrade ok');
+}
+
 // Signs `tx` with `seed` (adds Sequence, NetworkID, LastLedgerSequence), submits it
 // to the public RPC and waits until it is validated.
 async function submitAndValidate(
@@ -204,6 +239,8 @@ async function checkTestnet(
   expectVersion?: string,
 ): Promise<void> {
   await checkCommon(spec);
+
+  if (spec.root) await checkLanding(spec);
 
   const ep = endpoints(spec);
   assert.ok(ep.faucet, 'testnet spec missing faucet endpoint');

@@ -34,6 +34,9 @@ networks:
     root: false                      # true | false, testnet only     (default false)
     pwa: false                       # true | false, testnet only     (default false): node serves
                                      # AppLoader documents at pwa.<name>.<domain> (needs a xahaud build with PR #793)
+    displayName: JS Hooks            # 1-64 chars; landing page heading (default: the name, `main` for root)
+    displayShortName: jshooks               # 1-24 chars; nav link and faucet pill (default: displayName)
+                                     # both are cosmetic: changing them never recreates the network
     # Extra/overriding xahaud.cfg sections for the validators v1..vN only;
     # `node` is unaffected. Testnet only; same shapes and rules as nodeConfig
     # (see `local` below). Changing it recreates the network.
@@ -85,6 +88,17 @@ networks:
         online_delete: 50000         # must be >= ledger_history
       rpc_startup:                   # a list: one line each
         - '{ "command": "log_level", "severity": "debug" }'
+
+  # A network that runs on another host. Nothing is started here; it is only
+  # listed on this host's landing page (the `root: true` network above serves
+  # it). Only domain, tls, pwa, displayName and displayShortName are allowed; point DNS for foo.<domain> and
+  # *.foo.<domain> and its certificate at the other host yourself.
+  # foo:
+  #   external: true
+  #   domain: xahau-dev.net
+  #   tls: true
+  #   displayName: Foo Devnet        # optional landing page labels
+  #   displayShortName: foo
 
   # A standalone node (no consensus, ledgers close on demand), published
   # directly on host ports: rpc admin 5005, rpc 5007, ws admin 6006,

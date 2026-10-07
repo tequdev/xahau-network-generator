@@ -4,6 +4,7 @@ import {
   DEFAULT_IMPORT_VL_KEYS,
   configSections,
   defaultQuorum,
+  displayNames,
   endpoints,
   validateSpec,
 } from './types.ts';
@@ -189,6 +190,28 @@ test('endpoints: pwa only when set; validateSpec rejects bad pwa', () => {
   );
 });
 
+test('validateSpec: external cannot be root and needs no version', () => {
+  const stub: NetworkSpec = {
+    name: 'foo',
+    type: 'testnet',
+    version: '',
+    validators: 3,
+    quorum: 2,
+    networkId: 21339,
+    domain: 'example.com',
+    tls: true,
+    external: true,
+    portOffset: 0,
+    importVlKeys: DEFAULT_IMPORT_VL_KEYS,
+  };
+  validateSpec(stub);
+  assert.throws(() => validateSpec({ ...stub, root: true }), /cannot be root/);
+  assert.throws(
+    () => validateSpec({ ...stub, version: '', external: false }),
+    /version/,
+  );
+});
+
 test('endpoints: debugstream is a testnet-only path under the ws host', () => {
   const spec: NetworkSpec = {
     name: 'dev',
@@ -211,4 +234,64 @@ test('endpoints: debugstream is a testnet-only path under the ws host', () => {
       .debugstream,
     undefined,
   );
+});
+
+test('displayNames: defaults to main for root, else the name; displayShortName falls back to displayName', () => {
+  const base: NetworkSpec = {
+    name: 'dev',
+    type: 'testnet',
+    version: 'x',
+    validators: 3,
+    quorum: 2,
+    networkId: 21339,
+    domain: 'example.com',
+    tls: false,
+    portOffset: 0,
+    importVlKeys: DEFAULT_IMPORT_VL_KEYS,
+  };
+  assert.deepEqual(displayNames(base), {
+    displayName: 'dev',
+    displayShortName: 'dev',
+  });
+  assert.deepEqual(displayNames({ ...base, root: true }), {
+    displayName: 'main',
+    displayShortName: 'main',
+  });
+  assert.deepEqual(displayNames({ ...base, displayName: 'Dev Net' }), {
+    displayName: 'Dev Net',
+    displayShortName: 'Dev Net',
+  });
+  assert.deepEqual(
+    displayNames({ ...base, displayName: 'Dev Net', displayShortName: 'D' }),
+    { displayName: 'Dev Net', displayShortName: 'D' },
+  );
+});
+
+test('validateSpec: displayName 1-64 and displayShortName 1-24 chars, no control characters', () => {
+  const base: NetworkSpec = {
+    name: 'dev',
+    type: 'testnet',
+    version: 'x',
+    validators: 3,
+    quorum: 2,
+    networkId: 21339,
+    domain: 'example.com',
+    tls: false,
+    portOffset: 0,
+    importVlKeys: DEFAULT_IMPORT_VL_KEYS,
+  };
+  validateSpec({
+    ...base,
+    displayName: 'a'.repeat(64),
+    displayShortName: 'b'.repeat(24),
+  });
+  for (const bad of [
+    { displayName: '' },
+    { displayName: 'a'.repeat(65) },
+    { displayShortName: 'b'.repeat(25) },
+    { displayShortName: 'a\nb' },
+    { displayName: 5 as never },
+  ]) {
+    assert.throws(() => validateSpec({ ...base, ...bad }), /Name must be/);
+  }
 });

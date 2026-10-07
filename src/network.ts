@@ -1,6 +1,7 @@
 import {
   chmod,
   copyFile,
+  cp,
   link,
   mkdir,
   readFile,
@@ -9,6 +10,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   amendmentHash,
   commitFromReleaseinfo,
@@ -35,6 +37,8 @@ import type { NetworkSpec } from './types.ts';
 import {
   VL_HOST,
   containerName,
+  displayNames,
+  endpoints,
   explorerHostPort,
   hostBase,
   hostPorts,
@@ -81,6 +85,7 @@ export async function createNetwork(
 
 async function populateNetwork(spec: NetworkSpec, dir: string): Promise<void> {
   await writeFile(join(dir, 'network.json'), JSON.stringify(spec, null, 2));
+  if (spec.external) return; // a stub: the network runs on another host
 
   // 1. binary
   // Each node gets its own copy of the binary (workspace/<name>/bin/<service>/xahaud)
@@ -346,6 +351,37 @@ export async function otherSpecs(
     } catch {}
   }
   return specs;
+}
+
+const SITE_DIR = fileURLToPath(new URL('../site', import.meta.url));
+
+// The landing page (site/ in the repo) cannot know which networks share its
+// domain, so each root network gets a static list of them (external ones
+// included; standalones are loopback-only) in its own site/ directory, which
+// compose mounts into nginx. The page itself is copied alongside (one mount,
+// see compose.ts), so a repo edit shows up on the next start/reset. Called
+// whenever a network appears or goes away.
+export async function writeSiteIndex(outDir = 'workspace'): Promise<void> {
+  const testnets = (await otherSpecs(outDir, '')).filter(
+    (s) => s.type === 'testnet',
+  );
+  for (const root of testnets.filter((s) => s.root)) {
+    const networks = testnets
+      .filter((s) => s.domain === root.domain)
+      .sort((a, b) => +!!b.root - +!!a.root || a.name.localeCompare(b.name))
+      .map((s) => ({
+        name: s.name,
+        root: !!s.root,
+        ...displayNames(s),
+        endpoints: endpoints(s),
+      }));
+    const dir = join(outDir, root.name, 'site');
+    await cp(SITE_DIR, dir, { recursive: true });
+    await writeFile(
+      join(dir, 'networks.json'),
+      JSON.stringify({ domain: root.domain, networks }, null, 2),
+    );
+  }
 }
 
 // Two testnets with the same hostBase would register identical Traefik
