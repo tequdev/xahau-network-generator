@@ -66,3 +66,29 @@ test('createNetwork: an external network writes network.json and nothing else', 
     /already serves/,
   );
 });
+
+test('writeSiteIndex: entries carry resolved displayName/displayShortName (main for root, name otherwise)', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'xng-labels-'));
+  for (const s of [
+    spec({ name: 'zeta', root: true }),
+    spec({ name: 'beta', displayName: 'Beta Net' }),
+    spec({ name: 'gam', displayName: 'Gamma', displayShortName: 'G' }),
+  ]) {
+    await put(dir, s);
+  }
+  await writeSiteIndex(dir);
+  const out = JSON.parse(
+    await readFile(join(dir, 'zeta', 'site', 'networks.json'), 'utf8'),
+  );
+  assert.deepEqual(
+    out.networks.map((n: Record<string, string>) => [
+      n.displayName,
+      n.displayShortName,
+    ]),
+    [
+      ['main', 'main'],
+      ['Beta Net', 'Beta Net'],
+      ['Gamma', 'G'],
+    ],
+  );
+});

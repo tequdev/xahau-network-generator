@@ -37,6 +37,7 @@ import type { NetworkSpec } from './types.ts';
 import {
   VL_HOST,
   containerName,
+  displayNames,
   endpoints,
   explorerHostPort,
   hostBase,
@@ -371,6 +372,7 @@ export async function writeSiteIndex(outDir = 'workspace'): Promise<void> {
       .map((s) => ({
         name: s.name,
         root: !!s.root,
+        ...displayNames(s),
         endpoints: endpoints(s),
       }));
     const dir = join(outDir, root.name, 'site');

@@ -69,13 +69,14 @@ async function main(): Promise<void> {
 
   const writeYml = (networks: Record<string, unknown>) =>
     writeFile(YML, YAML.stringify({ networks }));
-  const apply1 = (v: string) => ({
+  const apply1 = (v: string, labels = {}) => ({
     [NAME]: {
       type: 'testnet',
       version: v,
       validators: 1,
       domain: values.domain,
       root: true, // serves the landing page, whose networks.json lists ext1
+      ...labels,
     },
   });
   // Runs on "another host": apply only registers it.
@@ -114,14 +115,28 @@ async function main(): Promise<void> {
   assert.equal(r.status, 0);
   assert.match(r.out, /no changes/);
 
+  // 5a: cosmetic labels relabel the network in place, they never recreate it.
+  const labels = { displayName: 'Apply One', displayShortName: 'a1' };
+  await writeYml({ ...apply1(version, labels), ...ext1 });
+  r = apply(['--dry-run']);
+  assert.match(r.out, /^# apply1 +relabel/m);
+  assert.ok(!/recreate/.test(r.out), 'a label change planned a recreate');
+  assert.equal(apply(['-y']).status, 0);
+  const site = JSON.parse(
+    await readFile(`workspace/${NAME}/site/networks.json`, 'utf8'),
+  ).networks[0];
+  assert.equal(site.displayName, 'Apply One');
+  assert.equal(site.displayShortName, 'a1');
+  assert.ok(existsSync(`workspace/${NAME}/nodes`), 'relabel recreated it');
+
   // 5b: dropping the external network removes it from the landing list.
-  await writeYml(apply1(version));
+  await writeYml(apply1(version, labels));
   assert.equal(apply(['-y']).status, 0);
   assert.ok(!existsSync('workspace/ext1'), 'external stub still exists');
   assert.deepEqual(await listed(), [NAME]);
 
   // 6: version change is a rolling upgrade.
-  await writeYml(apply1(upgradeTo));
+  await writeYml(apply1(upgradeTo, labels));
   r = apply(['--dry-run']);
   assert.match(r.out, /^~ apply1 +upgrade/m);
   assert.equal(apply(['-y', '--timeout', timeout]).status, 0);
@@ -136,7 +151,7 @@ async function main(): Promise<void> {
 
   // 8: --network leaves the others alone (apply2 is only ever planned, never created).
   await writeYml({
-    ...apply1(upgradeTo),
+    ...apply1(upgradeTo, labels),
     apply2: { type: 'standalone', version },
   });
   r = apply(['--dry-run', '--network', NAME]);

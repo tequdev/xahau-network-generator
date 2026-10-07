@@ -200,7 +200,7 @@ function accountBlock(a, explorer, balance, hash) {
   return box;
 }
 
-function faucet(ep, name) {
+function faucet(ep, label) {
   const out = $('div', { ariaLive: 'polite' });
   const input = $('input', { type: 'text', placeholder: 'r…', autocomplete: 'off', spellcheck: false });
   const btn = $('button', { type: 'submit', className: 'btn big', textContent: 'Get devnet funds' });
@@ -223,7 +223,7 @@ function faucet(ep, name) {
     } catch { fail('Faucet request failed. Try again later.'); }
     btn.disabled = false; btn.textContent = 'Get devnet funds';
   };
-  return $('div', { className: 'card' }, head(['Faucet', $('span', { className: 'pill glass', textContent: name })]), body(form, out));
+  return $('div', { className: 'card' }, head(['Faucet', $('span', { className: 'pill glass', textContent: label })]), body(form, out));
 }
 
 function endpoints(ep) {
@@ -259,11 +259,10 @@ function status(ep) {
 
 function net(n) {
   const ep = n.endpoints;
-  const name = n.root ? 'main' : n.name;
-  const section = $('section', { className: 'net', id: 'net-' + name },
-    $('div', { className: 'net-title' }, $('h2', { textContent: name }), $('span', { className: 'host', textContent: host(ep.ws) })),
-    $('div', { className: 'grid' }, faucet(ep, name), $('div', { className: 'col' }, endpoints(ep), status(ep))));
-  return [name, section];
+  const section = $('section', { className: 'net', id: 'net-' + n.name },
+    $('div', { className: 'net-title' }, $('h2', { textContent: n.displayName }), $('span', { className: 'host', textContent: host(ep.ws) })),
+    $('div', { className: 'grid' }, faucet(ep, n.displayShortName), $('div', { className: 'col' }, endpoints(ep), status(ep))));
+  return [n.displayShortName, section];
 }
 
 fetch('networks.json').then(r => r.ok ? r.json() : Promise.reject(r.status)).then(d => {

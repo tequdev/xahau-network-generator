@@ -111,7 +111,7 @@ export function renderCompose(spec: NetworkSpec): string {
             base,
             containerPorts.wsPublic,
             spec.root
-              ? ` && HeaderRegexp(\`Upgrade\`, \`(?i)^websocket$$\`) && !PathPrefix(\`/debugstream/\`)`
+              ? ' && HeaderRegexp(`Upgrade`, `(?i)^websocket$$`) && !PathPrefix(`/debugstream/`)'
               : '',
           ),
           ...traefikRoute(spec, 'rpc', `rpc.${base}`, containerPorts.rpcPublic),

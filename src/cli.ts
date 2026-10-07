@@ -42,6 +42,7 @@ import {
   defaultQuorum,
   endpoints,
   nodeName,
+  validateSpec,
 } from './types.ts';
 import type { NetworkSpec } from './types.ts';
 import { upgradeNetwork } from './upgrade.ts';
@@ -221,6 +222,14 @@ program
       ]),
   )
   .option(
+    '--display-name <text>',
+    'testnet only: landing-page section heading (default: the network name, `main` for root)',
+  )
+  .option(
+    '--display-short-name <text>',
+    'testnet only: landing-page nav link and faucet pill (default: the display name)',
+  )
+  .option(
     '--port-offset <n>',
     'standalone only: shift every published host port by this amount',
     intArg(0, 14300),
@@ -257,6 +266,8 @@ program
       external: opts.external,
       portOffset: opts.portOffset,
       importVlKeys: DEFAULT_IMPORT_VL_KEYS,
+      displayName: opts.displayName,
+      displayShortName: opts.displayShortName,
     };
     if (opts.nodeConfig !== undefined) {
       spec.nodeConfig = parseConfigFlag('nodeConfig', opts.nodeConfig);
@@ -283,6 +294,34 @@ program
         `network "${spec.name}" was created, but its Cloudflare certificate is not ready: ${err instanceof Error ? err.message : err}`,
       );
     }
+  });
+
+program
+  .command('label')
+  .description(
+    'set the landing-page display/short name of an existing network (an empty value clears it); never recreates the network',
+  )
+  .requiredOption('--name <name>', 'network name', parseName)
+  .option('--display-name <text>', 'section heading ("" clears)')
+  .option('--display-short-name <text>', 'nav link and faucet pill ("" clears)')
+  .action(async (opts) => {
+    if (opts.displayName === undefined && opts.displayShortName === undefined) {
+      program.error('pass --display-name and/or --display-short-name');
+    }
+    const spec = await loadSpec(opts.name);
+    for (const [key, v] of [
+      ['displayName', opts.displayName],
+      ['displayShortName', opts.displayShortName],
+    ] as const) {
+      if (v === '') delete spec[key];
+      else if (v !== undefined) spec[key] = v;
+    }
+    validateSpec(spec);
+    await writeFile(
+      `workspace/${opts.name}/network.json`,
+      JSON.stringify(spec, null, 2),
+    );
+    await writeSiteIndex();
   });
 
 program

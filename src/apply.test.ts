@@ -595,3 +595,93 @@ test('plan: local -> external recreates without a trailing start', () => {
     ['remove', 'create'],
   );
 });
+
+const LABELED = `${EXT}\n    displayName: Foo Net\n    displayShortName: foo`;
+
+test('parseXngYml: displayName/displayShortName are accepted (external too) and validated', () => {
+  const [spec] = desiredOf(LABELED);
+  assert.equal(spec?.displayName, 'Foo Net');
+  assert.equal(spec?.displayShortName, 'foo');
+  assert.throws(
+    () => desiredOf(`${EXT}\n    displayShortName: ""`),
+    /displayShortName/,
+  );
+});
+
+test('plan: a label-only change is a relabel, never remove/create', () => {
+  const [d] = desiredOf(LABELED);
+  assert.ok(d);
+  const a = created({
+    name: 'foo',
+    domain: 'xahau-dev.net',
+    tls: true,
+    external: true,
+    version: '',
+  });
+  const [r] = plan([d], [a], new Set());
+  assert.equal(r?.kind, 'relabel');
+  assert.deepEqual(
+    r?.diff.map((c) => c.key),
+    ['displayName', 'displayShortName'],
+  );
+  assert.deepEqual(argv(r?.steps ?? []), [
+    'label --name foo --display-name Foo Net --display-short-name foo',
+  ]);
+  // Removing a label sends "" (clear); unset on both sides is unchanged.
+  const [clear] = plan([a], [d], new Set());
+  assert.deepEqual(clear?.steps[0]?.slice(3), [
+    '--display-name',
+    '',
+    '--display-short-name',
+    '',
+  ]);
+  assert.equal(plan([a], [a], new Set())[0]?.kind, 'unchanged');
+});
+
+test('plan: relabel of a stopped local network also starts it; a COMPARED diff still recreates', () => {
+  const a = created({ name: 'x' });
+  const [d] = desiredOf(`  x:\n    version: ${V1}\n    displayName: X`);
+  assert.ok(d);
+  const [r] = plan([d], [a], new Set());
+  assert.deepEqual(
+    r?.steps.map((s) => s[0]),
+    ['label', 'start'],
+  );
+  assert.equal(plan([d], [a], new Set(['x']))[0]?.steps.length, 1);
+  const [e] = desiredOf(
+    `  x:\n    version: ${V2}\n    validators: 4\n    displayName: X`,
+  );
+  assert.ok(e);
+  assert.equal(plan([e], [a], new Set(['x']))[0]?.kind, 'recreate');
+});
+
+test('createArgv carries --display-name/--display-short-name (local and external)', () => {
+  const [ext, loc] = [
+    ...desiredOf(LABELED),
+    ...desiredOf(`  x:\n    version: ${V1}\n    displayShortName: ex`),
+  ];
+  assert.ok(ext && loc);
+  const tail = (s: NetworkSpec) =>
+    plan([s], [], new Set())[0]?.steps[0]?.join(' ');
+  assert.match(
+    tail(ext) ?? '',
+    /--display-name Foo Net --display-short-name foo$/,
+  );
+  assert.match(tail(loc) ?? '', /--display-short-name ex$/);
+  assert.doesNotMatch(tail(loc) ?? '', /--display-name/);
+});
+
+test('formatPlan counts and marks a relabel', () => {
+  const [d] = desiredOf(LABELED);
+  assert.ok(d);
+  const a = created({
+    name: 'foo',
+    domain: 'xahau-dev.net',
+    tls: true,
+    external: true,
+    version: '',
+  });
+  const out = formatPlan(plan([d], [a], new Set()));
+  assert.match(out, /1 to relabel/);
+  assert.match(out, /# foo\s+relabel/);
+});

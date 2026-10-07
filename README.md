@@ -126,6 +126,14 @@ show up on the next start; the list of networks next to it
 
 ![landing page](assets/landing.png)
 
+Two optional, cosmetic keys per network label it there: `displayName` (1-64
+characters, the section heading) and `displayShortName` (1-24, the nav link and the
+Faucet pill). Both default to the network name (`main` for the root network),
+`displayShortName` to `displayName` first. They never recreate a network: change them
+in `xng.yml` (`relabel`) or with `xng label --name <n> --display-name <text>
+--display-short-name <text>` (an empty value clears one); `xng create` takes the same
+two flags.
+
 **`external: true`.** Devnets may run on several servers. Declare the ones
 that run elsewhere in this server's `xng.yml` so they appear on its landing
 page; only their hostnames are known here and nothing is started:
@@ -143,7 +151,7 @@ networks:
     tls: true
 ```
 
-Only `domain`, `tls` and `pwa` are allowed on an external network (it
+Only `domain`, `tls`, `pwa`, `displayName` and `displayShortName` are allowed on an external network (it
 cannot be `root`), and `start`/`stop`/`reset`/`upgrade`/`vote` refuse it.
 DNS (`foo.<domain>` and `*.foo.<domain>` to the other server) and its certificate are yours to
 arrange there.
@@ -255,7 +263,7 @@ key (`cp xng.example.yml xng.yml`).
 The keys are those of `workspace/<name>/network.json`: `type` (default
 `testnet`), `version`, `validators` (3), `quorum`, `networkId` (21339),
 `domain` (`127.0.0.1.nip.io`), `tls` (false), `root` (false), `pwa` (false),
-`external` (false), `portOffset` (0), `nodeConfig`, `validatorConfig`. `nodeConfig` (also `xng
+`external` (false), `portOffset` (0), `displayName`, `displayShortName`, `nodeConfig`, `validatorConfig`. `nodeConfig` (also `xng
 create --node-config <json>`) adds or overrides `xahaud.cfg` sections of the
 non-validating `node` only: a section xng already writes is replaced, any
 other is appended; changing it recreates the network. `validatorConfig`
@@ -286,6 +294,7 @@ xng apply [-f xng.yml] [-y] [--dry-run] [--timeout <sec>] [--network <name>]...
 | only in `workspace/` | `remove` | `remove` |
 | testnet, only `version` differs | `upgrade` | (`start --wait` if stopped, then) `upgrade` |
 | standalone `version`, or any other key differs | `recreate` | `remove`, `create`, `start --wait` (ledger data and keys are wiped) |
+| identical but `displayName`/`displayShortName` | `relabel` | `label` (`start --wait` if stopped); no recreate |
 | identical, any container not running | `start` | `start --wait` |
 | `external: true`, only in the file | `create` | `create --external` (no `start`) |
 | `external: true`, identical | `unchanged` | nothing (containers are not looked at) |

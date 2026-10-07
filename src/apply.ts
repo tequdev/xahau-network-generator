@@ -34,8 +34,11 @@ const COMPARED = [
   'nodeConfig',
   'validatorConfig',
 ] as const;
-const YML_KEYS: readonly string[] = COMPARED;
-const EXTERNAL_KEYS = ['external', 'domain', 'tls', 'pwa'];
+// Cosmetic landing-page labels: accepted in yml but not in COMPARED, so changing
+// one never recreates a network (it only plans `relabel`).
+const LABELS = ['displayName', 'displayShortName'] as const;
+const YML_KEYS: readonly string[] = [...COMPARED, ...LABELS];
+const EXTERNAL_KEYS = ['external', 'domain', 'tls', 'pwa', ...LABELS];
 
 export function parseXngYml(text: string): NetworkSpec[] {
   let doc: unknown;
@@ -110,6 +113,9 @@ function toSpec(name: string, raw: unknown): NetworkSpec {
     portOffset: (entry.portOffset ?? 0) as number,
     importVlKeys: DEFAULT_IMPORT_VL_KEYS,
   };
+  for (const key of LABELS) {
+    if (entry[key] !== undefined) spec[key] = entry[key] as string;
+  }
   if (entry.nodeConfig !== undefined) {
     spec.nodeConfig = configSections('nodeConfig', entry.nodeConfig);
   }
@@ -156,7 +162,14 @@ export function checkAcrossNetworks(specs: NetworkSpec[]): void {
 
 export type Action = {
   name: string;
-  kind: 'create' | 'remove' | 'upgrade' | 'recreate' | 'start' | 'unchanged';
+  kind:
+    | 'create'
+    | 'remove'
+    | 'upgrade'
+    | 'recreate'
+    | 'relabel'
+    | 'start'
+    | 'unchanged';
   diff: { key: string; from: unknown; to: unknown }[]; // upgrade/recreate
   steps: string[][]; // xng argv, in execution order
   from?: NetworkSpec; // on-disk spec (absent for create)
@@ -177,6 +190,12 @@ function comparable(spec: NetworkSpec, key: (typeof COMPARED)[number]) {
 }
 
 function createArgv(spec: NetworkSpec): string[] {
+  const labels = [
+    ...(spec.displayName ? ['--display-name', spec.displayName] : []),
+    ...(spec.displayShortName
+      ? ['--display-short-name', spec.displayShortName]
+      : []),
+  ];
   if (spec.external) {
     return [
       'create',
@@ -187,6 +206,7 @@ function createArgv(spec: NetworkSpec): string[] {
       spec.domain,
       ...(spec.tls ? ['--tls'] : []),
       ...(spec.pwa ? ['--pwa'] : []),
+      ...labels,
     ];
   }
   return [
@@ -216,6 +236,7 @@ function createArgv(spec: NetworkSpec): string[] {
     ...(spec.validatorConfig
       ? ['--validator-config', JSON.stringify(spec.validatorConfig)]
       : []),
+    ...labels,
   ];
 }
 
@@ -287,10 +308,36 @@ export function plan(
       const to = comparable(d, key);
       return from === to ? [] : [{ key, from, to }];
     });
+    const stopped = !running.has(name) && !d.external;
     if (diff.length === 0) {
-      return running.has(name) || d.external
-        ? { name, kind: 'unchanged', diff, steps: [], ...both }
-        : { name, kind: 'start', diff, steps: [startArgv(name)], ...both };
+      // Raw values on purpose: a label that is unset on one side differs.
+      const labels = LABELS.flatMap((key) =>
+        a[key] === d[key] ? [] : [{ key, from: a[key], to: d[key] }],
+      );
+      if (labels.length > 0) {
+        return {
+          name,
+          kind: 'relabel',
+          diff: labels,
+          steps: [
+            // "" clears a label (see `xng label`).
+            [
+              'label',
+              '--name',
+              name,
+              '--display-name',
+              d.displayName ?? '',
+              '--display-short-name',
+              d.displayShortName ?? '',
+            ],
+            ...(stopped ? [startArgv(name)] : []),
+          ],
+          ...both,
+        };
+      }
+      return stopped
+        ? { name, kind: 'start', diff, steps: [startArgv(name)], ...both }
+        : { name, kind: 'unchanged', diff, steps: [], ...both };
     }
     // `xng upgrade` only swaps the binary of a running testnet; anything else
     // that changed (or a standalone, which has no upgrade) needs a new network.
@@ -339,6 +386,7 @@ export function executionSteps(actions: Action[]): string[][] {
     recreate: 1,
     create: 1,
     upgrade: 2,
+    relabel: 3,
     start: 3,
     unchanged: 4,
   };
@@ -358,6 +406,7 @@ const DISPLAY = [
   ['create', '+'],
   ['upgrade', '~'],
   ['recreate', '!'],
+  ['relabel', '#'],
   ['remove', '-'],
   ['start', '^'],
   ['unchanged', '='],
@@ -378,6 +427,8 @@ function describe(a: Action): { detail: string; note: string } {
             ? '(starts it first, then rolling upgrade)'
             : '(rolling, no downtime)',
       };
+    case 'relabel':
+      return { detail: changes, note: '(landing page only)' };
     case 'recreate':
       return { detail: changes, note: '(ledger data and keys are wiped)' };
     case 'remove':

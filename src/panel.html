@@ -219,7 +219,7 @@
       const total = n.containers.length;
       const info = n.info;
       const tr = el('tr', {});
-      tr.appendChild(el('td', { text: spec.name }));
+      tr.appendChild(el('td', { text: spec.name + (spec.displayName ? ' (' + spec.displayName + ')' : '') }));
       tr.appendChild(el('td', { text: spec.version }));
       tr.appendChild(el('td', { text: spec.type + (spec.root ? ' (root)' : '') + (spec.external ? ' [external]' : '') }));
       tr.appendChild(el('td', { text: String(spec.validators) }));
