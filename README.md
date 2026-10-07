@@ -74,10 +74,25 @@ http://explorer.t1.127.0.0.1.nip.io
 http://rpc.t1.127.0.0.1.nip.io
 ws://t1.127.0.0.1.nip.io
 http://faucet.t1.127.0.0.1.nip.io
+ws://t1.127.0.0.1.nip.io/debugstream/<r-address>
 ```
 
 The default domain, `127.0.0.1.nip.io`, resolves any subdomain to
 `127.0.0.1` so this works out of the box on plain HTTP.
+
+**Hook debug stream.** Every testnet's `node` logs hook `trace()` output
+(xahaud's `View` partition at trace) to
+`workspace/<name>/nodes/node/log/debug.log`. The `debugstream` service tails
+that file and streams the `HookTrace`/`HookInfo`/`HookError`/`HookEmit` lines
+over WebSocket at `ws(s)://<base>/debugstream/<r-address>` (lines mentioning
+that account) or `/debugstream/` (all hook lines), the same URL shape as
+`wss://xahau-test.net/debugstream/<r-address>`. Messages are the raw log
+lines. The service truncates the file once it passes 100 MiB. Standalone
+networks write the same log file (tail it directly) but have no stream
+service, so nothing caps that file: delete it, or `xng reset`, when it gets
+big. xahaud.cfg is written at create time, so a testnet created by an older
+xng gets the stream service on its next start but no log to tail until it is
+recreated.
 
 ### Serving several devnets on a real domain
 
@@ -86,9 +101,9 @@ feature branch, e.g. with `--domain xahau-dev.net`:
 
 ```
 xng create --name jshooks --version 2026.9.8-jshooks+3640 --domain xahau-dev.net --tls
-  -> wss://jshooks.xahau-dev.net, https://explorer.jshooks.xahau-dev.net, https://faucet.jshooks.xahau-dev.net
+  -> wss://jshooks.xahau-dev.net, https://explorer.jshooks.xahau-dev.net, https://faucet.jshooks.xahau-dev.net, wss://jshooks.xahau-dev.net/debugstream/
 xng create --name dev --root --version 2026.9.9-dev+3667 --domain xahau-dev.net --tls
-  -> wss://xahau-dev.net, https://explorer.xahau-dev.net, https://faucet.xahau-dev.net
+  -> wss://xahau-dev.net, https://explorer.xahau-dev.net, https://faucet.xahau-dev.net, wss://xahau-dev.net/debugstream/
 ```
 
 `--root` puts a network on the bare domain instead of `<name>.<domain>`;

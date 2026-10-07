@@ -28,6 +28,7 @@ import {
 import { report, runChecks } from './doctor.ts';
 import {
   createNetwork,
+  ensureNodeLogDir,
   refreshPwaGateway,
   resetNetworkData,
 } from './network.ts';
@@ -126,6 +127,7 @@ function printEndpoints(spec: NetworkSpec, dir: string): void {
   if (ep.faucet) console.log(`  faucet:   ${ep.faucet}`);
   if (ep.vl) console.log(`  vl:       ${ep.vl}`);
   if (ep.pwa) console.log(`  pwa:      ${ep.pwa}`);
+  if (ep.debugstream) console.log(`  debugstream: ${ep.debugstream}`);
   if (ep.rpcAdmin) console.log(`  rpc admin: ${ep.rpcAdmin}`);
   if (ep.wsAdmin) console.log(`  ws admin:  ${ep.wsAdmin}`);
 }
@@ -268,6 +270,7 @@ program
     // the restart policy) on their next start.
     await writeFile(`workspace/${opts.name}/compose.yml`, renderCompose(spec));
     await refreshPwaGateway(spec, `workspace/${opts.name}`);
+    await ensureNodeLogDir(spec, `workspace/${opts.name}`);
     // --build so a changed faucet/ is always rebuilt; a no-op when unchanged.
     compose(opts.name, ['up', '-d', '--build']);
     await syncCertificate(spec, { fatal: false });
@@ -297,6 +300,7 @@ program
     if (spec.type === 'testnet') ensureProxy();
     await writeFile(`workspace/${opts.name}/compose.yml`, renderCompose(spec));
     await refreshPwaGateway(spec, `workspace/${opts.name}`);
+    await ensureNodeLogDir(spec, `workspace/${opts.name}`);
     compose(opts.name, ['up', '-d', '--build']);
     await syncCertificate(spec, { fatal: false });
     if (opts.wait) {

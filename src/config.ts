@@ -129,10 +129,19 @@ export function renderXahaudCfg(o: XahaudCfgOptions): string {
 
   sections.push(['validators_file', ['validators.txt']]);
 
-  sections.push([
-    'rpc_startup',
-    ['{ "command": "log_level", "severity": "warning" }'],
-  ]);
+  const rpcStartup = ['{ "command": "log_level", "severity": "warning" }'];
+  if (!o.token) {
+    // Hook trace() output is journal partition "View" at severity trace
+    // (`HookTrace[<hookAcc>-<otxnAcc>]: msg`). The `debugstream` service tails
+    // this file; xahaud resolves it relative to the config dir (/node) and
+    // creates the parent directory itself. xahaud mirrors the whole log to
+    // stderr too, which is why compose caps the node's docker log.
+    sections.push(['debug_logfile', ['log/debug.log']]);
+    rpcStartup.push(
+      '{ "command": "log_level", "partition": "View", "severity": "trace" }',
+    );
+  }
+  sections.push(['rpc_startup', rpcStartup]);
 
   sections.push(['ssl_verify', ['0']]);
 

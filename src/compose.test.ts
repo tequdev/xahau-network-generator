@@ -169,3 +169,30 @@ test('compose: pwa adds a pwa.<base> router to port 8088 on node only when set',
   assert.ok(on.includes('pwa.testnet-3.127.0.0.1.nip.io'));
   assert.ok(on.includes('=8088'));
 });
+
+test('compose: testnet runs a debugstream service tailing node/log; standalone has none', () => {
+  // biome-ignore lint/suspicious/noExplicitAny: compose.yml service shape has no fixed schema here
+  const doc = parse(renderCompose(testnetSpec)) as any;
+  const ds = doc.services.debugstream;
+  assert.equal(ds.build, '../../debugstream');
+  assert.ok(ds.volumes.includes('./nodes/node/log:/log'));
+  assert.equal(ds.ports, undefined);
+  const labels = ds.labels.join('\n');
+  assert.ok(
+    labels.includes(
+      'Host(`testnet-3.127.0.0.1.nip.io`) && PathPrefix(`/debugstream/`)',
+    ),
+  );
+  assert.ok(labels.includes('=8080'));
+  // biome-ignore lint/suspicious/noExplicitAny: compose.yml service shape has no fixed schema here
+  const sa = parse(renderCompose(standaloneSpec)) as any;
+  assert.equal(sa.services.debugstream, undefined);
+});
+
+test('compose: xahaud services cap their docker log', () => {
+  for (const spec of [testnetSpec, standaloneSpec]) {
+    // biome-ignore lint/suspicious/noExplicitAny: compose.yml service shape has no fixed schema here
+    const doc = parse(renderCompose(spec)) as any;
+    assert.equal(doc.services.node.logging.options['max-size'], '100m');
+  }
+});

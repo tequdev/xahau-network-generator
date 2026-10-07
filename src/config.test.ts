@@ -136,3 +136,17 @@ test('withPwaGateway rewrites only the secure_gateway line', () => {
     cfg.replace(/^secure_gateway = .*$/m, ''),
   );
 });
+
+test('xahaud.cfg: node logs hook trace (View at trace) to log/debug.log; validators do not', () => {
+  const node = renderXahaudCfg(cfgOpts);
+  assert.ok(node.includes('[debug_logfile]\nlog/debug.log'));
+  const warning = node.indexOf('"severity": "warning"');
+  const trace = node.indexOf(
+    '{ "command": "log_level", "partition": "View", "severity": "trace" }',
+  );
+  assert.ok(warning >= 0 && trace > warning, 'View trace must follow warning');
+  const validator = renderXahaudCfg({ ...cfgOpts, token: 'T' });
+  assert.ok(!validator.includes('debug_logfile'));
+  assert.ok(!validator.includes('log/debug.log'));
+  assert.ok(!validator.includes('"partition": "View"'));
+});

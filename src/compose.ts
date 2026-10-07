@@ -21,10 +21,17 @@ function traefikRoute(
   router: string,
   host: string,
   port: number,
+  pathPrefix?: string,
 ): string[] {
   const routerName = `${spec.name}-${router}`;
+  // Traefik v3 ranks routers by rule length, so a Host && PathPrefix rule
+  // wins over the plain Host() ws router on the same host without touching
+  // it (Issue #19 assumed the ws rule would need splitting; it doesn't).
+  const rule = pathPrefix
+    ? `Host(\`${host}\`) && PathPrefix(\`${pathPrefix}\`)`
+    : `Host(\`${host}\`)`;
   return [
-    `traefik.http.routers.${routerName}.rule=Host(\`${host}\`)`,
+    `traefik.http.routers.${routerName}.rule=${rule}`,
     `traefik.http.routers.${routerName}.entrypoints=web,websecure`,
     `traefik.http.routers.${routerName}.service=${routerName}`,
     `traefik.http.services.${routerName}.loadbalancer.server.port=${port}`,
@@ -76,6 +83,14 @@ export function renderCompose(spec: NetworkSpec): string {
         `./bin/${serviceName}/xahaud:/usr/local/bin/xahaud:ro`,
         `./nodes/${nodeDir}:/node`,
       ],
+      // xahaud writes its debug log to stderr as well as the file, and `node`
+      // logs the View partition at trace, so docker's default unbounded
+      // json-file log would grow without limit. Validators get the same cap
+      // to keep the services uniform.
+      logging: {
+        driver: 'json-file',
+        options: { 'max-size': '100m', 'max-file': '3' },
+      },
     };
     // Only `node` (index 0) is reachable from outside the compose network:
     // on testnet, routed through Traefik; on standalone, published directly
@@ -154,6 +169,21 @@ export function renderCompose(spec: NetworkSpec): string {
         'traefik.enable=true',
         'traefik.docker.network=proxy',
         ...traefikRoute(spec, 'faucet', `faucet.${base}`, 8080),
+      ],
+      depends_on: [nodeName(spec, 0)],
+    };
+
+    services.debugstream = {
+      // Built from the repo like faucet, so a fix is picked up on next start.
+      build: '../../debugstream',
+      environment: { LOG_FILE: '/log/debug.log', PORT: '8080' },
+      // Read-write: the service truncates the file once it grows past a cap.
+      volumes: [`./nodes/${nodeName(spec, 0)}/log:/log`],
+      networks: ['default', 'proxy'],
+      labels: [
+        'traefik.enable=true',
+        'traefik.docker.network=proxy',
+        ...traefikRoute(spec, 'debugstream', base, 8080, '/debugstream/'),
       ],
       depends_on: [nodeName(spec, 0)],
     };

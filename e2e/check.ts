@@ -8,6 +8,12 @@ import { endpoints, nodeName } from '../src/types.ts';
 import type { NetworkSpec } from '../src/types.ts';
 import { parseServerInfoOutput } from '../src/upgrade.ts';
 import { rpc } from '../src/wait.ts';
+import {
+  TRACE_HOOK_MESSAGE,
+  TRACE_HOOK_ON,
+  TRACE_HOOK_WASM_HEX,
+  signTx,
+} from './trace-hook.ts';
 
 const GENESIS_SECRET = 'snoPBrXtMeMyMHUVTgbuqAfg1SUTb';
 const GENESIS_ADDRESS = 'rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh';
@@ -79,6 +85,131 @@ function checkVersion(
   console.log(
     `[e2e] version check passed: all nodes on ${expectVersion}, node seq=${seq}`,
   );
+}
+
+// Signs `tx` with `seed` (adds Sequence, NetworkID, LastLedgerSequence), submits it
+// to the public RPC and waits until it is validated.
+async function submitAndValidate(
+  spec: NetworkSpec,
+  rpcUrl: string,
+  seed: string,
+  tx: Record<string, unknown>,
+): Promise<void> {
+  const account = tx.Account as string;
+  const acct = await rpc(rpcUrl, 'account_info', {
+    account,
+    ledger_index: 'current',
+  });
+  const closed = await rpc(rpcUrl, 'ledger', { ledger_index: 'validated' });
+  const { tx_blob } = signTx(
+    {
+      ...tx,
+      NetworkID: spec.networkId,
+      Sequence: acct.account_data.Sequence,
+      LastLedgerSequence: Number(closed.ledger.ledger_index) + 20,
+    },
+    seed,
+  );
+  const submitted = await rpc(rpcUrl, 'submit', { tx_blob });
+  assert.equal(
+    submitted.engine_result,
+    'tesSUCCESS',
+    `${tx.TransactionType} submit failed: ${submitted.engine_result} ${submitted.engine_result_message}`,
+  );
+  const hash = submitted.tx_json.hash;
+  const deadline = Date.now() + 60_000;
+  for (;;) {
+    const res = await rpc(rpcUrl, 'tx', { transaction: hash }).catch(
+      () => undefined,
+    );
+    if (res?.validated) {
+      assert.equal(
+        res.meta.TransactionResult,
+        'tesSUCCESS',
+        `${tx.TransactionType} ${hash} validated as ${res.meta.TransactionResult}`,
+      );
+      return;
+    }
+    assert.ok(
+      Date.now() < deadline,
+      `${tx.TransactionType} ${hash} not validated within 60s`,
+    );
+    await sleep(2000);
+  }
+}
+
+// Installs a hook that calls trace() on `address`, triggers it with a Payment,
+// and expects the trace line to arrive on the network's debug stream WebSocket.
+async function checkDebugStream(
+  spec: NetworkSpec,
+  address: string,
+  seed: string,
+): Promise<void> {
+  const ep = endpoints(spec);
+  assert.ok(ep.debugstream, 'testnet spec missing debugstream endpoint');
+
+  await submitAndValidate(spec, ep.rpc, seed, {
+    TransactionType: 'SetHook',
+    Account: address,
+    Fee: '10000000',
+    Hooks: [
+      {
+        Hook: {
+          CreateCode: TRACE_HOOK_WASM_HEX,
+          HookOn: TRACE_HOOK_ON,
+          HookNamespace: '0'.repeat(64),
+          HookApiVersion: 0,
+          Flags: 1,
+        },
+      },
+    ],
+  });
+  console.log(`[e2e] trace hook installed on ${address}`);
+
+  const lines: string[] = [];
+  const ws = new WebSocket(`${ep.debugstream}${address}`);
+  ws.addEventListener('message', (e) => lines.push(String(e.data)));
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () =>
+          reject(new Error('debugstream WebSocket did not open within 15s')),
+        15_000,
+      );
+      ws.addEventListener('open', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+      ws.addEventListener('error', () => {
+        clearTimeout(timer);
+        reject(new Error(`debugstream WebSocket error for ${ep.debugstream}`));
+      });
+    });
+
+    await submitAndValidate(spec, ep.rpc, seed, {
+      TransactionType: 'Payment',
+      Account: address,
+      Destination: GENESIS_ADDRESS,
+      Amount: '1000000',
+      Fee: '1000000',
+    });
+
+    const deadline = Date.now() + 60_000;
+    const match = () =>
+      lines.find(
+        (l) =>
+          l.includes(`HookTrace[${address}`) && l.includes(TRACE_HOOK_MESSAGE),
+      );
+    while (!match() && Date.now() < deadline) await sleep(500);
+    const line = match();
+    assert.ok(
+      line,
+      `no HookTrace line on debugstream within 60s; last lines: ${JSON.stringify(lines.slice(-5))}`,
+    );
+    console.log(`[e2e] debugstream delivered: ${line.trim()}`);
+  } finally {
+    ws.close();
+  }
 }
 
 async function checkTestnet(
@@ -167,6 +298,12 @@ async function checkTestnet(
   );
 
   if (expectVersion) checkVersion(spec, info2.info, expectVersion);
+
+  await checkDebugStream(
+    spec,
+    firstBody.account.classicAddress,
+    firstBody.account.secret,
+  );
 
   const faucetKeysPath = path.resolve(
     'workspace',
