@@ -179,6 +179,9 @@ test('compose: a root network serves the landing page and splits the bare domain
   assert.deepEqual(root.services.site.volumes, [
     './site:/usr/share/nginx/html:ro',
   ]);
+  for (const svc of [root.services.site, root.services.vl]) {
+    assert.ok(svc.command.join(' ').includes('server_tokens off;'));
+  }
   const rule = (labels: string[], router: string) =>
     labels.find((l) =>
       l.startsWith(`traefik.http.routers.dev-${router}.rule=`),

@@ -11,6 +11,15 @@ import {
 } from './types.ts';
 import type { NetworkSpec } from './types.ts';
 
+// nginx:alpine advertises its version in the Server header and on its error
+// pages (the VL host's / is a 403). conf.d/*.conf is included at http level,
+// so one dropped-in line turns that off without shipping a config file.
+const NGINX_COMMAND = [
+  'sh',
+  '-c',
+  "echo 'server_tokens off;' > /etc/nginx/conf.d/zz-tokens.conf && exec nginx -g 'daemon off;'",
+];
+
 // Every routed service is enrolled on both the default (inter-container)
 // network and the shared external `proxy` network Traefik watches, and
 // carries the traefik.* labels for its router(s). `name`/`domain` are baked
@@ -140,6 +149,7 @@ export function renderCompose(spec: NetworkSpec): string {
   if (spec.type === 'testnet') {
     services[VL_HOST] = {
       image: 'nginx:alpine',
+      command: NGINX_COMMAND,
       volumes: ['./vl:/usr/share/nginx/html:ro'],
       networks: ['default', 'proxy'],
       labels: [
@@ -169,6 +179,7 @@ export function renderCompose(spec: NetworkSpec): string {
       // read-only one cannot be created by Docker.
       services.site = {
         image: 'nginx:alpine',
+        command: NGINX_COMMAND,
         volumes: ['./site:/usr/share/nginx/html:ro'],
         networks: ['default', 'proxy'],
         labels: [
