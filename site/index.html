@@ -7,89 +7,161 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23197a4b'/%3E%3Cpath d='M9 9l14 14M23 9L9 23' stroke='white' stroke-width='3.5' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;700&family=Noto+Sans+Mono&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Mono:wght@400;500;700&display=swap">
 <link rel="stylesheet" href="tokens.css">
 <style>
+:root{
+  --g8:var(--color-primitive-green-800);--g9:var(--color-primitive-green-900);
+  --gray50:var(--color-neutral-solid-gray-50);--gray100:var(--color-neutral-solid-gray-100);--gray200:var(--color-neutral-solid-gray-200);
+  --gray600:var(--color-neutral-solid-gray-600);--gray900:var(--color-neutral-solid-gray-900);
+  --grad:linear-gradient(to right,var(--g8),var(--color-primitive-green-400));
+  --shadow:0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -4px rgba(0,0,0,.1);
+}
 *{box-sizing:border-box}
-body{margin:0;background:#fff;color:var(--color-neutral-solid-gray-900);font:400 var(--font-size-16)/1.7 'Noto Sans',-apple-system,BlinkMacSystemFont,sans-serif}
-a{color:var(--color-primitive-green-800)}
-a:hover{color:var(--color-primitive-green-900)}
+body{margin:0;background:var(--gray50);color:var(--gray900);font:400 var(--font-size-16)/1.5 'Noto Sans Mono',var(--font-family-mono);overflow-wrap:anywhere}
+a{color:var(--g8)}a:hover{color:var(--g9)}
 :focus-visible{outline:2px solid var(--color-primitive-yellow-600);outline-offset:2px}
-.mono{font-family:'Noto Sans Mono',var(--font-family-mono);font-size:var(--font-size-14);overflow-wrap:anywhere}
-.wrap{max-width:960px;margin:0 auto;padding:0 16px}
-header{background:var(--color-primitive-green-50);border-bottom:2px solid var(--color-primitive-green-800)}
-header .wrap{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 24px;padding-top:12px;padding-bottom:12px}
-.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:var(--font-size-20)}
-.brand svg{width:32px;height:32px}
-.brand span{font-weight:400;font-size:var(--font-size-14);color:var(--color-neutral-solid-gray-600)}
-nav{display:flex;flex-wrap:wrap;gap:4px 20px;font-size:var(--font-size-14)}
-h1{font-size:var(--font-size-32);font-weight:700;line-height:1.5;margin:32px 0 8px}
-.intro{margin:0 0 24px}
-.card{background:#fff;box-shadow:var(--elevation-1);border-radius:var(--border-radius-8);padding:20px;margin-bottom:24px}
-.card-head{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;padding-bottom:12px;border-bottom:1px solid var(--color-neutral-solid-gray-200)}
-h2{font-size:var(--font-size-20);font-weight:700;line-height:1.5;margin:0}
-.host{color:var(--color-neutral-solid-gray-600);flex:1}
-.chip{font-size:var(--font-size-14);font-weight:700;line-height:1.5;padding:0 12px;border-radius:999px;border:1px solid var(--color-neutral-solid-gray-600);color:var(--color-neutral-solid-gray-600);background:#fff}
-.chip.ok{border-color:var(--color-semantic-success-1);color:var(--color-semantic-success-1);background:var(--color-primitive-green-50)}
-.chip.warn{border-color:var(--color-primitive-yellow-800);color:var(--color-primitive-yellow-800);background:var(--color-primitive-yellow-50)}
-h3{font-size:var(--font-size-16);font-weight:700;margin:20px 0 4px}
-dl{margin:0}
-.row{display:grid;grid-template-columns:160px 1fr;gap:4px 16px;align-items:center;padding:6px 0;border-bottom:1px solid var(--color-neutral-solid-gray-200)}
-.row:last-child{border-bottom:0}
-dt{font-size:var(--font-size-14);color:var(--color-neutral-solid-gray-600)}
-dd{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;min-width:0}
-.btn{font:700 var(--font-size-14)/1.5 'Noto Sans',sans-serif;cursor:pointer;border-radius:var(--border-radius-8);border:2px solid var(--color-primitive-green-800);background:var(--color-primitive-green-800);color:#fff;padding:0 20px;min-height:44px}
-.btn:hover{background:var(--color-primitive-green-900);border-color:var(--color-primitive-green-900)}
-.btn:disabled{background:var(--color-neutral-solid-gray-600);border-color:var(--color-neutral-solid-gray-600);cursor:wait}
-.btn.copy{background:#fff;color:var(--color-primitive-green-800);min-height:32px;padding:0 12px;border-width:1px}
-.btn.copy:hover{background:var(--color-primitive-green-50)}
-form{display:flex;flex-direction:column;align-items:flex-start;gap:8px}
-label{font-size:var(--font-size-14);font-weight:700}
-input{font:inherit;width:100%;max-width:480px;min-height:44px;padding:0 12px;border:1px solid var(--color-neutral-solid-gray-600);border-radius:var(--border-radius-8)}
-.banner{margin:12px 0 0;padding:12px 16px;border:2px solid var(--color-semantic-error-1);border-radius:var(--border-radius-8);background:var(--color-primitive-red-50);color:var(--color-semantic-error-1);font-weight:700}
-.secret{margin:8px 0;padding:12px 16px;border:2px solid var(--color-primitive-yellow-800);border-radius:var(--border-radius-8);background:var(--color-primitive-yellow-50)}
-.secret p{margin:4px 0 0;font-size:var(--font-size-14)}
-.result{margin-top:12px}
-footer{border-top:1px solid var(--color-neutral-solid-gray-200);padding:16px 0 32px;font-size:var(--font-size-14);color:var(--color-neutral-solid-gray-600)}
-@media(max-width:480px){.row{grid-template-columns:1fr;gap:0}}
+button,input{font:inherit}
+.wrap{max-width:1216px;margin:0 auto;padding:0 16px}
+@media(min-width:640px){.wrap{padding:0 24px}}
+@media(min-width:1024px){.wrap{padding:0 32px}}
+
+/* top bar */
+.top{background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+.top-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px;min-height:64px;padding-top:8px;padding-bottom:8px}
+.brand{display:flex;align-items:center;gap:12px;font-size:var(--font-size-24);font-weight:700;color:var(--g8)}
+.actions{display:flex;flex-wrap:wrap;gap:8px}
+.pill{display:inline-block;font-size:12px;font-weight:500;line-height:1.5;padding:0 8px;border-radius:var(--border-radius-full);background:var(--color-primitive-yellow-50);color:var(--color-primitive-yellow-900)}
+.pill.glass{background:rgba(255,255,255,.2);color:#fff}
+.btn{display:inline-block;font-size:var(--font-size-14);font-weight:500;line-height:1.5;padding:8px 16px;border-radius:var(--border-radius-8);border:0;background:var(--g8);color:#fff;text-decoration:none;cursor:pointer}
+.btn:hover{background:var(--g9);color:#fff}
+.btn.orange{background:var(--color-primitive-orange-600)}.btn.orange:hover{background:var(--color-primitive-orange-700)}
+.btn.big{font-size:var(--font-size-18);padding:12px 32px}
+.btn:disabled{background:var(--gray600);cursor:wait}
+.btn.glass{background:rgba(255,255,255,.2);padding:4px 12px;font-size:12px}
+.btn.glass:hover{background:rgba(255,255,255,.3)}
+.btn.sm{flex:none;white-space:nowrap;background:var(--gray100);color:var(--gray900);padding:0 8px;min-width:30px;height:30px;font-size:12px}
+.btn.sm:hover{background:var(--gray200);color:var(--gray900)}
+.sub{border-top:1px solid var(--gray200)}
+.sub .wrap{display:flex;flex-wrap:wrap;gap:4px 24px;min-height:44px;align-items:center;font-size:var(--font-size-14);padding-top:4px;padding-bottom:4px}
+.sub a{color:var(--gray600);text-decoration:none;font-weight:500}.sub a:hover{color:var(--g8)}
+
+/* cards */
+main.wrap{padding-top:32px;padding-bottom:32px}
+.card{background:#fff;border:1px solid var(--gray200);border-radius:var(--border-radius-12);box-shadow:var(--shadow);overflow:hidden}
+.card-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 12px;padding:16px 24px;background:var(--grad);color:#fff}
+.card-head h2,.card-head h3{margin:0;font-size:var(--font-size-16);font-weight:600;display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.card-head .sub-title{margin:0;font-size:var(--font-size-14);font-weight:500}
+.card-body{padding:24px}
+.banner-card{margin-bottom:48px}
+.banner-body{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px 24px}
+.banner-body p{margin:0;max-width:720px;color:var(--color-neutral-solid-gray-700)}
+.net{margin-bottom:48px;scroll-margin-top:16px}
+.net-title{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 16px;margin:0 0 16px}
+.net-title h2{margin:0;font-size:var(--font-size-20);font-weight:700;color:var(--g8)}
+.net-title .host{color:var(--gray600);font-size:var(--font-size-14);flex:1}
+.net-title .live{font-size:var(--font-size-14);font-weight:500;color:var(--gray600)}
+.grid{display:grid;grid-template-columns:1fr;gap:24px;align-items:start}
+@media(min-width:1024px){.grid{grid-template-columns:1fr 1fr}}
+.col{display:flex;flex-direction:column;gap:24px;min-width:0}
+.box{background:var(--gray50);border-radius:var(--border-radius-8);padding:16px;font-size:var(--font-size-14)}
+.box.url{font-weight:500}
+.muted{color:var(--gray600)}
+.help{margin:12px 0 0;font-size:var(--font-size-14);color:var(--gray600)}
+.center{text-align:center}
+
+/* endpoints */
+.eps{display:flex;flex-direction:column;gap:12px;margin-top:16px}
+.ep{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.ep>div{min-width:0}
+.ep small{display:block;font-size:12px;color:var(--gray600)}
+.ep span,.ep a{font-size:var(--font-size-14)}
+
+/* faucet */
+form{margin:0;text-align:center}
+.dest{margin-top:20px;text-align:left}
+label{display:block;font-size:12px;color:var(--gray600);margin-bottom:4px}
+input{width:100%;min-height:40px;padding:0 12px;font-size:var(--font-size-14);border:1px solid var(--color-neutral-solid-gray-300);border-radius:var(--border-radius-8);background:#fff;color:var(--gray900)}
+.result{display:flex;flex-direction:column;gap:12px;margin-top:20px;text-align:left}
+.result:empty{display:none}
+.result .head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.result .head small{font-size:12px;color:var(--gray600)}
+.secret{background:var(--color-primitive-yellow-50);border-left:4px solid var(--color-primitive-yellow-800);border-radius:var(--border-radius-8);padding:16px;font-size:var(--font-size-14)}
+.secret small{display:block;margin-top:8px;font-size:12px;color:var(--color-primitive-yellow-900)}
+.err{background:var(--color-primitive-red-50);color:var(--color-primitive-red-800);border-radius:var(--border-radius-8);padding:16px;font-size:var(--font-size-14)}
+
+/* tiles */
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.tiles.two{grid-template-columns:1fr 1fr;gap:12px}
+.tile{border-radius:var(--border-radius-8);padding:12px;text-align:center;font-size:12px;min-width:0}
+.tile b{display:block;font-size:var(--font-size-20);font-weight:700;line-height:1.5}
+.tile.small b,.tile a{display:block;font-size:var(--font-size-14);font-weight:700;overflow-wrap:anywhere}
+.t-g{background:var(--color-primitive-green-50);color:var(--gray600)}.t-g b{color:var(--g8)}
+.t-b{background:var(--color-primitive-blue-50);color:var(--gray600)}.t-b b,.t-b a{color:var(--color-primitive-blue-800)}
+.t-p{background:var(--color-primitive-purple-50);color:var(--gray600)}.t-p b{color:var(--color-primitive-purple-800)}
+@media(max-width:480px){.tiles{grid-template-columns:1fr 1fr}.tiles .t-p{grid-column:1/-1}}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--color-neutral-solid-gray-400)}
+.dot.live{background:var(--color-primitive-green-500)}.dot.wait{background:var(--color-primitive-yellow-600)}
+.state{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:500}
+details{margin-top:16px}
+summary{display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;list-style:none}
+summary::-webkit-details-marker{display:none}
+summary::after{content:'Expand';background:var(--gray200);border-radius:var(--border-radius-6);padding:4px 12px;font-size:12px;font-weight:500}
+details[open] summary::after{content:'Collapse'}
+pre{margin:12px 0 0;max-height:320px;overflow:auto;font:inherit;font-size:12px;white-space:pre-wrap}
+footer{padding:16px 0 32px;font-size:var(--font-size-14);color:var(--gray600)}
 </style>
 </head>
 <body>
-<header><div class="wrap">
-  <div class="brand"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" style="fill:var(--color-primitive-green-800)"/><path d="M9 9l14 14M23 9L9 23" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/></svg>Xahau Devnets <span id="domain"></span></div>
-  <nav aria-label="Links">
-    <a href="https://docs.xahau.network/">Docs</a>
-    <a href="https://github.com/xahau">Xahau on GitHub</a>
-    <a href="https://github.com/tequdev/xahau-network-generator">xahau-network-generator</a>
-  </nav>
-</div></header>
+<header class="top">
+  <div class="wrap top-row">
+    <div class="brand">Xahau Devnets <span class="pill">Devnet</span></div>
+    <div class="actions">
+      <a class="btn orange" href="https://xahau.network">Official Website</a>
+      <a class="btn" href="https://discord.gg/ds7nb93mYj">Xahau Discord</a>
+      <a class="btn" href="https://github.com/tequdev/xahau-network-generator">GitHub</a>
+    </div>
+  </div>
+  <div class="sub"><nav class="wrap" id="nav" aria-label="Networks"></nav></div>
+</header>
 <main class="wrap">
-  <h1>Networks</h1>
-  <p class="intro">Disposable Xahau networks, one per xahaud build or feature branch. Ledgers can be reset at any time, and XAH here has no value.</p>
+  <section class="card banner-card">
+    <div class="card-head">
+      <div><h2>About these devnets</h2><p class="sub-title">Disposable networks, one per xahaud build or feature branch</p></div>
+      <span class="pill glass" id="domain"></span>
+    </div>
+    <div class="card-body banner-body">
+      <p>Each devnet below runs its own ledger with its own faucet and explorer. Ledgers can be reset at any time and XAH here has no value. Point your client at the WebSocket endpoint of the network you want.</p>
+      <a class="btn orange" href="https://docs.xahau.network/">Read the docs</a>
+    </div>
+  </section>
   <div id="networks"></div>
 </main>
 <footer><div class="wrap">Generated by <a href="https://github.com/tequdev/xahau-network-generator">xahau-network-generator</a> · <a href="https://xahau.network/">xahau.network</a></div></footer>
 <script>
 const $ = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids); return e; };
 const host = u => u.replace(/^[a-z]+:\/\//, '');
+const ext = (href, text, cls = '') => $('a', { href, target: '_blank', rel: 'noopener', className: cls, textContent: text });
 
-function copyBtn(text) {
-  const b = $('button', { type: 'button', className: 'btn copy', textContent: 'Copy' });
-  b.setAttribute('aria-label', 'Copy ' + text);
+// text may be a function so "Copy JSON" reads the latest value at click time
+function copyBtn(text, label = 'Copy', cls = 'btn sm') {
+  const b = $('button', { type: 'button', className: cls, textContent: label });
+  b.setAttribute('aria-label', typeof text === 'function' ? label : 'Copy ' + text);
   b.onclick = async () => {
+    const t = typeof text === 'function' ? text() : text;
     let ok = false;
-    try { await navigator.clipboard.writeText(text); ok = true; } catch {
+    try { await navigator.clipboard.writeText(t); ok = true; } catch {
       // navigator.clipboard needs a secure context; plain-http devnets get the legacy path.
-      const t = document.body.appendChild($('textarea', { value: text, style: 'position:fixed;opacity:0' }));
-      t.select(); try { ok = document.execCommand('copy'); } catch {} t.remove();
+      const ta = document.body.appendChild($('textarea', { value: t, style: 'position:fixed;opacity:0' }));
+      ta.select(); try { ok = document.execCommand('copy'); } catch {} ta.remove();
     }
-    b.textContent = ok ? 'Copied' : 'Copy failed'; setTimeout(() => (b.textContent = 'Copy'), 1500);
+    b.textContent = ok ? 'Copied' : 'Copy failed'; setTimeout(() => (b.textContent = label), 1500);
   };
   return b;
 }
-const row = (label, ...val) => $('div', { className: 'row' }, $('dt', { textContent: label }), $('dd', {}, ...val));
-const mono = t => $('span', { className: 'mono', textContent: t });
-const copyRow = (label, text, link) => row(label, link ? $('a', { href: text, target: '_blank', rel: 'noopener', className: 'mono', textContent: text }) : mono(text), copyBtn(text));
+const head = (title, ...right) => $('div', { className: 'card-head' }, $('h3', {}, ...(Array.isArray(title) ? title : [title])), ...right);
+const body = (...kids) => $('div', { className: 'card-body' }, ...kids);
+const tile = (cls, label, val) => $('div', { className: 'tile ' + cls }, val, label);
 
 function live(url, set) {
   let delay = 5000, timer;
@@ -105,7 +177,7 @@ function live(url, set) {
       let m; try { m = JSON.parse(e.data); } catch { return; }
       if (m.id === 'info' && m.result?.info) {
         const i = m.result.info;
-        set({ version: i.build_version, state: i.server_state, peers: i.peers, ledger: i.validated_ledger?.seq });
+        set({ version: i.build_version, state: i.server_state, peers: i.peers, ledger: i.validated_ledger?.seq, raw: m.result });
       } else if (m.type === 'ledgerClosed') set({ ledger: m.ledger_index });
     };
     ws.onclose = () => { clearInterval(timer); set({ state: null }); setTimeout(connect, delay); delay = Math.min(delay * 2, 60000); };
@@ -115,25 +187,31 @@ function live(url, set) {
 }
 
 function accountBlock(a, explorer, balance, hash) {
-  const box = $('div', { className: 'result' }, $('dl', {},
-    row('Address', $('a', { href: `${explorer}/account/${a.address}`, target: '_blank', rel: 'noopener', className: 'mono', textContent: a.address }), copyBtn(a.address))));
-  const dl = box.firstChild;
-  if (a.secret) dl.append(row('Secret', $('div', { className: 'secret' }, mono(a.secret), $('p', { textContent: 'Shown once. Store it; the faucet does not keep it.' })), copyBtn(a.secret)));
-  if (balance != null) dl.append(row('Balance', mono(`${balance} XAH`)));
-  if (hash) dl.append(row('Transaction', $('a', { href: `${explorer}/tx/${hash}`, target: '_blank', rel: 'noopener', className: 'mono', textContent: hash })));
+  const box = $('div', { className: 'result' });
+  box.append($('div', { className: 'box' },
+    $('div', { className: 'head' }, $('small', { textContent: 'Address' }), copyBtn(a.address)),
+    ext(`${explorer}/account/${a.address}`, a.address)));
+  if (a.secret) box.append($('div', { className: 'secret' },
+    $('div', { className: 'head' }, $('small', { textContent: 'Secret', style: 'margin:0' }), copyBtn(a.secret)),
+    $('span', { textContent: a.secret }),
+    $('small', { textContent: 'Shown once. Store it; the faucet does not keep it.' })));
+  if (balance != null || hash) box.append($('div', { className: 'tiles two' },
+    balance != null ? tile('t-g small', 'Balance', $('b', { textContent: `${balance} XAH` })) : '',
+    hash ? tile('t-b small', 'Transaction', ext(`${explorer}/tx/${hash}`, hash)) : ''));
   return box;
 }
 
-function faucet(ep) {
+function faucet(ep, name) {
   const out = $('div', { ariaLive: 'polite' });
   const input = $('input', { id: 'dest-' + ep.id, type: 'text', placeholder: 'r…', autocomplete: 'off', spellcheck: false });
-  const btn = $('button', { type: 'submit', className: 'btn', textContent: 'Get devnet funds' });
-  const form = $('form', {}, $('label', { htmlFor: input.id, textContent: 'Destination address (optional)' }), input, btn);
+  const btn = $('button', { type: 'submit', className: 'btn big', textContent: 'Get devnet funds' });
+  const form = $('form', {}, btn, $('p', { className: 'help', textContent: 'Creates a new account with 1000 XAH' }),
+    $('div', { className: 'dest' }, $('label', { htmlFor: input.id, textContent: 'Fund an existing address instead (optional)' }), input));
   form.onsubmit = async ev => {
     ev.preventDefault();
     btn.disabled = true; btn.textContent = 'Requesting…'; out.replaceChildren();
     const fail = (msg, body) => {
-      out.append($('div', { className: 'banner', role: 'alert', textContent: msg }));
+      out.append($('div', { className: 'result' }, $('div', { className: 'err', role: 'alert', textContent: msg })));
       if (body?.account?.secret) out.append(accountBlock(body.account, ep.explorer));
     };
     try {
@@ -146,32 +224,56 @@ function faucet(ep) {
     } catch { fail('Faucet request failed. Try again later.'); }
     btn.disabled = false; btn.textContent = 'Get devnet funds';
   };
-  return $('div', {}, form, out);
+  return $('div', { className: 'card' }, head(['Faucet', $('span', { className: 'pill glass', textContent: name })]), body(form, out));
 }
 
-function card(n, i) {
-  const ep = { ...n.endpoints, id: i };
-  const chip = $('span', { className: 'chip', textContent: 'connecting…', ariaLive: 'polite' });
-  const v = Object.fromEntries(['ledger', 'state', 'version', 'peers'].map(k => [k, mono('—')]));
-  const status = $('dl', {}, row('Ledger index', v.ledger), row('Server state', v.state), row('Version', v.version), row('Peers', v.peers));
-  const ends = $('dl', {}, copyRow('WebSocket', ep.ws), copyRow('JSON-RPC', ep.rpc), copyRow('Explorer', ep.explorer, true), copyRow('Validator list', ep.vl));
-  if (ep.pwa) ends.append(copyRow('App loader', ep.pwa));
+function endpoints(ep) {
+  const row = (label, val, link) => $('div', { className: 'ep' },
+    $('div', {}, $('small', { textContent: label }), link ? ext(val, val) : $('span', { textContent: val })), copyBtn(val));
+  const list = $('div', { className: 'eps' }, row('JSON-RPC', ep.rpc), row('Explorer', ep.explorer, true), row('Validator list', ep.vl));
+  if (ep.pwa) list.append(row('App loader', ep.pwa));
+  return $('div', { className: 'card' },
+    head('Endpoint', copyBtn(ep.ws, 'Copy', 'btn glass')),
+    body($('div', { className: 'box url', textContent: ep.ws }), list));
+}
+
+function status(ep, onState) {
+  const dot = $('span', { className: 'dot wait' });
+  const word = $('span', { textContent: 'Connecting', ariaLive: 'polite' });
+  const v = { ledger: $('b', { textContent: '—' }), peers: $('b', { textContent: '—' }), version: $('b', { textContent: '—' }) };
+  const pre = $('pre', { textContent: 'No data yet' });
+  let raw = null;
   live(ep.ws, d => {
     for (const k of ['ledger', 'version', 'peers']) if (d[k] != null) v[k].textContent = d[k];
-    if (d.state === null) { chip.textContent = 'offline'; chip.className = 'chip'; }
-    else if (d.state) { v.state.textContent = d.state; chip.textContent = d.state === 'full' ? 'full' : 'syncing'; chip.className = 'chip ' + (d.state === 'full' ? 'ok' : 'warn'); }
+    if (d.raw) { raw = d.raw; pre.textContent = JSON.stringify(raw, null, 2); }
+    if (d.state === undefined) return;
+    const s = d.state === null ? ['Offline', ''] : d.state === 'full' ? ['Live', 'live'] : ['Syncing', 'wait'];
+    word.textContent = s[0]; dot.className = 'dot ' + s[1]; onState(s[0]);
   });
-  return $('section', { className: 'card' },
-    $('div', { className: 'card-head' }, $('h2', { textContent: n.root ? 'main' : n.name }), $('span', { className: 'host mono', textContent: host(ep.ws) }), chip),
-    $('h3', { textContent: 'Status' }), status,
-    $('h3', { textContent: 'Endpoints' }), ends,
-    $('h3', { textContent: 'Faucet' }), faucet(ep));
+  const state = $('span', { className: 'state' }, dot, word);
+  return $('div', { className: 'card' },
+    head(['Status', state], copyBtn(() => JSON.stringify(raw, null, 2), 'Copy JSON', 'btn glass')),
+    body($('div', { className: 'tiles' }, tile('t-g', 'Ledger index', v.ledger), tile('t-b', 'Peers', v.peers), tile('t-p small', 'Version', v.version)),
+      $('details', { className: 'box' }, $('summary', { textContent: 'Raw server_info' }), pre)));
+}
+
+function net(n, i) {
+  const ep = { ...n.endpoints, id: i };
+  const name = n.root ? 'main' : n.name;
+  const liveText = $('span', { className: 'live', textContent: 'Connecting' });
+  return $('section', { className: 'net', id: 'net-' + name },
+    $('div', { className: 'net-title' }, $('h2', { textContent: name }), $('span', { className: 'host', textContent: host(ep.ws) }), liveText),
+    $('div', { className: 'grid' }, faucet(ep, name),
+      $('div', { className: 'col' }, endpoints(ep), status(ep, s => (liveText.textContent = s)))));
 }
 
 fetch('networks.json').then(r => r.ok ? r.json() : Promise.reject(r.status)).then(d => {
   document.getElementById('domain').textContent = d.domain;
-  document.getElementById('networks').append(...d.networks.map(card));
-}).catch(() => document.getElementById('networks').append($('div', { className: 'banner', role: 'alert', textContent: 'Could not load the network list.' })));
+  const nets = d.networks.map(net);
+  document.getElementById('networks').append(...nets);
+  document.getElementById('nav').append(...nets.map(s => $('a', { href: '#' + s.id, textContent: s.id.slice(4) })),
+    $('a', { href: 'https://docs.xahau.network/', textContent: 'Docs' }));
+}).catch(() => document.getElementById('networks').append($('div', { className: 'err', role: 'alert', textContent: 'Could not load the network list.' })));
 </script>
 </body>
 </html>
