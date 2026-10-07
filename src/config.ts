@@ -132,14 +132,20 @@ export function renderXahaudCfg(o: XahaudCfgOptions): string {
   const rpcStartup = ['{ "command": "log_level", "severity": "warning" }'];
   if (!o.token) {
     // Hook trace() output is journal partition "View" at severity trace
-    // (`HookTrace[<hookAcc>-<otxnAcc>]: msg`). The `debugstream` service tails
-    // this file; xahaud resolves it relative to the config dir (/node) and
-    // creates the parent directory itself. xahaud mirrors the whole log to
-    // stderr too, which is why compose caps the node's docker log.
-    sections.push(['debug_logfile', ['log/debug.log']]);
+    // (`HookTrace[<hookAcc>-<otxnAcc>]: msg`); raise only that partition on
+    // the user-facing node. xahaud writes every line to stderr, so this is
+    // visible in `docker logs` (bounded by the cap compose sets) on both
+    // network types.
     rpcStartup.push(
       '{ "command": "log_level", "partition": "View", "severity": "trace" }',
     );
+  }
+  if (o.type === 'testnet' && !o.token) {
+    // The file the `debugstream` service tails (and truncates, so it never
+    // grows past a few MiB); xahaud resolves it relative to the config dir
+    // (/node) and creates the parent directory itself. Standalone has no
+    // service to own the file, so it gets none: stderr is its hook trace.
+    sections.push(['debug_logfile', ['log/debug.log']]);
   }
   sections.push(['rpc_startup', rpcStartup]);
 

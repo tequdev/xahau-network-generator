@@ -289,6 +289,7 @@ export async function ensureNodeLogDir(
   spec: NetworkSpec,
   dir: string,
 ): Promise<void> {
+  if (spec.type !== 'testnet') return;
   await mkdir(join(dir, 'nodes', nodeName(spec, 0), 'log'), {
     recursive: true,
   });

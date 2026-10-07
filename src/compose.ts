@@ -83,13 +83,13 @@ export function renderCompose(spec: NetworkSpec): string {
         `./bin/${serviceName}/xahaud:/usr/local/bin/xahaud:ro`,
         `./nodes/${nodeDir}:/node`,
       ],
-      // xahaud writes its debug log to stderr as well as the file, and `node`
-      // logs the View partition at trace, so docker's default unbounded
-      // json-file log would grow without limit. Validators get the same cap
-      // to keep the services uniform.
+      // xahaud writes its log to stderr, and `node` logs the View partition
+      // at trace, so docker's default unbounded json-file log would grow
+      // without limit; 60 MB is plenty for `docker logs` debugging.
+      // Validators get the same cap to keep the services uniform.
       logging: {
         driver: 'json-file',
-        options: { 'max-size': '100m', 'max-file': '3' },
+        options: { 'max-size': '20m', 'max-file': '3' },
       },
     };
     // Only `node` (index 0) is reachable from outside the compose network:
@@ -177,7 +177,11 @@ export function renderCompose(spec: NetworkSpec): string {
       // Built from the repo like faucet, so a fix is picked up on next start.
       build: '../../debugstream',
       environment: { LOG_FILE: '/log/debug.log', PORT: '8080' },
-      // Read-write: the service truncates the file once it grows past a cap.
+      // Hard ceiling for a sidecar that only tails a file; node itself is
+      // ~40 MB RSS. Docker restarts it (unless-stopped) if it is ever hit.
+      mem_limit: '128m',
+      // Read-write: the service truncates the file once it grows past a cap
+      // (10 MiB by default), so the log never accumulates on disk.
       volumes: [`./nodes/${nodeName(spec, 0)}/log:/log`],
       networks: ['default', 'proxy'],
       labels: [

@@ -149,4 +149,8 @@ test('xahaud.cfg: node logs hook trace (View at trace) to log/debug.log; validat
   assert.ok(!validator.includes('debug_logfile'));
   assert.ok(!validator.includes('log/debug.log'));
   assert.ok(!validator.includes('"partition": "View"'));
+  // No service owns the file on standalone, so no file; stderr still traces.
+  const standalone = renderXahaudCfg({ ...cfgOpts, type: 'standalone' });
+  assert.ok(!standalone.includes('debug_logfile'));
+  assert.ok(standalone.includes('"partition": "View"'));
 });

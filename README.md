@@ -87,11 +87,14 @@ that file and streams the `HookTrace`/`HookInfo`/`HookError`/`HookEmit` lines
 over WebSocket at `ws(s)://<base>/debugstream/<r-address>` (lines mentioning
 that account) or `/debugstream/` (all hook lines), the same URL shape as
 `wss://xahau-test.net/debugstream/<r-address>`. Messages are the raw log
-lines. The service truncates the file once it passes 100 MiB. Standalone
-networks write the same log file (tail it directly) but have no stream
-service, so nothing caps that file: delete it, or `xng reset`, when it gets
-big. xahaud.cfg is written at create time, so a testnet created by an older
-xng gets the stream service on its next start but no log to tail until it is
+lines. The file is only the hand-off between xahaud and the service: it keeps
+no history and is truncated once it passes 10 MiB, so it never accumulates.
+Every xahaud container's docker log is capped at 20 MB × 3 as well, since
+xahaud writes the same lines to stderr. Standalone networks have no stream
+service and write no log file; `node` still traces hooks to stderr, so
+`docker logs -f <name>-node 2>&1 | grep HookTrace` does the same job there.
+xahaud.cfg is written at create time, so a testnet created by an older xng
+gets the stream service on its next start but no log to tail until it is
 recreated.
 
 ### Serving several devnets on a real domain

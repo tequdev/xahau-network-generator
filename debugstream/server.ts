@@ -1,11 +1,15 @@
-import { type FileHandle, open, stat } from 'node:fs/promises';
+import { open, stat, truncate } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { WebSocket, WebSocketServer } from 'ws';
 
 const LOG_FILE = process.env.LOG_FILE ?? '/log/debug.log';
 const PORT = Number(process.env.PORT ?? 8080);
-const MAX_LOG_BYTES = Number(process.env.MAX_LOG_BYTES ?? 104857600);
-const POLL_MS = Number(process.env.POLL_MS ?? 250);
+// The file is only the hand-off from xahaud to this process; nothing reads
+// history, so it only needs to hold what arrives between two polls.
+const MAX_LOG_BYTES = 10 * 1024 * 1024;
+// A client that stops reading would otherwise grow this process's heap.
+const MAX_BUFFERED = 1024 * 1024;
+const POLL_MS = 250;
 
 // Hook trace()/trace_num() and friends are logged as e.g.
 // `... View:TRC HookTrace[rHOOKACC-rOTXNACC]: message`. Nothing else in the
@@ -22,6 +26,10 @@ function broadcast(line: string) {
   if (!HOOK_LINE.test(line)) return;
   for (const c of wss.clients as Set<Client>) {
     if (c.readyState !== WebSocket.OPEN) continue;
+    if (c.bufferedAmount > MAX_BUFFERED) {
+      c.terminate();
+      continue;
+    }
     if (c.account === undefined || line.includes(c.account)) c.send(line);
   }
 }
@@ -31,36 +39,30 @@ function broadcast(line: string) {
 // Docker bind mounts (notably on macOS), whereas a stat always works.
 let offset = 0;
 let partial = ''; // trailing bytes of an unfinished line
-let fh: FileHandle | undefined;
-let ino = -1;
 
 try {
   offset = (await stat(LOG_FILE)).size; // start at the end: no history replay
 } catch {}
 
+// The file is opened per poll that finds new bytes, so a file replaced
+// underneath us is simply read from its start next time.
 async function poll() {
   try {
     const st = await stat(LOG_FILE);
-    // `xng reset` deletes the log dir while stopped; a new inode means a new file.
-    if (fh && st.ino !== ino) {
-      await fh.close();
-      fh = undefined;
-      offset = 0;
-      partial = '';
-    }
     if (st.size < offset) {
       // Truncated (by us or by hand): start over and drop the half line.
       offset = 0;
       partial = '';
     }
     if (st.size > offset) {
-      if (!fh) {
-        // r+ so the same fd can ftruncate for the size cap below.
-        fh = await open(LOG_FILE, 'r+');
-        ino = st.ino;
-      }
       const buf = Buffer.alloc(st.size - offset);
-      const { bytesRead } = await fh.read(buf, 0, buf.length, offset);
+      const fh = await open(LOG_FILE, 'r');
+      let bytesRead = 0;
+      try {
+        ({ bytesRead } = await fh.read(buf, 0, buf.length, offset));
+      } finally {
+        await fh.close();
+      }
       offset += bytesRead;
       // ponytail: a multibyte char split across reads would be mangled; hook
       // logs are ASCII in practice.
@@ -70,10 +72,11 @@ async function poll() {
     }
     if (st.size > MAX_LOG_BYTES) {
       // xahaud opens the log with O_APPEND and never renames it, so truncating
-      // from outside is safe (same principle as logrotate copytruncate).
+      // from outside is safe (same principle as logrotate copytruncate). A
+      // line xahaud writes between the read above and this truncate is lost;
+      // that window is microseconds every few hours, accepted.
       // ponytail: truncate-to-zero cap; real rotation if someone needs history
-      fh ??= await open(LOG_FILE, 'r+');
-      await fh.truncate(0);
+      await truncate(LOG_FILE, 0);
       offset = 0;
       partial = '';
     }
@@ -82,8 +85,6 @@ async function poll() {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
       console.error(`[debugstream] tail error: ${(err as Error).message}`);
     }
-    await fh?.close().catch(() => {});
-    fh = undefined;
     // A file deleted and recreated by hand must be read from its start.
     offset = 0;
     partial = '';
@@ -93,21 +94,10 @@ async function poll() {
 poll();
 
 // --- HTTP / WebSocket -----------------------------------------------------
-const server = createServer((req, res) => {
-  const headers = {
-    'content-type': 'application/json',
-    'access-control-allow-origin': '*',
-  };
-  // ok even when the file is missing: xahaud creates it on its first write.
-  const ok = req.method === 'GET' && req.url === '/health';
-  res.writeHead(ok ? 200 : 404, headers);
-  res.end(
-    JSON.stringify(
-      ok
-        ? { ok: true, clients: wss.clients.size, offset, file: LOG_FILE }
-        : { error: 'not found' },
-    ),
-  );
+// WebSocket only; plain HTTP has nothing to serve.
+const server = createServer((_req, res) => {
+  res.writeHead(404);
+  res.end();
 });
 
 server.on('upgrade', (req, socket, head) => {

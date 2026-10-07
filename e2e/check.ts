@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
@@ -95,18 +96,16 @@ async function submitAndValidate(
   seed: string,
   tx: Record<string, unknown>,
 ): Promise<void> {
-  const account = tx.Account as string;
   const acct = await rpc(rpcUrl, 'account_info', {
-    account,
+    account: tx.Account,
     ledger_index: 'current',
   });
-  const closed = await rpc(rpcUrl, 'ledger', { ledger_index: 'validated' });
   const { tx_blob } = signTx(
     {
       ...tx,
       NetworkID: spec.networkId,
       Sequence: acct.account_data.Sequence,
-      LastLedgerSequence: Number(closed.ledger.ledger_index) + 20,
+      LastLedgerSequence: acct.ledger_current_index + 20,
     },
     seed,
   );
@@ -170,21 +169,9 @@ async function checkDebugStream(
   const ws = new WebSocket(`${ep.debugstream}${address}`);
   ws.addEventListener('message', (e) => lines.push(String(e.data)));
   try {
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(
-        () =>
-          reject(new Error('debugstream WebSocket did not open within 15s')),
-        15_000,
-      );
-      ws.addEventListener('open', () => {
-        clearTimeout(timer);
-        resolve();
-      });
-      ws.addEventListener('error', () => {
-        clearTimeout(timer);
-        reject(new Error(`debugstream WebSocket error for ${ep.debugstream}`));
-      });
-    });
+    // A failed connect surfaces as the 15s timeout (EventTarget `once` has no
+    // special 'error' handling), which is good enough for an e2e.
+    await once(ws, 'open', { signal: AbortSignal.timeout(15_000) });
 
     await submitAndValidate(spec, ep.rpc, seed, {
       TransactionType: 'Payment',

@@ -177,6 +177,7 @@ test('compose: testnet runs a debugstream service tailing node/log; standalone h
   assert.equal(ds.build, '../../debugstream');
   assert.ok(ds.volumes.includes('./nodes/node/log:/log'));
   assert.equal(ds.ports, undefined);
+  assert.equal(ds.mem_limit, '128m');
   const labels = ds.labels.join('\n');
   assert.ok(
     labels.includes(
@@ -193,6 +194,6 @@ test('compose: xahaud services cap their docker log', () => {
   for (const spec of [testnetSpec, standaloneSpec]) {
     // biome-ignore lint/suspicious/noExplicitAny: compose.yml service shape has no fixed schema here
     const doc = parse(renderCompose(spec)) as any;
-    assert.equal(doc.services.node.logging.options['max-size'], '100m');
+    assert.equal(doc.services.node.logging.options['max-size'], '20m');
   }
 });
