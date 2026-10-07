@@ -13,11 +13,14 @@ import type { NetworkSpec } from './types.ts';
 
 // nginx:alpine advertises its version in the Server header and on its error
 // pages (the VL host's / is a 403). conf.d/*.conf is included at http level,
-// so one dropped-in line turns that off without shipping a config file.
+// so one dropped-in line turns that off without shipping a config file. The
+// image's entrypoint only runs its init scripts (IPv6 listen, templates) when
+// $1 is `nginx`, so it is exec'd explicitly: without it the healthcheck's
+// `localhost` (::1) is refused.
 const NGINX_COMMAND = [
   'sh',
   '-c',
-  "echo 'server_tokens off;' > /etc/nginx/conf.d/zz-tokens.conf && exec nginx -g 'daemon off;'",
+  "echo 'server_tokens off;' > /etc/nginx/conf.d/zz-tokens.conf && exec /docker-entrypoint.sh nginx -g 'daemon off;'",
 ];
 
 // Every routed service is enrolled on both the default (inter-container)
