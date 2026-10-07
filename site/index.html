@@ -59,8 +59,7 @@ main.wrap{padding-top:32px;padding-bottom:32px}
 .net{margin-bottom:48px;scroll-margin-top:16px}
 .net-title{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 16px;margin:0 0 16px}
 .net-title h2{margin:0;font-size:var(--font-size-20);font-weight:700;color:var(--g8)}
-.net-title .host{color:var(--gray600);font-size:var(--font-size-14);flex:1}
-.net-title .live{font-size:var(--font-size-14);font-weight:500;color:var(--gray600)}
+.net-title .host{color:var(--gray600);font-size:var(--font-size-14)}
 .grid{display:grid;grid-template-columns:1fr;gap:24px;align-items:start}
 @media(min-width:1024px){.grid{grid-template-columns:1fr 1fr}}
 .col{display:flex;flex-direction:column;gap:24px;min-width:0}
@@ -203,10 +202,10 @@ function accountBlock(a, explorer, balance, hash) {
 
 function faucet(ep, name) {
   const out = $('div', { ariaLive: 'polite' });
-  const input = $('input', { id: 'dest-' + ep.id, type: 'text', placeholder: 'r…', autocomplete: 'off', spellcheck: false });
+  const input = $('input', { type: 'text', placeholder: 'r…', autocomplete: 'off', spellcheck: false });
   const btn = $('button', { type: 'submit', className: 'btn big', textContent: 'Get devnet funds' });
   const form = $('form', {}, btn, $('p', { className: 'help', textContent: 'Creates a new account with 1000 XAH' }),
-    $('div', { className: 'dest' }, $('label', { htmlFor: input.id, textContent: 'Fund an existing address instead (optional)' }), input));
+    $('div', { className: 'dest' }, $('label', {}, 'Fund an existing address instead (optional)', input)));
   form.onsubmit = async ev => {
     ev.preventDefault();
     btn.disabled = true; btn.textContent = 'Requesting…'; out.replaceChildren();
@@ -237,7 +236,7 @@ function endpoints(ep) {
     body($('div', { className: 'box url', textContent: ep.ws }), list));
 }
 
-function status(ep, onState) {
+function status(ep) {
   const dot = $('span', { className: 'dot wait' });
   const word = $('span', { textContent: 'Connecting', ariaLive: 'polite' });
   const v = { ledger: $('b', { textContent: '—' }), peers: $('b', { textContent: '—' }), version: $('b', { textContent: '—' }) };
@@ -248,7 +247,7 @@ function status(ep, onState) {
     if (d.raw) { raw = d.raw; pre.textContent = JSON.stringify(raw, null, 2); }
     if (d.state === undefined) return;
     const s = d.state === null ? ['Offline', ''] : d.state === 'full' ? ['Live', 'live'] : ['Syncing', 'wait'];
-    word.textContent = s[0]; dot.className = 'dot ' + s[1]; onState(s[0]);
+    word.textContent = s[0]; dot.className = 'dot ' + s[1];
   });
   const state = $('span', { className: 'state' }, dot, word);
   return $('div', { className: 'card' },
@@ -257,21 +256,20 @@ function status(ep, onState) {
       $('details', { className: 'box' }, $('summary', { textContent: 'Raw server_info' }), pre)));
 }
 
-function net(n, i) {
-  const ep = { ...n.endpoints, id: i };
+function net(n) {
+  const ep = n.endpoints;
   const name = n.root ? 'main' : n.name;
-  const liveText = $('span', { className: 'live', textContent: 'Connecting' });
-  return $('section', { className: 'net', id: 'net-' + name },
-    $('div', { className: 'net-title' }, $('h2', { textContent: name }), $('span', { className: 'host', textContent: host(ep.ws) }), liveText),
-    $('div', { className: 'grid' }, faucet(ep, name),
-      $('div', { className: 'col' }, endpoints(ep), status(ep, s => (liveText.textContent = s)))));
+  const section = $('section', { className: 'net', id: 'net-' + name },
+    $('div', { className: 'net-title' }, $('h2', { textContent: name }), $('span', { className: 'host', textContent: host(ep.ws) })),
+    $('div', { className: 'grid' }, faucet(ep, name), $('div', { className: 'col' }, endpoints(ep), status(ep))));
+  return [name, section];
 }
 
 fetch('networks.json').then(r => r.ok ? r.json() : Promise.reject(r.status)).then(d => {
   document.getElementById('domain').textContent = d.domain;
   const nets = d.networks.map(net);
-  document.getElementById('networks').append(...nets);
-  document.getElementById('nav').append(...nets.map(s => $('a', { href: '#' + s.id, textContent: s.id.slice(4) })),
+  document.getElementById('networks').append(...nets.map(([, s]) => s));
+  document.getElementById('nav').append(...nets.map(([name, s]) => $('a', { href: '#' + s.id, textContent: name })),
     $('a', { href: 'https://docs.xahau.network/', textContent: 'Docs' }));
 }).catch(() => document.getElementById('networks').append($('div', { className: 'err', role: 'alert', textContent: 'Could not load the network list.' })));
 </script>

@@ -200,10 +200,23 @@ program
     'testnet only: serve on-ledger AppLoader documents (xahaud PR #793 `protocol = pwa`) at pwa.<name>.<domain> through Traefik',
     false,
   )
-  .option(
-    '--external',
-    "testnet only: register a network that runs on another host so it appears on this host's landing page; writes network.json only",
-    false,
+  .addOption(
+    new Option(
+      '--external',
+      "testnet only: register a network that runs on another host so it appears on this host's landing page; writes network.json only (only --domain, --tls and --pwa apply)",
+    )
+      .default(false)
+      // Anything else baked into the stub would make `apply` see a difference
+      // against the yml and recreate it.
+      .conflicts([
+        'version',
+        'validators',
+        'quorum',
+        'networkId',
+        'portOffset',
+        'nodeConfig',
+        'validatorConfig',
+      ]),
   )
   .option(
     '--port-offset <n>',
@@ -219,25 +232,7 @@ program
     '--validator-config <json>',
     'testnet validators only: extra/overriding xahaud.cfg sections as JSON, same shape as --node-config',
   )
-  .action(async (opts, cmd) => {
-    // An external stub carries only its hostnames; anything else baked into
-    // it would make `apply` see a difference against the yml and recreate it.
-    if (opts.external) {
-      const stray = [
-        'version',
-        'validators',
-        'quorum',
-        'networkId',
-        'portOffset',
-        'nodeConfig',
-        'validatorConfig',
-      ].filter((k) => cmd.getOptionValueSource(k) === 'cli');
-      if (stray.length > 0) {
-        throw program.error(
-          `--external takes only --domain, --tls and --pwa (got ${stray.join(', ')})`,
-        );
-      }
-    }
+  .action(async (opts) => {
     // A standalone is always one validator; validateSpec (below) covers the
     // rest, so `create` and `apply` accept exactly the same specs.
     const validators = opts.type === 'standalone' ? 1 : opts.validators;

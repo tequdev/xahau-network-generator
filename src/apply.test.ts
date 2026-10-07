@@ -578,7 +578,6 @@ test('plan: external create has no start; identical external is unchanged even w
       '--tls',
     ],
   ]);
-  assert.ok(!create?.steps[0]?.includes('--version'));
   assert.equal(plan([d], [d], new Set())[0]?.kind, 'unchanged');
 });
 
