@@ -276,20 +276,36 @@ async function populateNetwork(spec: NetworkSpec, dir: string): Promise<void> {
   }
 
   // 5. compose
+  await ensureNodeLogDir(spec, dir);
   await writeFile(join(dir, 'compose.yml'), renderCompose(spec));
 }
 
-// Deletes each node's ledger data (nodedb under nodes/*/db) so the network
+// nodes/node/log is the debugstream service's bind-mount source. If it is
+// missing when compose creates that container, dockerd creates it root-owned
+// (on Linux; Docker Desktop hides this) and xahaud, running as the host user,
+// then can't open log/debug.log. So xng creates it: here on create, and again
+// on start/reset (reset removes it; networks from an older xng never had it).
+export async function ensureNodeLogDir(
+  spec: NetworkSpec,
+  dir: string,
+): Promise<void> {
+  if (spec.type !== 'testnet') return;
+  await mkdir(join(dir, 'nodes', nodeName(spec, 0), 'log'), {
+    recursive: true,
+  });
+}
+
+// Deletes each node's ledger data (nodedb under nodes/*/db) and debug log
+// (nodes/*/log: stale hook traces would mislead after a reset) so the network
 // restarts from genesis on next `compose up`, while keeping everything else
 // (xahaud.cfg, validators.txt, genesis.json, keys/, vl/) in place.
 export async function resetNetworkData(dir: string): Promise<void> {
   const nodesDir = join(dir, 'nodes');
   const nodeDirs = await readdir(nodesDir).catch(() => []);
   for (const nodeDir of nodeDirs) {
-    await rm(join(nodesDir, nodeDir, 'db'), {
-      recursive: true,
-      force: true,
-    });
+    for (const sub of ['db', 'log']) {
+      await rm(join(nodesDir, nodeDir, sub), { recursive: true, force: true });
+    }
   }
 }
 
