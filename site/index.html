@@ -229,7 +229,12 @@ function faucet(ep, label) {
 function endpoints(ep) {
   const row = (label, val, link) => $('div', { className: 'ep' },
     $('div', {}, $('small', { textContent: label }), link ? ext(val, val) : $('span', { textContent: val })), copyBtn(val));
-  const list = $('div', { className: 'eps' }, row('JSON-RPC', ep.rpc), row('Explorer', ep.explorer, true), row('Validator list', ep.vl));
+  // The validator list only matters to someone joining this network with
+  // their own xahaud, and the peer port is not routed on testnet (see
+  // compose.ts), so nobody can. Restore it with publisher key and /vl.json
+  // path once peer ports are exposed.
+  // row('Validator list', `${ep.vl}/vl.json`)
+  const list = $('div', { className: 'eps' }, row('JSON-RPC', ep.rpc), row('Explorer', ep.explorer, true));
   if (ep.debugstream) list.append(row('Debug stream', ep.debugstream));
   if (ep.pwa) list.append(row('App loader', ep.pwa));
   return $('div', { className: 'card' },
