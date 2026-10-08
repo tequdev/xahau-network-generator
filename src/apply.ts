@@ -36,9 +36,10 @@ const COMPARED = [
   'validatorConfig',
 ] as const;
 // Cosmetic landing-page labels: accepted in yml but not in COMPARED, so changing
-// one never recreates a network (it only plans `relabel`).
+// one never recreates a network (it only plans `relabel`). `landing: false`
+// (hide it from the landing page) is cosmetic the same way.
 const LABELS = ['displayName', 'displayShortName'] as const;
-const YML_KEYS: readonly string[] = [...COMPARED, ...LABELS];
+const YML_KEYS: readonly string[] = [...COMPARED, ...LABELS, 'landing'];
 const EXTERNAL_KEYS = ['external', 'domain', 'tls', 'pwa', ...LABELS];
 
 export function parseXngYml(text: string): NetworkSpec[] {
@@ -117,6 +118,10 @@ function toSpec(name: string, raw: unknown): NetworkSpec {
   for (const key of LABELS) {
     if (entry[key] !== undefined) spec[key] = entry[key] as string;
   }
+  // Stored only when false, like network.json; `true` is the default.
+  if (entry.landing !== undefined && entry.landing !== true) {
+    spec.landing = entry.landing as boolean;
+  }
   if (entry.nodeConfig !== undefined) {
     spec.nodeConfig = configSections('nodeConfig', entry.nodeConfig);
   }
@@ -191,12 +196,17 @@ function comparable(spec: NetworkSpec, key: (typeof COMPARED)[number]) {
   return spec[key];
 }
 
+function onLanding(spec: NetworkSpec): boolean {
+  return spec.landing !== false;
+}
+
 function createArgv(spec: NetworkSpec): string[] {
   const labels = [
     ...(spec.displayName ? ['--display-name', spec.displayName] : []),
     ...(spec.displayShortName
       ? ['--display-short-name', spec.displayShortName]
       : []),
+    ...(spec.landing === false ? ['--no-landing'] : []),
   ];
   if (spec.external) {
     return [
@@ -314,9 +324,14 @@ export function plan(
     const stale = !d.external && !!opts.stale?.has(name);
     if (diff.length === 0) {
       // Raw values on purpose: a label that is unset on one side differs.
-      const labels = LABELS.flatMap((key) =>
-        a[key] === d[key] ? [] : [{ key, from: a[key], to: d[key] }],
-      );
+      const labels = [
+        ...LABELS.flatMap((key) =>
+          a[key] === d[key] ? [] : [{ key, from: a[key], to: d[key] }],
+        ),
+        ...(onLanding(a) === onLanding(d)
+          ? []
+          : [{ key: 'landing', from: onLanding(a), to: onLanding(d) }]),
+      ];
       if (labels.length > 0) {
         return {
           name,
@@ -332,6 +347,8 @@ export function plan(
               d.displayName ?? '',
               '--display-short-name',
               d.displayShortName ?? '',
+              '--landing',
+              String(onLanding(d)),
             ],
             ...(stopped || stale ? [startArgv(name)] : []),
           ],

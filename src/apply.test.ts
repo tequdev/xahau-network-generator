@@ -689,7 +689,7 @@ test('plan: a label-only change is a relabel, never remove/create', () => {
     ['displayName', 'displayShortName'],
   );
   assert.deepEqual(argv(r?.steps ?? []), [
-    'label --name foo --display-name Foo Net --display-short-name foo',
+    'label --name foo --display-name Foo Net --display-short-name foo --landing true',
   ]);
   // Removing a label sends "" (clear); unset on both sides is unchanged.
   const [clear] = plan([a], [d], new Set());
@@ -698,6 +698,8 @@ test('plan: a label-only change is a relabel, never remove/create', () => {
     '',
     '--display-short-name',
     '',
+    '--landing',
+    'true',
   ]);
   assert.equal(plan([a], [a], new Set())[0]?.kind, 'unchanged');
 });
@@ -760,4 +762,53 @@ test('formatPlan counts and marks a refresh', () => {
   );
   assert.match(out, /1 to refresh/);
   assert.match(out, /\* foo\s+refresh/);
+});
+
+test('parseXngYml: landing is stored only when false and rejected on root/external/standalone', () => {
+  const [hidden] = desiredOf(`  x:\n    version: ${V1}\n    landing: false`);
+  assert.equal(hidden?.landing, false);
+  const [shown] = desiredOf(`  x:\n    version: ${V1}\n    landing: true`);
+  assert.equal(shown?.landing, undefined);
+  assert.throws(
+    () => desiredOf(`  x:\n    version: ${V1}\n    landing: no`),
+    /landing must be true or false/,
+  );
+  assert.throws(
+    () =>
+      desiredOf(`  x:\n    version: ${V1}\n    root: true\n    landing: false`),
+    /root network cannot set landing/,
+  );
+  assert.throws(
+    () => desiredOf(`${EXT}\n    landing: false`),
+    /do not apply to an external network/,
+  );
+  assert.throws(
+    () =>
+      desiredOf(
+        `  x:\n    type: standalone\n    version: ${V1}\n    landing: false`,
+      ),
+    /landing is testnet only/,
+  );
+});
+
+test('plan: toggling landing is a relabel; create carries --no-landing', () => {
+  const a = created({ name: 'x' });
+  const [d] = desiredOf(`  x:\n    version: ${V1}\n    landing: false`);
+  assert.ok(d);
+  const [r] = plan([d], [a], new Set(['x']));
+  assert.equal(r?.kind, 'relabel');
+  assert.deepEqual(r?.diff, [{ key: 'landing', from: true, to: false }]);
+  assert.deepEqual(r?.steps[0]?.slice(-2), ['--landing', 'false']);
+  // And back: an absent key means listed again.
+  const [back] = plan([a], [{ ...a, landing: false }], new Set(['x']));
+  assert.equal(back?.kind, 'relabel');
+  assert.deepEqual(back?.steps[0]?.slice(-2), ['--landing', 'true']);
+  assert.match(
+    plan([d], [], new Set())[0]?.steps[0]?.join(' ') ?? '',
+    / --no-landing$/,
+  );
+  assert.doesNotMatch(
+    plan([a], [], new Set())[0]?.steps[0]?.join(' ') ?? '',
+    /landing/,
+  );
 });

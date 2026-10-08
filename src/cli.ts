@@ -237,6 +237,10 @@ program
     'testnet only: landing-page nav link and faucet pill (default: the display name)',
   )
   .option(
+    '--no-landing',
+    'testnet only: keep the network off the landing page (e.g. a devnet run for one developer); not for root or --external',
+  )
+  .option(
     '--port-offset <n>',
     'standalone only: shift every published host port by this amount',
     intArg(0, 14300),
@@ -275,6 +279,7 @@ program
       importVlKeys: DEFAULT_IMPORT_VL_KEYS,
       displayName: opts.displayName,
       displayShortName: opts.displayShortName,
+      ...(opts.landing === false ? { landing: false } : {}),
     };
     if (opts.nodeConfig !== undefined) {
       spec.nodeConfig = parseConfigFlag('nodeConfig', opts.nodeConfig);
@@ -306,14 +311,26 @@ program
 program
   .command('label')
   .description(
-    'set the landing-page display/short name of an existing network (an empty value clears it); never recreates the network',
+    'set the landing-page display/short name of an existing network (an empty value clears it) or whether it is listed there at all; never recreates the network',
   )
   .requiredOption('--name <name>', 'network name', parseName)
   .option('--display-name <text>', 'section heading ("" clears)')
   .option('--display-short-name <text>', 'nav link and faucet pill ("" clears)')
+  .addOption(
+    new Option(
+      '--landing <bool>',
+      'list the network on the landing page (false hides it)',
+    ).choices(['true', 'false']),
+  )
   .action(async (opts) => {
-    if (opts.displayName === undefined && opts.displayShortName === undefined) {
-      program.error('pass --display-name and/or --display-short-name');
+    if (
+      opts.displayName === undefined &&
+      opts.displayShortName === undefined &&
+      opts.landing === undefined
+    ) {
+      program.error(
+        'pass --display-name, --display-short-name and/or --landing',
+      );
     }
     const spec = await loadSpec(opts.name);
     for (const [key, v] of [
@@ -323,6 +340,9 @@ program
       if (v === '') delete spec[key];
       else if (v !== undefined) spec[key] = v;
     }
+    // Stored only when false (true is the default; undefined drops the key).
+    if (opts.landing === 'true') spec.landing = undefined;
+    else if (opts.landing === 'false') spec.landing = false;
     validateSpec(spec);
     await writeFile(
       `workspace/${opts.name}/network.json`,
