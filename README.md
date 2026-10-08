@@ -134,6 +134,13 @@ in `xng.yml` (`relabel`) or with `xng label --name <n> --display-name <text>
 --display-short-name <text>` (an empty value clears one); `xng create` takes the same
 two flags.
 
+**`landing: false`.** Keeps a testnet off the landing page while it still
+runs and is reachable at its usual hostnames, e.g. a devnet brought up at
+one developer's request. Like the labels it is cosmetic: toggling it plans
+`relabel`, never a recreate (`xng label --name <n> --landing true|false`,
+or `xng create --no-landing`). Not allowed on a `root` network (it serves
+the page) or an `external` one (listing it is all it is for).
+
 **`external: true`.** Devnets may run on several servers. Declare the ones
 that run elsewhere in this server's `xng.yml` so they appear on its landing
 page; only their hostnames are known here and nothing is started:
@@ -263,7 +270,7 @@ key (`cp xng.example.yml xng.yml`).
 The keys are those of `workspace/<name>/network.json`: `type` (default
 `testnet`), `version`, `validators` (3), `quorum`, `networkId` (21339),
 `domain` (`127.0.0.1.nip.io`), `tls` (false), `root` (false), `pwa` (false),
-`external` (false), `portOffset` (0), `displayName`, `displayShortName`, `nodeConfig`, `validatorConfig`. `nodeConfig` (also `xng
+`external` (false), `portOffset` (0), `displayName`, `displayShortName`, `landing` (true), `nodeConfig`, `validatorConfig`. `nodeConfig` (also `xng
 create --node-config <json>`) adds or overrides `xahaud.cfg` sections of the
 non-validating `node` only: a section xng already writes is replaced, any
 other is appended; changing it recreates the network. `validatorConfig`
@@ -294,7 +301,7 @@ xng apply [-f xng.yml] [-y] [--dry-run] [--timeout <sec>] [--network <name>]...
 | only in `workspace/` | `remove` | `remove` |
 | testnet, only `version` differs | `upgrade` | (`start --wait` if stopped, then) `upgrade` |
 | standalone `version`, or any other key differs | `recreate` | `remove`, `create`, `start --wait` (ledger data and keys are wiped) |
-| identical but `displayName`/`displayShortName` | `relabel` | `label` (`start --wait` if stopped); no recreate |
+| identical but `displayName`/`displayShortName`/`landing` | `relabel` | `label` (`start --wait` if stopped); no recreate |
 | identical, any container not running | `start` | `start --wait` |
 | identical, running, but `compose.yml` would render differently (xng updated) or a container runs an older image than the one pulled locally | `refresh` | `start --wait` (only the changed containers are recreated) |
 | `external: true`, only in the file | `create` | `create --external` (no `start`) |

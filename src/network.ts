@@ -357,13 +357,14 @@ const SITE_DIR = fileURLToPath(new URL('../site', import.meta.url));
 
 // The landing page (site/ in the repo) cannot know which networks share its
 // domain, so each root network gets a static list of them (external ones
-// included; standalones are loopback-only) in its own site/ directory, which
+// included; standalones are loopback-only; `landing: false` ones left out,
+// e.g. a devnet run for one developer) in its own site/ directory, which
 // compose mounts into nginx. The page itself is copied alongside (one mount,
 // see compose.ts), so a repo edit shows up on the next start/reset. Called
 // whenever a network appears or goes away.
 export async function writeSiteIndex(outDir = 'workspace'): Promise<void> {
   const testnets = (await otherSpecs(outDir, '')).filter(
-    (s) => s.type === 'testnet',
+    (s) => s.type === 'testnet' && s.landing !== false,
   );
   for (const root of testnets.filter((s) => s.root)) {
     const networks = testnets

@@ -25,12 +25,13 @@ async function put(dir: string, s: NetworkSpec) {
   await writeFile(join(dir, s.name, 'network.json'), JSON.stringify(s));
 }
 
-test('writeSiteIndex: lists same-domain testnets (external too), root first, no standalones or other domains', async () => {
+test('writeSiteIndex: lists same-domain testnets (external too), root first, no standalones, other domains or landing: false', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'xng-site-'));
   for (const s of [
     spec({ name: 'zeta', root: true }),
     spec({ name: 'beta' }),
     spec({ name: 'foo', version: '', external: true }),
+    spec({ name: 'hidden', landing: false }),
     spec({ name: 'other', domain: 'other.net' }),
     spec({ name: 's1', type: 'standalone', validators: 1, quorum: 1 }),
   ]) {

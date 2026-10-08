@@ -37,6 +37,9 @@ networks:
     displayName: JS Hooks            # 1-64 chars; landing page heading (default: the name, `main` for root)
     displayShortName: jshooks               # 1-24 chars; nav link and faucet pill (default: displayName)
                                      # both are cosmetic: changing them never recreates the network
+    landing: true                    # true | false, testnet only     (default true): false keeps it off
+                                     # the landing page (e.g. a devnet for one developer); cosmetic too.
+                                     # Not for root or external networks
     # Extra/overriding xahaud.cfg sections for the validators v1..vN only;
     # `node` is unaffected. Testnet only; same shapes and rules as nodeConfig
     # (see `local` below). Changing it recreates the network.

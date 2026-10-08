@@ -29,6 +29,7 @@ export type NetworkSpec = {
   external?: boolean; // testnet only; default false; runs on another host, only its hostnames are known here (network.json is a stub with version "")
   displayName?: string; // cosmetic, landing page only (section heading); never recreates a network
   displayShortName?: string; // cosmetic, landing page only (nav link, faucet pill); never recreates a network
+  landing?: boolean; // testnet only; default true; false keeps the network off the landing page (stored only when false); never recreates a network
   portOffset: number; // standalone only; default 0; shifts every published host port
   nodeConfig?: Record<string, string[]>; // `node` (index 0) only: extra/overriding xahaud.cfg sections, section -> lines; validators never get it
   validatorConfig?: Record<string, string[]>; // testnet validators v1..vN only: same shape as nodeConfig; `node` never gets it
@@ -171,6 +172,22 @@ export function validateSpec(spec: NetworkSpec): void {
     throw new Error(
       "an external network cannot be root (the landing page is served by this host's root network)",
     );
+  }
+  if (spec.landing !== undefined && typeof spec.landing !== 'boolean') {
+    throw new Error(`landing must be true or false, got "${spec.landing}"`);
+  }
+  if (spec.landing === false) {
+    if (spec.type !== 'testnet') throw new Error('landing is testnet only');
+    if (spec.root) {
+      throw new Error(
+        'a root network cannot set landing: false (it serves the landing page)',
+      );
+    }
+    if (spec.external) {
+      throw new Error(
+        'an external network cannot set landing: false (it exists only to be listed on the landing page)',
+      );
+    }
   }
   if (spec.pwa !== undefined && typeof spec.pwa !== 'boolean') {
     throw new Error(`pwa must be true or false, got "${spec.pwa}"`);
