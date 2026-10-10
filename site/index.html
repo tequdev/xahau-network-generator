@@ -235,7 +235,8 @@ function endpoints(ep) {
   // path once peer ports are exposed.
   // row('Validator list', `${ep.vl}/vl.json`)
   const list = $('div', { className: 'eps' }, row('JSON-RPC', ep.rpc), row('Explorer', ep.explorer, true));
-  if (ep.debugstream) list.append(row('Debug stream', ep.debugstream));
+  // Same path over http(s) is the in-browser viewer, so link that.
+  if (ep.debugstream) list.append(row('Debug stream', ep.debugstream.replace(/^ws/, 'http'), true));
   if (ep.pwa) list.append(row('App loader', ep.pwa));
   return $('div', { className: 'card' },
     head('Endpoint', copyBtn(ep.ws, 'Copy', 'btn glass')),
