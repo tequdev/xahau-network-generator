@@ -223,7 +223,11 @@ function faucet(ep, label) {
     } catch { fail('Faucet request failed. Try again later.'); }
     btn.disabled = false; btn.textContent = 'Get devnet funds';
   };
-  return $('div', { className: 'card' }, head(['Faucet', $('span', { className: 'pill glass', textContent: label })]), body(form, out));
+  const api = $('div', { className: 'box', style: 'overflow-wrap:anywhere' },
+    $('small', { textContent: `POST ${ep.faucet}/accounts  {"destination": "r…", "xrpAmount": 1000} (both optional)` }),
+    $('br'),
+    $('small', { textContent: `POST ${ep.faucet}/newcreds?account=r…  testnet-compatible (xahau-test.net style); omit account for a new account` }));
+  return $('div', { className: 'card' }, head(['Faucet', $('span', { className: 'pill glass', textContent: label })]), body(form, out, api));
 }
 
 function endpoints(ep) {
