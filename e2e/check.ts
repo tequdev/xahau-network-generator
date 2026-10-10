@@ -200,6 +200,14 @@ async function checkDebugStream(
   });
   console.log(`[e2e] trace hook installed on ${address}`);
 
+  // The same URL over plain HTTP is the browser viewer page.
+  const page = await fetch(
+    `${ep.debugstream.replace(/^ws/, 'http')}${address}/`,
+    { signal: AbortSignal.timeout(15_000) },
+  );
+  assert.equal(page.status, 200, 'debugstream page did not return 200');
+  assert.match(await page.text(), /Hook Debug Stream/);
+
   const lines: string[] = [];
   const ws = new WebSocket(`${ep.debugstream}${address}`);
   ws.addEventListener('message', (e) => lines.push(String(e.data)));

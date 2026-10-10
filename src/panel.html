@@ -187,7 +187,9 @@
     const wrap = el('span', { class: 'endpoints' });
     for (const key of ['ws', 'rpc', 'explorer', 'faucet', 'vl', 'pwa', 'debugstream']) {
       if (!ep[key]) continue;
-      wrap.appendChild(el('a', { href: ep[key], target: '_blank', rel: 'noopener', text: key }));
+      // The debugstream path over http(s) is the in-browser viewer.
+      const href = key === 'debugstream' ? ep[key].replace(/^ws/, 'http') : ep[key];
+      wrap.appendChild(el('a', { href, target: '_blank', rel: 'noopener', text: key }));
     }
     return wrap;
   }

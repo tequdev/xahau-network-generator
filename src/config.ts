@@ -132,13 +132,24 @@ export function renderXahaudCfg(o: XahaudCfgOptions): string {
   const rpcStartup = ['{ "command": "log_level", "severity": "warning" }'];
   if (!o.token) {
     // Hook trace() output is journal partition "View" at severity trace
-    // (`HookTrace[<hookAcc>-<otxnAcc>]: msg`); raise only that partition on
-    // the user-facing node. xahaud writes every line to stderr, so this is
-    // visible in `docker logs` (bounded by the cap compose sets) on both
-    // network types.
-    rpcStartup.push(
-      '{ "command": "log_level", "partition": "View", "severity": "trace" }',
-    );
+    // (`HookTrace[<hookAcc>-<otxnAcc>]: msg`). The others are the partitions
+    // observed on wss://xahau-test.net/debugstream/<account>: HookSet
+    // validation (OpenLedger, LedgerConsensus), RPC requests/replies (RPC,
+    // Server) and pubAccepted (NetworkOPs). Raised only on the user-facing
+    // node; xahaud writes every line to stderr too, so this is visible in
+    // `docker logs` (bounded by the cap compose sets) on both network types.
+    for (const partition of [
+      'View',
+      'OpenLedger',
+      'LedgerConsensus',
+      'RPC',
+      'Server',
+      'NetworkOPs',
+    ]) {
+      rpcStartup.push(
+        `{ "command": "log_level", "partition": "${partition}", "severity": "trace" }`,
+      );
+    }
   }
   if (o.type === 'testnet' && !o.token) {
     // The file the `debugstream` service tails (and truncates, so it never
