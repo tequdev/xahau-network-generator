@@ -135,12 +135,34 @@ async function main(): Promise<void> {
   assert.ok(!existsSync('workspace/ext1'), 'external stub still exists');
   assert.deepEqual(await listed(), [NAME]);
 
-  // 6: version change is a rolling upgrade.
-  await writeYml(apply1(upgradeTo, labels));
+  // 6: version + nodeConfig change is a rolling upgrade that rewrites xahaud.cfg.
+  const upgraded = { ...labels, nodeConfig: { ledger_history: '5000' } };
+  await writeYml(apply1(upgradeTo, upgraded));
   r = apply(['--dry-run']);
   assert.match(r.out, /^~ apply1 +upgrade/m);
   assert.equal(apply(['-y', '--timeout', timeout]).status, 0);
   e2e('--expect-version', upgradeTo);
+  const nodeCfg = await readFile(
+    `workspace/${NAME}/nodes/node/xahaud.cfg`,
+    'utf8',
+  );
+  assert.ok(
+    nodeCfg.includes('[ledger_history]\n5000'),
+    'nodeConfig not applied',
+  );
+  assert.ok(
+    nodeCfg.includes('[hook_validate_rpc]\n1'),
+    'node lacks hook_validate_rpc',
+  );
+  const v1Cfg = await readFile(`workspace/${NAME}/nodes/v1/xahaud.cfg`, 'utf8');
+  assert.ok(
+    !v1Cfg.includes('[hook_validate_rpc]'),
+    'validator has hook_validate_rpc',
+  );
+  assert.ok(
+    v1Cfg.includes('[ledger_history]\n256'),
+    'nodeConfig leaked to a validator',
+  );
 
   // 7: a stopped network is started again.
   assert.equal(run('pnpm', ['xng', 'stop', '--name', NAME]).status, 0);
@@ -151,7 +173,7 @@ async function main(): Promise<void> {
 
   // 8: --network leaves the others alone (apply2 is only ever planned, never created).
   await writeYml({
-    ...apply1(upgradeTo, labels),
+    ...apply1(upgradeTo, upgraded),
     apply2: { type: 'standalone', version },
   });
   r = apply(['--dry-run', '--network', NAME]);

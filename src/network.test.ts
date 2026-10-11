@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { createNetwork, writeSiteIndex } from './network.ts';
+import { createNetwork, writeNodeConfig, writeSiteIndex } from './network.ts';
 import { DEFAULT_IMPORT_VL_KEYS } from './types.ts';
 import type { NetworkSpec } from './types.ts';
 
@@ -90,5 +90,33 @@ test('writeSiteIndex: entries carry resolved displayName/displayShortName (main 
       ['Beta Net', 'Beta Net'],
       ['Gamma', 'G'],
     ],
+  );
+});
+
+test('writeNodeConfig: renders node and validator cfgs from keys on disk', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'xng-cfg-'));
+  const s = spec({ name: 't', validators: 1, quorum: 1 });
+  await mkdir(join(dir, 'keys'));
+  await writeFile(
+    join(dir, 'keys', 'vl.json'),
+    JSON.stringify({ master: { publicKey: 'EDVL' } }),
+  );
+  await writeFile(
+    join(dir, 'keys', 'v1.json'),
+    JSON.stringify({ token: 'TOKEN1' }),
+  );
+  for (const i of [0, 1]) {
+    await mkdir(join(dir, 'nodes', i === 0 ? 'node' : 'v1'), {
+      recursive: true,
+    });
+    await writeNodeConfig(s, dir, i);
+  }
+  const node = await readFile(join(dir, 'nodes', 'node', 'xahaud.cfg'), 'utf8');
+  const v1 = await readFile(join(dir, 'nodes', 'v1', 'xahaud.cfg'), 'utf8');
+  assert.ok(node.includes('[hook_validate_rpc]\n1'));
+  assert.ok(!v1.includes('[hook_validate_rpc]'));
+  assert.ok(v1.includes('TOKEN1'));
+  assert.ok(
+    (await readdir(join(dir, 'nodes', 'v1'))).includes('validators.txt'),
   );
 });

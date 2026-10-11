@@ -191,6 +191,7 @@ test('plan: testnet version change is a rolling upgrade', () => {
   assert.deepEqual(argv(actions[0]?.steps ?? []), [
     `upgrade --name t1 --version ${V2} --timeout 600`,
   ]);
+  assert.match(formatPlan(actions), /\(rolling, no downtime\)/);
 });
 
 test('plan: upgrading a stopped testnet starts it first', () => {
@@ -229,6 +230,7 @@ test('plan: any other change is a recreate, even together with a version change'
     new Set(['a', 'b']),
   );
   assert.deepEqual(kinds(actions), { a: 'recreate', b: 'recreate' });
+  assert.equal(actions[1]?.warning, undefined);
   assert.deepEqual(
     actions[1]?.diff.map((c) => c.key),
     ['version', 'validators', 'quorum'],
@@ -537,7 +539,7 @@ test('parseXngYml: nodeConfig is normalized to section -> lines', () => {
   );
 });
 
-test('plan: a nodeConfig change recreates and create carries --node-config', () => {
+test('plan: a testnet nodeConfig change is an upgrade carrying --node-config', () => {
   const actions = plan(
     desiredOf(
       `  t1:\n    version: ${V1}\n    nodeConfig:\n      node_size: huge`,
@@ -545,13 +547,95 @@ test('plan: a nodeConfig change recreates and create carries --node-config', () 
     [created({ name: 't1' })],
     new Set(['t1']),
   );
-  assert.equal(actions[0]?.kind, 'recreate');
+  assert.equal(actions[0]?.kind, 'upgrade');
   assert.equal(actions[0]?.diff[0]?.key, 'nodeConfig');
+  assert.deepEqual(argv(actions[0]?.steps ?? []), [
+    `upgrade --name t1 --version ${V1} --timeout 300 --node-config {"node_size":["huge"]}`,
+  ]);
+  assert.match(
+    formatPlan(actions),
+    /\(rolling restart with the new xahaud\.cfg\)/,
+  );
+});
+
+test('plan: version + nodeConfig + validatorConfig is a single upgrade step', () => {
+  const actions = plan(
+    desiredOf(
+      `  t1:\n    version: ${V2}\n    nodeConfig:\n      node_size: huge\n    validatorConfig:\n      node_size: small`,
+    ),
+    [created({ name: 't1' })],
+    new Set(['t1']),
+  );
+  assert.equal(actions[0]?.kind, 'upgrade');
+  assert.deepEqual(argv(actions[0]?.steps ?? []), [
+    `upgrade --name t1 --version ${V2} --timeout 300 --node-config {"node_size":["huge"]} --validator-config {"node_size":["small"]}`,
+  ]);
+  assert.match(formatPlan(actions), /\(rolling, no downtime\)/);
+});
+
+test('plan: removing nodeConfig from the yml upgrades with --node-config {}', () => {
+  const actions = plan(
+    desiredOf(`  t1:\n    version: ${V1}`),
+    [created({ name: 't1', nodeConfig: { node_size: ['huge'] } })],
+    new Set(['t1']),
+  );
+  assert.equal(actions[0]?.kind, 'upgrade');
+  assert.deepEqual(argv(actions[0]?.steps ?? []), [
+    `upgrade --name t1 --version ${V1} --timeout 300 --node-config {}`,
+  ]);
+});
+
+test('plan: a standalone nodeConfig change still recreates, without a warning', () => {
+  const actions = plan(
+    desiredOf(
+      `  s1:\n    type: standalone\n    version: ${V1}\n    nodeConfig:\n      node_size: huge`,
+    ),
+    [created({ name: 's1', type: 'standalone' })],
+    new Set(['s1']),
+  );
+  assert.equal(actions[0]?.kind, 'recreate');
+  assert.equal(actions[0]?.warning, undefined);
   assert.ok(
     argv(actions[0]?.steps ?? [])[1]?.endsWith(
       `--node-config {"node_size":["huge"]}`,
     ),
   );
+});
+
+test('plan: an unsafe nodeConfig section recreates with a warning', () => {
+  const actions = plan(
+    desiredOf(
+      `  t1:\n    version: ${V1}\n    nodeConfig:\n      node_db:\n        - type=NuDB\n        - path=/x`,
+    ),
+    [created({ name: 't1' })],
+    new Set(['t1']),
+  );
+  assert.equal(actions[0]?.kind, 'recreate');
+  assert.equal(
+    actions[0]?.warning,
+    'nodeConfig [node_db] cannot change in place',
+  );
+  const out = formatPlan(actions);
+  assert.match(
+    out,
+    /\(nodeConfig \[node_db\] cannot change in place; ledger data and keys are wiped\)/,
+  );
+});
+
+test('plan: an unsafe validatorConfig section recreates with a warning', () => {
+  const actions = plan(
+    desiredOf(
+      `  t1:\n    version: ${V1}\n    validatorConfig:\n      validator_token: abc`,
+    ),
+    [created({ name: 't1' })],
+    new Set(['t1']),
+  );
+  assert.equal(actions[0]?.kind, 'recreate');
+  assert.equal(
+    actions[0]?.warning,
+    'validatorConfig [validator_token] cannot change in place',
+  );
+  assert.ok(argv(actions[0]?.steps ?? [])[1]?.includes('--validator-config'));
 });
 
 test('plan: a missing or empty nodeConfig on disk matches a yml without one', () => {
@@ -583,7 +667,7 @@ test('parseXngYml: validatorConfig is normalized and rejected on a standalone', 
   );
 });
 
-test('plan: a validatorConfig change recreates and create carries --validator-config', () => {
+test('plan: a validatorConfig change is an upgrade carrying --validator-config', () => {
   const actions = plan(
     desiredOf(
       `  t1:\n    version: ${V1}\n    validatorConfig:\n      node_size: huge`,
@@ -591,13 +675,10 @@ test('plan: a validatorConfig change recreates and create carries --validator-co
     [created({ name: 't1' })],
     new Set(['t1']),
   );
-  assert.equal(actions[0]?.kind, 'recreate');
-  assert.equal(actions[0]?.diff[0]?.key, 'validatorConfig');
-  assert.ok(
-    argv(actions[0]?.steps ?? [])[1]?.endsWith(
-      `--validator-config {"node_size":["huge"]}`,
-    ),
-  );
+  assert.equal(actions[0]?.kind, 'upgrade');
+  assert.deepEqual(argv(actions[0]?.steps ?? []), [
+    `upgrade --name t1 --version ${V1} --timeout 300 --validator-config {"node_size":["huge"]}`,
+  ]);
 });
 
 test('plan: enabling pwa recreates the network', () => {
@@ -760,4 +841,15 @@ test('formatPlan counts and marks a refresh', () => {
   );
   assert.match(out, /1 to refresh/);
   assert.match(out, /\* foo\s+refresh/);
+});
+
+test('formatPlan: a config-only upgrade of a stopped network says it starts first', () => {
+  const actions = plan(
+    desiredOf(
+      `  t1:\n    version: ${V1}\n    nodeConfig:\n      node_size: huge`,
+    ),
+    [created({ name: 't1' })],
+    new Set(),
+  );
+  assert.match(formatPlan(actions), /starts it first/);
 });

@@ -154,3 +154,16 @@ test('xahaud.cfg: node logs hook trace (View at trace) to log/debug.log; validat
   assert.ok(!standalone.includes('debug_logfile'));
   assert.ok(standalone.includes('"partition": "View"'));
 });
+
+test('renderXahaudCfg: hook_validate_rpc defaults to 1 on node only and can be overridden', () => {
+  const node = renderXahaudCfg(cfgOpts);
+  assert.ok(node.includes('[hook_validate_rpc]\n1'));
+  const validator = renderXahaudCfg({ ...cfgOpts, token: 'TOKEN' });
+  assert.ok(!validator.includes('[hook_validate_rpc]'));
+  const off = renderXahaudCfg({
+    ...cfgOpts,
+    overrides: { hook_validate_rpc: ['0'] },
+  });
+  assert.ok(off.includes('[hook_validate_rpc]\n0'));
+  assert.equal(off.split('[hook_validate_rpc]').length, 2);
+});

@@ -176,7 +176,36 @@ export type Action = {
   steps: string[][]; // xng argv, in execution order
   from?: NetworkSpec; // on-disk spec (absent for create)
   to?: NetworkSpec; // desired spec (absent for remove)
+  warning?: string; // why a recreate was needed instead of an upgrade
 };
+
+// Changes `xng upgrade` can apply in place (binary swap + rewritten xahaud.cfg).
+const UPGRADABLE = new Set(['version', 'nodeConfig', 'validatorConfig']);
+
+// Sections xahaud cannot pick up on a restart against an existing data
+// directory (or that change a validator's identity): changing one of
+// these needs a fresh network, so apply falls back to recreate and says why.
+const UNSAFE_IN_PLACE = [
+  'node_db',
+  'database_path',
+  'relational_db',
+  'network_id',
+  'validator_token',
+  'validation_seed',
+];
+
+export function unsafeConfigChanges(
+  from: NetworkSpec,
+  to: NetworkSpec,
+): string[] {
+  return (['nodeConfig', 'validatorConfig'] as const).flatMap((key) =>
+    UNSAFE_IN_PLACE.filter(
+      (section) =>
+        JSON.stringify(from[key]?.[section]) !==
+        JSON.stringify(to[key]?.[section]),
+    ).map((section) => `${key} [${section}]`),
+  );
+}
 
 // Older network.json files have no `root`, `pwa`, `nodeConfig` or `validatorConfig`;
 // treat a missing one as false / {} (the configs as JSON so `===` compares
@@ -342,9 +371,16 @@ export function plan(
       const steps = kind === 'unchanged' ? [] : [startArgv(name)];
       return { name, kind, diff, steps, ...both };
     }
-    // `xng upgrade` only swaps the binary of a running testnet; anything else
-    // that changed (or a standalone, which has no upgrade) needs a new network.
-    if (diff.every((c) => c.key === 'version') && d.type === 'testnet') {
+    // `xng upgrade` swaps the binary and rewrites xahaud.cfg of a running
+    // testnet; anything else that changed (or a standalone, which has no
+    // upgrade) needs a new network.
+    const has = (key: string) => diff.some((c) => c.key === key);
+    const unsafe = unsafeConfigChanges(a, d);
+    if (
+      d.type === 'testnet' &&
+      diff.every((c) => UPGRADABLE.has(c.key)) &&
+      unsafe.length === 0
+    ) {
       return {
         name,
         kind: 'upgrade',
@@ -360,6 +396,12 @@ export function plan(
             d.version,
             '--timeout',
             timeout,
+            ...(has('nodeConfig')
+              ? ['--node-config', JSON.stringify(d.nodeConfig ?? {})]
+              : []),
+            ...(has('validatorConfig')
+              ? ['--validator-config', JSON.stringify(d.validatorConfig ?? {})]
+              : []),
           ],
         ],
       };
@@ -369,6 +411,9 @@ export function plan(
       kind: 'recreate',
       ...both,
       diff,
+      ...(unsafe.length > 0
+        ? { warning: `${unsafe.join(', ')} cannot change in place` }
+        : {}),
       steps: [
         ['remove', '--name', name],
         createArgv(d),
@@ -430,12 +475,19 @@ function describe(a: Action): { detail: string; note: string } {
         note:
           a.steps.length > 1
             ? '(starts it first, then rolling upgrade)'
-            : '(rolling, no downtime)',
+            : !a.diff.some((c) => c.key === 'version')
+              ? '(rolling restart with the new xahaud.cfg)'
+              : '(rolling, no downtime)',
       };
     case 'relabel':
       return { detail: changes, note: '(landing page only)' };
     case 'recreate':
-      return { detail: changes, note: '(ledger data and keys are wiped)' };
+      return {
+        detail: changes,
+        note: a.warning
+          ? `(${a.warning}; ledger data and keys are wiped)`
+          : '(ledger data and keys are wiped)',
+      };
     case 'remove':
       return { detail: '', note: '(ledger data and keys are deleted)' };
     case 'start':

@@ -160,6 +160,11 @@ export function renderXahaudCfg(o: XahaudCfgOptions): string {
     ],
   ]);
 
+  // Validators never get it: only the non-validating `node` (and the single
+  // standalone node) validates hooks over RPC. Pushed before the overrides
+  // so a user nodeConfig can still replace it.
+  if (!o.token) sections.push(['hook_validate_rpc', ['1']]);
+
   // A section xng already writes is replaced in place, not repeated: xahaud
   // reads single-value sections (node_size, ...) only when they have exactly
   // one line. Unknown sections go last.
