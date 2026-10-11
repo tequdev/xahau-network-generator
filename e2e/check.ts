@@ -293,6 +293,50 @@ async function checkTestnet(
     `[e2e] faucet topped up ${firstBody.account.classicAddress} balance=${secondBody.balance}`,
   );
 
+  const nc1 = await fetch(`${faucetBase}/newcreds`, {
+    method: 'POST',
+    signal: AbortSignal.timeout(60_000),
+  });
+  assert.equal(
+    nc1.status,
+    200,
+    `faucet /newcreds (generated) did not return 200: ${await nc1.clone().text()}`,
+  );
+  const nc1Body = await nc1.json();
+  assert.ok(typeof nc1Body.address === 'string', 'newcreds: no address');
+  assert.ok(typeof nc1Body.secret === 'string', 'newcreds: no secret');
+  assert.ok(typeof nc1Body.hash === 'string', 'newcreds: no hash');
+  assert.equal(nc1Body.code, 'tesSUCCESS');
+  assert.ok(Number(nc1Body.xrp) > 0, `newcreds: bad xrp ${nc1Body.xrp}`);
+  console.log(
+    `[e2e] faucet /newcreds created ${nc1Body.address} xrp=${nc1Body.xrp}`,
+  );
+
+  const nc2 = await fetch(`${faucetBase}/newcreds?account=${nc1Body.address}`, {
+    method: 'POST',
+    signal: AbortSignal.timeout(60_000),
+  });
+  assert.equal(
+    nc2.status,
+    200,
+    `faucet /newcreds (account) did not return 200: ${await nc2.clone().text()}`,
+  );
+  const nc2Body = await nc2.json();
+  assert.equal(nc2Body.address, nc1Body.address);
+  assert.ok(
+    !('secret' in nc2Body),
+    'newcreds: secret returned for given account',
+  );
+  console.log(`[e2e] faucet /newcreds topped up ${nc2Body.address}`);
+
+  const nc3 = await fetch(`${faucetBase}/newcreds?account=notanaddress`, {
+    method: 'POST',
+    signal: AbortSignal.timeout(60_000),
+  });
+  assert.equal(nc3.status, 400, 'newcreds: invalid account must be 400');
+  assert.ok('error' in (await nc3.json()), 'newcreds: 400 body has no error');
+  console.log('[e2e] faucet /newcreds rejected an invalid account');
+
   // Validators aren't routed through Traefik, so they can only be checked
   // indirectly via `node`: it must be peered to every validator, and the
   // ledger must keep advancing (i.e. consensus is actually running among

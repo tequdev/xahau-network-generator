@@ -99,6 +99,21 @@ xahaud.cfg is written at create time, so a testnet created by an older xng
 gets the stream service on its next start but no log to tail until it is
 recreated.
 
+### Faucet API
+
+```
+POST http://faucet.t1.127.0.0.1.nip.io/accounts   {"destination": "r…", "xrpAmount": 1000}
+  -> {"account": {"classicAddress", "address", "secret"}, "amount", "balance", "hash"}
+
+POST http://faucet.t1.127.0.0.1.nip.io/newcreds?account=r…   (testnet-compatible)
+  -> {"address", "secret", "xrp", "hash", "code": "tesSUCCESS"}
+```
+
+`destination`, `xrpAmount` and `account` are all optional; without an address
+the faucet generates a new account. `secret` is returned only for a generated
+account. Errors are `{"error": "…"}` with a 4xx/5xx status; when a generated
+account's payment fails, the error also carries its address and secret.
+
 ### Serving several devnets on a real domain
 
 One machine can serve any number of testnets under one domain, one per
