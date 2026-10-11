@@ -24,8 +24,9 @@ pnpm xng stop --name t1
 pnpm xng reset --name t1 --wait
 pnpm xng remove --name t1
 
-# rolling upgrade of the xahaud binary on a running testnet, no downtime
+# rolling upgrade of a running testnet, no downtime: new binary and/or new xahaud.cfg
 pnpm xng upgrade --name t1 --version 2026.9.9-dev+3667
+pnpm xng upgrade --name t1 --node-config '{"ledger_history":["5000"]}'
 
 # make every validator vote for (or, with --reject, veto) an amendment
 pnpm xng vote --name t1 --amendment fixSomething
@@ -42,11 +43,14 @@ reboot the network (and the shared Traefik) comes back on its own and each
 node resumes from its last validated ledger (`--load`; standalone
 `-a --load`), never from genesis — `xng reset` is the only thing that goes
 back to genesis. `xng start`/`xng reset` re-render compose.yml, so networks
-created before this existed pick it up on their next start. xahaud.cfg and
-keys are generated at create time only, so a network created by an older xng
-keeps its config; `xng remove` + `xng create` picks up config changes.
+created before this existed pick it up on their next start. Keys are
+generated at create time only; xahaud.cfg is re-rendered by `xng upgrade`
+(even with no flags), which overwrites hand edits.
 
-`upgrade` (testnet only) replaces the xahaud binary one node at a time —
+`upgrade` (testnet only) replaces the xahaud binary and re-renders each node's
+`xahaud.cfg` (`--node-config`/`--validator-config` replace those settings, `{}`
+removes them; `--version` defaults to the current one, so a config-only change
+keeps the binary) one node at a time —
 `node` first, then each validator in order — waiting for each to rejoin
 consensus on the new version before moving to the next, so the network is
 never fully stopped. The default quorum is capped at `validators - 1` (see
@@ -284,7 +288,11 @@ The keys are those of `workspace/<name>/network.json`: `type` (default
 `external` (false), `portOffset` (0), `displayName`, `displayShortName`, `nodeConfig`, `validatorConfig`. `nodeConfig` (also `xng
 create --node-config <json>`) adds or overrides `xahaud.cfg` sections of the
 non-validating `node` only: a section xng already writes is replaced, any
-other is appended; changing it recreates the network. `validatorConfig`
+other is appended; on a testnet, changing it is a rolling `upgrade` (a
+standalone, or a change to `node_db`, `database_path`, `relational_db`,
+`network_id`, `validator_token` or `validation_seed`, recreates the network
+instead). `node` also gets `[hook_validate_rpc] 1` by default (validators never
+do); `nodeConfig` can override it. `validatorConfig`
 (`--validator-config <json>`) does the same for the testnet validators
 v1..vN only, never `node`. `pwa` (`--pwa`) adds a xahaud `protocol = pwa`
 port on `node`, routed at `pwa.<name>.<domain>`, with `secure_gateway` set
@@ -310,8 +318,8 @@ xng apply [-f xng.yml] [-y] [--dry-run] [--timeout <sec>] [--network <name>]...
 | --- | --- | --- |
 | only in the file | `create` | `create`, then `start --wait` |
 | only in `workspace/` | `remove` | `remove` |
-| testnet, only `version` differs | `upgrade` | (`start --wait` if stopped, then) `upgrade` |
-| standalone `version`, or any other key differs | `recreate` | `remove`, `create`, `start --wait` (ledger data and keys are wiped) |
+| testnet, only `version`/`nodeConfig`/`validatorConfig` differ (none of the sections above) | `upgrade` | (`start --wait` if stopped, then) `upgrade` with the changed `--node-config`/`--validator-config` |
+| standalone `version`/config, any other key, or an unsafe config section differs (the plan warns) | `recreate` | `remove`, `create`, `start --wait` (ledger data and keys are wiped) |
 | identical but `displayName`/`displayShortName` | `relabel` | `label` (`start --wait` if stopped); no recreate |
 | identical, any container not running | `start` | `start --wait` |
 | identical, running, but `compose.yml` would render differently (xng updated) or a container runs an older image than the one pulled locally | `refresh` | `start --wait` (only the changed containers are recreated) |

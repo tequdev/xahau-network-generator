@@ -39,7 +39,9 @@ networks:
                                      # both are cosmetic: changing them never recreates the network
     # Extra/overriding xahaud.cfg sections for the validators v1..vN only;
     # `node` is unaffected. Testnet only; same shapes and rules as nodeConfig
-    # (see `local` below). Changing it recreates the network.
+    # (see `local` below). Changing it is a rolling upgrade (a recreate if it
+    # touches node_db, database_path, relational_db, network_id, validator_token
+    # or validation_seed).
     validatorConfig:
       voting:                        # fee votes are cast by validators
         reference_fee: 100
@@ -78,7 +80,9 @@ networks:
     # Extra/overriding xahaud.cfg sections for `node` only; validators are
     # unaffected (so validator-only sections such as [voting] do nothing
     # here). A section xng already writes is replaced whole, any other is
-    # appended. Changing it recreates the network.
+    # appended. `node` also gets [hook_validate_rpc] 1 by default. Changing it is
+    # a rolling upgrade (a recreate if it touches node_db, database_path,
+    # relational_db, network_id, validator_token or validation_seed).
     nodeConfig:
       ledger_history: 50000          # one line (xng writes 10000)
       node_db:                       # a mapping: "key = value" lines

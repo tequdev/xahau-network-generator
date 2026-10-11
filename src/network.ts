@@ -183,97 +183,19 @@ async function populateNetwork(spec: NetworkSpec, dir: string): Promise<void> {
     );
     await writeFile(join(dir, 'vl', 'vl.json'), JSON.stringify(vl, null, 2));
 
-    for (let i = 1; i <= spec.validators; i++) {
+    for (let i = 0; i <= spec.validators; i++) {
       const nodeDir = join(dir, 'nodes', nodeName(spec, i));
       await mkdir(nodeDir, { recursive: true });
-      // Every other node, `node` included: xahaud retries a failed fixed
-      // peer with a 1/1/2/3/5... minute backoff, so if only `node` dialled
-      // validators, a validator restarted by `xng upgrade` would stay
-      // unpeered from `node` for minutes. Having both sides dial each other
-      // means whichever side just restarted reconnects immediately.
-      const peers: string[] = [];
-      for (let j = 0; j <= spec.validators; j++) {
-        if (j !== i)
-          peers.push(
-            `${containerName(spec, nodeName(spec, j))} ${ports(spec, j).peer}`,
-          );
-      }
-      const validatorKeys = validatorKeysList[i - 1];
-      if (!validatorKeys) throw new Error(`missing keys for validator ${i}`);
-      const cfgOpts = {
-        type: 'testnet',
-        networkId: spec.networkId,
-        ports: ports(spec, i),
-        token: validatorKeys.token,
-        peers,
-        vlKeyHex: publisher.master.publicKey,
-        vlUrl: `http://${containerName(spec, VL_HOST)}/vl.json`,
-        importVlKeys: spec.importVlKeys,
-        overrides: spec.validatorConfig,
-      } satisfies XahaudCfgOptions;
-      // Holds the validator token.
-      await writeFile(join(nodeDir, 'xahaud.cfg'), renderXahaudCfg(cfgOpts), {
-        mode: 0o600,
-      });
-      await writeFile(
-        join(nodeDir, 'validators.txt'),
-        renderValidatorsTxt(cfgOpts),
-      );
+      await writeNodeConfig(spec, dir, i);
       await writeFile(
         join(nodeDir, 'genesis.json'),
         JSON.stringify(genesis, null, 2),
       );
     }
-
-    // Non-validating `node`: users, the faucet and the explorer talk to this
-    // one, never to a validator. Same shape as a validator config, but no
-    // token and peered to every validator (and they to it, see above).
-    const primaryNodeDir = join(dir, 'nodes', nodeName(spec, 0));
-    await mkdir(primaryNodeDir, { recursive: true });
-    const primaryPeers = Array.from(
-      { length: spec.validators },
-      (_, idx) =>
-        `${containerName(spec, nodeName(spec, idx + 1))} ${ports(spec, idx + 1).peer}`,
-    );
-    const primaryCfgOpts = {
-      type: 'testnet',
-      networkId: spec.networkId,
-      ports: ports(spec, 0),
-      peers: primaryPeers,
-      vlKeyHex: publisher.master.publicKey,
-      vlUrl: `http://${containerName(spec, VL_HOST)}/vl.json`,
-      ...(spec.pwa ? { pwaGateway: proxySubnets() } : {}),
-      importVlKeys: spec.importVlKeys,
-      overrides: spec.nodeConfig,
-    } satisfies XahaudCfgOptions;
-    await writeFile(
-      join(primaryNodeDir, 'xahaud.cfg'),
-      renderXahaudCfg(primaryCfgOpts),
-    );
-    await writeFile(
-      join(primaryNodeDir, 'validators.txt'),
-      renderValidatorsTxt(primaryCfgOpts),
-    );
-    await writeFile(
-      join(primaryNodeDir, 'genesis.json'),
-      JSON.stringify(genesis, null, 2),
-    );
   } else {
     const nodeDir = join(dir, 'nodes', nodeName(spec, 0));
     await mkdir(nodeDir, { recursive: true });
-    const cfgOpts = {
-      type: 'standalone',
-      networkId: spec.networkId,
-      ports: ports(spec, 0),
-      peers: [],
-      importVlKeys: spec.importVlKeys,
-      overrides: spec.nodeConfig,
-    } satisfies XahaudCfgOptions;
-    await writeFile(join(nodeDir, 'xahaud.cfg'), renderXahaudCfg(cfgOpts));
-    await writeFile(
-      join(nodeDir, 'validators.txt'),
-      renderValidatorsTxt(cfgOpts),
-    );
+    await writeNodeConfig(spec, dir, 0);
     await writeFile(
       join(nodeDir, 'genesis.json'),
       JSON.stringify(genesis, null, 2),
@@ -283,6 +205,83 @@ async function populateNetwork(spec: NetworkSpec, dir: string): Promise<void> {
   // 5. compose
   await ensureNodeLogDir(spec, dir);
   await writeFile(join(dir, 'compose.yml'), renderCompose(spec));
+}
+
+// Renders nodes/<name>/xahaud.cfg and validators.txt for node `index` (0 =
+// `node` / the standalone node, 1.. = validators). Inputs come from disk
+// (keys/v<i>.json for the token, keys/vl.json for the VL publisher key), so
+// create and `xng upgrade` share one rendering path.
+export async function writeNodeConfig(
+  spec: NetworkSpec,
+  dir: string,
+  index: number,
+): Promise<void> {
+  const nodeDir = join(dir, 'nodes', nodeName(spec, index));
+  let cfgOpts: XahaudCfgOptions;
+  if (spec.type === 'standalone') {
+    cfgOpts = {
+      type: 'standalone',
+      networkId: spec.networkId,
+      ports: ports(spec, 0),
+      peers: [],
+      importVlKeys: spec.importVlKeys,
+      overrides: spec.nodeConfig,
+    };
+  } else {
+    const readKeys = async (file: string) =>
+      JSON.parse(await readFile(join(dir, 'keys', file), 'utf8'));
+    const vlKeyHex: string = (await readKeys('vl.json')).master.publicKey;
+    const vlUrl = `http://${containerName(spec, VL_HOST)}/vl.json`;
+    const peerOf = (j: number) =>
+      `${containerName(spec, nodeName(spec, j))} ${ports(spec, j).peer}`;
+    if (index === 0) {
+      // Non-validating `node`: users, the faucet and the explorer talk to this
+      // one, never to a validator. Same shape as a validator config, but no
+      // token and peered to every validator (and they to it, see below).
+      cfgOpts = {
+        type: 'testnet',
+        networkId: spec.networkId,
+        ports: ports(spec, 0),
+        peers: Array.from({ length: spec.validators }, (_, i) => peerOf(i + 1)),
+        vlKeyHex,
+        vlUrl,
+        ...(spec.pwa ? { pwaGateway: proxySubnets() } : {}),
+        importVlKeys: spec.importVlKeys,
+        overrides: spec.nodeConfig,
+      };
+    } else {
+      // Every other node, `node` included: xahaud retries a failed fixed
+      // peer with a 1/1/2/3/5... minute backoff, so if only `node` dialled
+      // validators, a validator restarted by `xng upgrade` would stay
+      // unpeered from `node` for minutes. Having both sides dial each other
+      // means whichever side just restarted reconnects immediately.
+      const peers: string[] = [];
+      for (let j = 0; j <= spec.validators; j++) {
+        if (j !== index) peers.push(peerOf(j));
+      }
+      cfgOpts = {
+        type: 'testnet',
+        networkId: spec.networkId,
+        ports: ports(spec, index),
+        token: (await readKeys(`v${index}.json`)).token,
+        peers,
+        vlKeyHex,
+        vlUrl,
+        importVlKeys: spec.importVlKeys,
+        overrides: spec.validatorConfig,
+      };
+    }
+  }
+  // A validator's cfg holds its token.
+  await writeFile(
+    join(nodeDir, 'xahaud.cfg'),
+    renderXahaudCfg(cfgOpts),
+    spec.type === 'testnet' && index > 0 ? { mode: 0o600 } : undefined,
+  );
+  await writeFile(
+    join(nodeDir, 'validators.txt'),
+    renderValidatorsTxt(cfgOpts),
+  );
 }
 
 // nodes/node/log is the debugstream service's bind-mount source. If it is

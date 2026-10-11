@@ -2,6 +2,7 @@ import { chmod, copyFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fetchBinary } from './binary.ts';
 import { compose, composeOutput } from './docker.ts';
+import { writeNodeConfig } from './network.ts';
 import { endpoints, nodeName } from './types.ts';
 import type { NetworkSpec } from './types.ts';
 import { rpc } from './wait.ts';
@@ -128,7 +129,10 @@ async function waitForNode(
   }
 }
 
-// Rolling, zero-downtime binary upgrade of a running testnet: `node` first
+// Rolling, zero-downtime restart of a running testnet that swaps the xahaud
+// binary AND rewrites each node's xahaud.cfg from `spec` (nodeConfig /
+// validatorConfig); with the current version it only re-applies the config.
+// `node` goes first
 // (a canary — if the new binary can't even start/sync, nothing else is
 // touched), then v1..vN in order, one at a time. Each node's binary lives at
 // its own workspace/<name>/bin/<service>/xahaud (see src/network.ts), so
@@ -140,6 +144,7 @@ export async function upgradeNetwork(
   version: string,
   timeoutMs: number,
 ): Promise<void> {
+  spec.version = version;
   // Fails fast if the version doesn't exist, before anything is touched.
   const { binaryPath } = await fetchBinary(version);
   const services = Array.from({ length: spec.validators + 1 }, (_, i) =>
@@ -147,7 +152,7 @@ export async function upgradeNetwork(
   );
 
   const upgraded: string[] = [];
-  for (const service of services) {
+  for (const [i, service] of services.entries()) {
     const isPrimary = service === nodeName(spec, 0);
     const seqBefore = await currentSeq(spec, service, isPrimary);
 
@@ -161,6 +166,9 @@ export async function upgradeNetwork(
     await copyFile(binaryPath, tmpPath);
     await chmod(tmpPath, 0o755);
     await rename(tmpPath, finalPath);
+
+    // The cfg is a bind mount, so rewriting it on the host is enough.
+    await writeNodeConfig(spec, join('workspace', spec.name), i);
 
     // --no-deps so `vl` (and any other dependency) is left alone.
     compose(spec.name, ['up', '-d', '--no-deps', '--force-recreate', service]);
@@ -212,7 +220,6 @@ export async function upgradeNetwork(
     await sleep(2000);
   }
 
-  spec.version = version;
   await writeFile(
     join('workspace', spec.name, 'network.json'),
     JSON.stringify(spec, null, 2),

@@ -10,6 +10,7 @@ import {
   plan,
   readWorkspace,
   runPlan,
+  unsafeConfigChanges,
 } from './apply.ts';
 import { fetchBinary, latestReleaseVersion } from './binary.ts';
 import {
@@ -431,10 +432,18 @@ program
 program
   .command('upgrade')
   .description(
-    'rolling upgrade of the xahaud binary on a running testnet, one node at a time',
+    'rolling upgrade of a running testnet, one node at a time: swap the xahaud binary and/or rewrite xahaud.cfg (nodeConfig/validatorConfig)',
   )
   .requiredOption('--name <name>', 'network name', parseName)
-  .requiredOption('--version <ver>', 'xahaud version to upgrade to')
+  .option('--version <ver>', 'xahaud version to upgrade to (default: current)')
+  .option(
+    '--node-config <json>',
+    'replace nodeConfig (see create); {} removes it',
+  )
+  .option(
+    '--validator-config <json>',
+    'replace validatorConfig (see create); {} removes it',
+  )
   .option(
     '--timeout <sec>',
     'per-node readiness timeout in seconds',
@@ -449,14 +458,31 @@ program
         'xng upgrade is testnet only; use `xng remove`/`create` for standalone',
       );
     }
+    const version: string = opts.version ?? spec.version;
+    const before = { ...spec };
+    for (const [key, flag] of [
+      ['nodeConfig', opts.nodeConfig],
+      ['validatorConfig', opts.validatorConfig],
+    ] as const) {
+      if (flag === undefined) continue;
+      const sections = parseConfigFlag(key, flag);
+      if (Object.keys(sections).length === 0) delete spec[key];
+      else spec[key] = sections;
+    }
+    const unsafe = unsafeConfigChanges(before, spec);
+    if (unsafe.length > 0) {
+      throw program.error(
+        `${unsafe.join(', ')} cannot change in place; use xng remove + create`,
+      );
+    }
     const services = Array.from({ length: spec.validators + 1 }, (_, i) =>
       nodeName(spec, i),
     );
     console.log(
-      `upgrading ${spec.name}: ${services.join(', ')} -> ${opts.version}`,
+      `upgrading ${spec.name}: ${services.join(', ')} -> ${version} (xahaud.cfg rewritten)`,
     );
-    await upgradeNetwork(spec, opts.version, opts.timeout * 1000);
-    console.log(`upgraded network "${spec.name}" to ${opts.version}`);
+    await upgradeNetwork(spec, version, opts.timeout * 1000);
+    console.log(`upgraded network "${spec.name}" to ${version}`);
   });
 
 program
