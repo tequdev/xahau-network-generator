@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hook Debug Stream</title>
+<style>
+  body { font: 14px/1.4 system-ui, sans-serif; margin: 0; padding: 16px; color: #1f2328; background: #fff; }
+  h1 { font-size: 16px; margin: 0 0 4px; font-weight: 600; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #account { font-size: 18px; font-weight: 700; color: #0969da; word-break: break-all; }
+  #status { margin: 12px 0; padding: 8px 12px; border-radius: 6px; background: #fff8c5; }
+  #status.open { background: #dafbe1; }
+  #status.hidden { display: none; }
+  pre { margin: 0 0 8px; padding: 6px 8px; font-size: 12px; white-space: pre-wrap; word-break: break-all;
+        border: 1px solid #d0d7de; border-radius: 6px; background: #f6f8fa; }
+  pre small { color: #6e7781; }
+  pre u { color: #0969da; font-weight: 700; text-decoration: none; }
+  pre button { float: right; font-size: 11px; padding: 0 6px; cursor: pointer; }
+</style>
+</head>
+<body>
+<h1>Debug stream (xahaud <code>debug.log</code> lines) for</h1>
+<code id="account"></code>
+<div id="status">Connecting</div>
+<div id="list"></div>
+<script>
+  var ADDR = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/;
+  // /debugstream/<account>[/]; no account = every hook line on the node.
+  var account = (location.pathname.split('/')[2] || '').trim();
+  if (!ADDR.test(account)) account = '';
+  var endpoint = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/debugstream/' + account;
+  var MAX_LINES = 500;
+  var statusEl = document.getElementById('status');
+  var list = document.getElementById('list');
+  var delay = 1;
+  document.getElementById('account').textContent = account || 'all accounts (hook lines only)';
+  document.title = (account || 'all') + ' - Hook Debug Stream';
+
+  function esc(s) { return s.replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); }
+
+  function format(text) {
+    var html = esc(text);
+    if (account) html = html.split(account).join('<u>' + account + '</u>');
+    return html;
+  }
+
+  function render(line) {
+    var el = document.createElement('pre');
+    // 2026-Oct-10 12:34:56.789012345 UTC  -> dimmed timestamp prefix
+    var m = /^(\d{4}-[A-Za-z]{3}-\d{2} \S+(?: UTC)?) /.exec(line);
+    var head = m ? '<small>' + esc(m[1]) + '</small> ' : '';
+    var body = m ? line.slice(m[0].length) : line;
+    var rows = body.split('\n');
+    if (body.length > 350 || rows.length > 5) {
+      // RPC replies and metadata run to kilobytes; fold them like xahau-test.net.
+      var cut = rows.length > 5 ? rows.slice(0, 5).join('\n') : body.slice(0, 350);
+      el.innerHTML = head + format(cut) + ' ...';
+      var btn = document.createElement('button');
+      btn.textContent = 'Read more';
+      btn.onclick = function () { el.innerHTML = head + format(body); };
+      el.appendChild(btn);
+    } else {
+      el.innerHTML = head + format(body);
+    }
+    var atBottom = window.innerHeight + window.scrollY >= document.body.offsetHeight - 40;
+    list.appendChild(el);
+    while (list.childElementCount > MAX_LINES) list.removeChild(list.firstChild);
+    if (atBottom) el.scrollIntoView();
+  }
+
+  function connect() {
+    statusEl.className = '';
+    statusEl.textContent = 'Connecting to ' + endpoint;
+    var ws = new WebSocket(endpoint);
+    ws.onopen = function () {
+      delay = 1;
+      statusEl.className = 'open';
+      statusEl.textContent = 'Connected to ' + endpoint + ', waiting for hook log lines';
+    };
+    ws.onmessage = function (e) {
+      if (String(e.data) === account) return; // echo of a client message
+      statusEl.className = 'hidden';
+      render(String(e.data));
+    };
+    ws.onclose = function () {
+      statusEl.className = '';
+      statusEl.textContent = 'Disconnected, reconnecting in ' + delay + 's';
+      setTimeout(connect, delay * 1000);
+      delay = Math.min(delay * 2, 30);
+    };
+  }
+  connect();
+</script>
+</body>
+</html>

@@ -152,60 +152,70 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-async function handleAccounts(
-  req: IncomingMessage,
-  res: ServerResponse,
-): Promise<void> {
-  const raw = await readBody(req);
-  let body: { destination?: string; xrpAmount?: string | number } = {};
-  if (raw.trim().length > 0) {
-    try {
-      body = JSON.parse(raw);
-    } catch {
-      sendJson(res, 400, { error: 'invalid JSON body' });
-      return;
-    }
+// No constructor parameter properties: node strips types, it doesn't compile them.
+class FundError extends Error {
+  status: number;
+  destination?: string;
+  secret?: string;
+  constructor(
+    status: number,
+    message: string,
+    destination?: string,
+    secret?: string,
+  ) {
+    super(message);
+    this.status = status;
+    this.destination = destination;
+    this.secret = secret;
   }
+}
 
+// Shared by /accounts and /newcreds. `secret` is set only when the wallet was
+// generated here. Throws FundError (400 validation, 500 payment).
+async function fund(
+  dest?: unknown,
+  xrpAmount?: unknown,
+): Promise<{
+  destination: string;
+  secret?: string;
+  amount: string;
+  balance: number;
+  hash: string;
+  code: string;
+}> {
   let generatedSecret: string | undefined;
-  let destination: string;
-  if (body.destination) {
-    destination = body.destination;
+  let destination: unknown;
+  if (dest) {
+    destination = dest;
   } else {
     const generated = Wallet.generate();
     destination = generated.classicAddress;
     generatedSecret = generated.seed;
   }
   if (typeof destination !== 'string' || !isValidClassicAddress(destination)) {
-    sendJson(res, 400, { error: 'invalid destination' });
-    return;
+    throw new FundError(400, 'invalid destination');
   }
+  const to: string = destination;
 
-  const amount = String(body.xrpAmount ?? DEFAULT_XRP_AMOUNT);
+  const amount = String(xrpAmount ?? DEFAULT_XRP_AMOUNT);
   let drops: string;
   try {
     drops = xahToDrops(amount);
   } catch (err) {
-    sendJson(res, 400, {
-      error: `invalid xrpAmount: ${(err as Error).message}`,
-    });
-    return;
+    throw new FundError(400, `invalid xrpAmount: ${(err as Error).message}`);
   }
   if (
     BigInt(drops) <= 0n ||
     BigInt(drops) > BigInt(MAX_XRP_AMOUNT) * 1_000_000n
   ) {
-    sendJson(res, 400, {
-      error: `xrpAmount must be in (0, ${MAX_XRP_AMOUNT}]`,
-    });
-    return;
+    throw new FundError(400, `xrpAmount must be in (0, ${MAX_XRP_AMOUNT}]`);
   }
 
   const next = submitQueue.then(async () => {
     const tx = {
       TransactionType: 'Payment' as const,
       Account: wallet.classicAddress,
-      Destination: destination,
+      Destination: to,
       Amount: drops,
     };
     const submitResult = await client.submitAndWait(tx, {
@@ -220,8 +230,8 @@ async function handleAccounts(
     if (engineResult !== 'tesSUCCESS') {
       throw new Error(`payment failed: ${engineResult ?? 'unknown'}`);
     }
-    const balance = await client.getXrpBalance(destination);
-    return { hash: submitResult.result.hash, balance };
+    const balance = await client.getXrpBalance(to);
+    return { hash: submitResult.result.hash, balance, code: engineResult };
   });
   // The 60s race is only to bound the HTTP response; the queue itself
   // always chains off `next` (not the raced `guarded`) so a payment that
@@ -240,33 +250,92 @@ async function handleAccounts(
   } catch (err) {
     // The payment may still complete (timeout, node restart mid-flight), so a
     // generated wallet's secret goes back with the error.
-    if (!generatedSecret) throw err;
-    console.error(`[faucet] /accounts error: ${(err as Error).message}`);
-    sendJson(res, 500, {
-      error: (err as Error).message,
-      account: {
-        classicAddress: destination,
-        address: destination,
-        secret: generatedSecret,
-      },
-    });
-    return;
+    throw new FundError(500, (err as Error).message, to, generatedSecret);
   }
 
-  console.log(
-    `[faucet] funded ${destination} with ${amount} XRP (hash ${result.hash})`,
-  );
-
-  sendJson(res, 200, {
-    account: {
-      classicAddress: destination,
-      address: destination,
-      ...(generatedSecret ? { secret: generatedSecret } : {}),
-    },
-    amount: Number(amount),
+  console.log(`[faucet] funded ${to} with ${amount} XRP (hash ${result.hash})`);
+  return {
+    destination: to,
+    secret: generatedSecret,
+    amount,
     balance: Number(result.balance),
     hash: result.hash,
-  });
+    code: result.code,
+  };
+}
+
+async function handleAccounts(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const raw = await readBody(req);
+  let body: { destination?: string; xrpAmount?: string | number } = {};
+  if (raw.trim().length > 0) {
+    try {
+      body = JSON.parse(raw);
+    } catch {
+      sendJson(res, 400, { error: 'invalid JSON body' });
+      return;
+    }
+  }
+  try {
+    const r = await fund(body.destination, body.xrpAmount);
+    sendJson(res, 200, {
+      account: {
+        classicAddress: r.destination,
+        address: r.destination,
+        ...(r.secret ? { secret: r.secret } : {}),
+      },
+      amount: Number(r.amount),
+      balance: r.balance,
+      hash: r.hash,
+    });
+  } catch (err) {
+    if (!(err instanceof FundError)) throw err;
+    if (err.status === 500) {
+      console.error(`[faucet] /accounts error: ${err.message}`);
+    }
+    sendJson(res, err.status, {
+      error: err.message,
+      ...(err.secret
+        ? {
+            account: {
+              classicAddress: err.destination,
+              address: err.destination,
+              secret: err.secret,
+            },
+          }
+        : {}),
+    });
+  }
+}
+
+// Testnet-faucet-compatible (xahau-test.net): parameters in the query string.
+async function handleNewcreds(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+): Promise<void> {
+  req.resume();
+  try {
+    const r = await fund(url.searchParams.get('account') ?? undefined);
+    sendJson(res, 200, {
+      address: r.destination,
+      ...(r.secret ? { secret: r.secret } : {}),
+      xrp: Number(r.amount),
+      hash: r.hash,
+      code: r.code,
+    });
+  } catch (err) {
+    if (!(err instanceof FundError)) throw err;
+    if (err.status === 500) {
+      console.error(`[faucet] /newcreds error: ${err.message}`);
+    }
+    sendJson(res, err.status, {
+      error: err.message,
+      ...(err.secret ? { address: err.destination, secret: err.secret } : {}),
+    });
+  }
 }
 
 const server = createServer((req, res) => {
@@ -279,7 +348,14 @@ const server = createServer((req, res) => {
     return;
   }
 
-  if (req.method === 'GET' && req.url === '/health') {
+  // URL.parse returns null instead of throwing, so a malformed request
+  // target can't take the process down.
+  const url = URL.parse(req.url ?? '/', 'http://localhost');
+  if (!url) {
+    sendJson(res, 400, { error: 'bad url' });
+    return;
+  }
+  if (req.method === 'GET' && url.pathname === '/health') {
     const connected = client.isConnected();
     const ready = funded && connected;
     sendJson(res, ready ? 200 : 503, {
@@ -292,7 +368,11 @@ const server = createServer((req, res) => {
     return;
   }
 
-  if (req.method === 'POST' && req.url === '/accounts') {
+  const { pathname } = url;
+  if (
+    req.method === 'POST' &&
+    (pathname === '/accounts' || pathname === '/newcreds')
+  ) {
     if (!funded) {
       sendJson(res, 503, { error: 'faucet not ready' });
       return;
@@ -302,9 +382,12 @@ const server = createServer((req, res) => {
       return;
     }
     inFlight++;
-    handleAccounts(req, res)
+    (pathname === '/accounts'
+      ? handleAccounts(req, res)
+      : handleNewcreds(req, res, url)
+    )
       .catch((err) => {
-        console.error(`[faucet] /accounts error: ${(err as Error).message}`);
+        console.error(`[faucet] ${pathname} error: ${(err as Error).message}`);
         sendJson(res, 500, { error: (err as Error).message });
       })
       .finally(() => {
