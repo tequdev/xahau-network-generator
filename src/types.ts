@@ -312,7 +312,7 @@ export type Endpoints = {
   explorer: string;
   faucet?: string;
   vl?: string;
-  debugstream?: string; // testnet only; ws(s)://<base>/debugstream/, append an r-address to filter (same path as xahau-test.net)
+  debugstream?: string; // testnet only; ws(s)://<base>/debugstream/, append an r-address to filter; the same path over http(s) is a browser viewer (same as xahau-test.net)
   pwa?: string;
   rpcAdmin?: string;
   wsAdmin?: string;

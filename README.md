@@ -82,14 +82,17 @@ ws://t1.127.0.0.1.nip.io/debugstream/<r-address>
 The default domain, `127.0.0.1.nip.io`, resolves any subdomain to
 `127.0.0.1` so this works out of the box on plain HTTP.
 
-**Hook debug stream.** Every testnet's `node` logs hook `trace()` output
-(xahaud's `View` partition at trace) to
-`workspace/<name>/nodes/node/log/debug.log`. The `debugstream` service tails
-that file and streams the `HookTrace`/`HookInfo`/`HookError`/`HookEmit` lines
-over WebSocket at `ws(s)://<base>/debugstream/<r-address>` (lines mentioning
-that account) or `/debugstream/` (all hook lines), the same URL shape as
-`wss://xahau-test.net/debugstream/<r-address>`. Messages are the raw log
-lines. The file is only the hand-off between xahaud and the service: it keeps
+**Hook debug stream.** Every testnet's `node` logs hook `trace()` output,
+SetHook validation, RPC replies and consensus metadata (xahaud's `View`,
+`OpenLedger`, `LedgerConsensus`, `RPC`, `Server` and `NetworkOPs` partitions
+at trace) to `workspace/<name>/nodes/node/log/debug.log`. The `debugstream`
+service tails that file and streams it over WebSocket at
+`ws(s)://<base>/debugstream/<r-address>` (every line mentioning that account,
+what `wss://xahau-test.net/debugstream/<r-address>` sends) or `/debugstream/`
+(the `Hook*` lines for every account). Messages are the raw log lines, and
+anything a client sends is answered with the account, as on xahau-test.net.
+Opening the same path in a browser (`http(s)://<base>/debugstream/<r-address>`)
+shows a live viewer page, as on xahau-test.net. The file is only the hand-off between xahaud and the service: it keeps
 no history and is truncated once it passes 10 MiB, so it never accumulates.
 Every xahaud container's docker log is capped at 20 MB × 3 as well, since
 xahaud writes the same lines to stderr. Standalone networks have no stream
