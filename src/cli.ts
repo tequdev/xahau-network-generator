@@ -553,6 +553,12 @@ program
     });
     console.log(formatPlan(actions, opts.file, cfg));
 
+    // The landing page is a repo asset, not part of any spec, so a site/ edit
+    // never shows in the plan. Copy it (and the network list) on every run;
+    // nginx serves the bind mount, so no restart is needed. Not in dry-run:
+    // "change nothing" includes this.
+    if (!opts.dryRun) await writeSiteIndex();
+
     const todo = actions.filter((a) => a.kind !== 'unchanged');
     if (todo.length === 0) {
       const n = actions.length;
