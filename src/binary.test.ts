@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { parseVersionIndex } from './binary.ts';
+import { buildVersionOf, parseVersionIndex } from './binary.ts';
 
 // A trimmed fixture shaped like the real build.xahau.tech directory listing:
 // a release, a dev and a jshooks entry, a `.releaseinfo` file, a parent-dir
@@ -36,4 +36,12 @@ test('parseVersionIndex lets the release branch be picked as the latest release'
   const versions = parseVersionIndex(FIXTURE);
   const latestRelease = versions.find((v) => v.branch === 'release');
   assert.equal(latestRelease?.version, '2026.6.21-release+3350');
+});
+
+test('buildVersionOf strips the candidate/ directory a node never reports', () => {
+  assert.equal(
+    buildVersionOf('candidate/2026.10.12-release+4112'),
+    '2026.10.12-release+4112',
+  );
+  assert.equal(buildVersionOf('2026.9.9-dev+3667'), '2026.9.9-dev+3667');
 });

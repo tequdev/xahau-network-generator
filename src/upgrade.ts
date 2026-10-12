@@ -1,6 +1,6 @@
 import { chmod, copyFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { fetchBinary } from './binary.ts';
+import { buildVersionOf, fetchBinary } from './binary.ts';
 import { renderCompose } from './compose.ts';
 import { compose, composeOutput } from './docker.ts';
 import { writeNodeConfig } from './network.ts';
@@ -114,7 +114,7 @@ async function waitForNode(
         `[${spec.name}] ${service}: build_version=${info.build_version ?? '-'} server_state=${info.server_state ?? '-'} seq=${seq ?? '-'}`,
       );
       if (
-        info.build_version === version &&
+        info.build_version === buildVersionOf(version) &&
         isHealthy(isPrimary, info) &&
         typeof seq === 'number' &&
         seq > seqBefore
