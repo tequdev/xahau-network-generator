@@ -95,6 +95,13 @@ async function downloadTo(url: string, destPath: string): Promise<void> {
   await rename(tmpPath, destPath);
 }
 
+// `--version candidate/2026.10.12-release+4112` (an rc under
+// build.xahau.tech/candidate/) reports `build_version` without the directory,
+// so that's what a running node is compared against.
+export function buildVersionOf(version: string): string {
+  return version.slice(version.lastIndexOf('/') + 1);
+}
+
 export async function fetchBinary(
   version: string,
 ): Promise<{ binaryPath: string; releaseinfo: string }> {
