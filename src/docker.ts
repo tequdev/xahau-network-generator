@@ -145,8 +145,35 @@ export async function composeOutputAsync(
   }
 }
 
+// Host path of the daemon's socket, for Traefik's docker provider. Rootless
+// Docker's is $XDG_RUNTIME_DIR/docker.sock; /var/run/docker.sock there is
+// either missing or the rootful daemon's, which the user can't read, and
+// Traefik then routes nothing. The current context (or DOCKER_HOST) says
+// which one is in use. Only consulted under rootless/userns: Docker Desktop
+// special-cases /var/run/docker.sock (its context path is a host-side
+// socket the VM can't mount), and rootful Linux is /var/run/docker.sock.
+let socketCache: string | undefined;
+export function dockerSocketPath(): string {
+  if (socketCache === undefined) {
+    const r = dockerUserRemapped()
+      ? spawnSync(
+          'docker',
+          ['context', 'inspect', '--format', '{{.Endpoints.docker.Host}}'],
+          { encoding: 'utf8', timeout: 30_000 },
+        )
+      : undefined;
+    socketCache =
+      (r?.stdout ?? '').trim().match(/^unix:\/\/(\/.+)$/)?.[1] ??
+      '/var/run/docker.sock';
+  }
+  return socketCache;
+}
+
 function run(args: string[]): void {
-  const result = spawnSync('docker', args, { stdio: 'inherit' });
+  const result = spawnSync('docker', args, {
+    stdio: 'inherit',
+    env: { ...process.env, XNG_DOCKER_SOCK: dockerSocketPath() },
+  });
   if (result.error) throw result.error;
   if (result.status !== 0) {
     throw new Error(

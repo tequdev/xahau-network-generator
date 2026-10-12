@@ -19,6 +19,13 @@ export async function rpc(
   return json.result;
 }
 
+// Node's fetch reports every network-level failure as "fetch failed" and
+// keeps the real one (ECONNREFUSED, ENOTFOUND, a TLS error) in `cause`.
+export function errorText(err: unknown): string {
+  const e = err as { message?: string; cause?: { message?: string } };
+  return e.cause?.message ? `${e.message}: ${e.cause.message}` : `${e.message}`;
+}
+
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -82,9 +89,7 @@ export async function waitForNetwork(
           : info?.validated_ledger != null;
       if (ready) break;
     } catch (err) {
-      console.log(
-        `[${spec.name}] waiting for node rpc... (${(err as Error).message})`,
-      );
+      console.log(`[${spec.name}] waiting for node rpc... (${errorText(err)})`);
     }
     await sleep(2000);
   }

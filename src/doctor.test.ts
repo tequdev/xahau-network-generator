@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { CF_VERSION } from './cloudflare.ts';
-import { checkCf, checkCompose, checkNode, report } from './doctor.ts';
+import {
+  checkCf,
+  checkCompose,
+  checkNode,
+  checkPrivilegedPorts,
+  report,
+} from './doctor.ts';
 
 test('node and compose version gates', () => {
   assert.equal(checkNode('v22.12.0').status, 'ok');
@@ -33,4 +39,12 @@ test('report fails only on required checks', () => {
   } finally {
     console.log = log;
   }
+});
+
+test('checkPrivilegedPorts: only under rootless/userns, fails above port 80', () => {
+  assert.equal(checkPrivilegedPorts(false, 1024), undefined);
+  assert.equal(checkPrivilegedPorts(true, undefined), undefined);
+  assert.equal(checkPrivilegedPorts(true, 1024)?.status, 'fail');
+  assert.equal(checkPrivilegedPorts(true, 80)?.status, 'ok');
+  assert.equal(checkPrivilegedPorts(true, 0)?.status, 'ok');
 });
