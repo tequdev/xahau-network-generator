@@ -46,19 +46,47 @@ function traefikArgs(): string[] {
   ];
 }
 
+// `docker info` SecurityOptions, e.g. "name=seccomp,profile=builtin name=rootless".
+export function remappedFromSecurityOptions(options: string): boolean {
+  return /name=(rootless|userns)\b/.test(options);
+}
+
+let remappedCache: boolean | undefined;
+export function dockerUserRemapped(): boolean {
+  if (remappedCache === undefined) {
+    const info = spawnSync(
+      'docker',
+      ['info', '--format', '{{join .SecurityOptions " "}}'],
+      { encoding: 'utf8', timeout: 30_000 },
+    );
+    remappedCache = remappedFromSecurityOptions(info.stdout ?? '');
+  }
+  return remappedCache;
+}
+
+// compose.yml interpolates XNG_UID/XNG_GID into each xahaud service's
+// `user:` so bind-mounted nodes/*/db ends up owned by the host user, not
+// root. Under rootless Docker (or userns-remap) the host user already *is*
+// the container's root, and `user: <host uid>` would map to a subordinate
+// uid that can't read the host user's files ("Failed to read xahaud.cfg:
+// Permission denied"), so there the services run as container root instead.
+export function containerUser(): string {
+  if (dockerUserRemapped()) return '0:0';
+  return `${process.getuid?.() ?? 0}:${process.getgid?.() ?? 0}`;
+}
+
+export function composeEnv(): NodeJS.ProcessEnv {
+  const [uid, gid] = containerUser().split(':');
+  return { ...process.env, XNG_UID: uid, XNG_GID: gid };
+}
+
 export function compose(name: string, args: string[]): void {
   const result = spawnSync(
     'docker',
     ['compose', '-f', `workspace/${name}/compose.yml`, ...args],
     {
       stdio: 'inherit',
-      // compose.yml interpolates these into each xahaud service's `user:`
-      // so bind-mounted nodes/*/db ends up owned by the host user, not root.
-      env: {
-        ...process.env,
-        XNG_UID: String(process.getuid?.() ?? 0),
-        XNG_GID: String(process.getgid?.() ?? 0),
-      },
+      env: composeEnv(),
     },
   );
   if (result.error) throw result.error;
@@ -80,11 +108,7 @@ export function composeOutput(name: string, args: string[]): string {
       encoding: 'utf8',
       // A hung docker call must not defeat the caller's own deadline.
       timeout: 120_000,
-      env: {
-        ...process.env,
-        XNG_UID: String(process.getuid?.() ?? 0),
-        XNG_GID: String(process.getgid?.() ?? 0),
-      },
+      env: composeEnv(),
     },
   );
   if (result.error) throw result.error;
@@ -108,11 +132,7 @@ export async function composeOutputAsync(
       'docker',
       ['compose', '-f', `workspace/${name}/compose.yml`, ...args],
       {
-        env: {
-          ...process.env,
-          XNG_UID: String(process.getuid?.() ?? 0),
-          XNG_GID: String(process.getgid?.() ?? 0),
-        },
+        env: composeEnv(),
         timeout: timeoutMs,
       },
     );

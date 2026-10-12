@@ -8,7 +8,11 @@ import {
   cfVersion,
   listCertificatePacks,
 } from './cloudflare.ts';
-import { TRAEFIK_ACME_ENV } from './docker.ts';
+import {
+  TRAEFIK_ACME_ENV,
+  containerUser,
+  dockerUserRemapped,
+} from './docker.ts';
 
 // `xng doctor`: is everything xng shells out to (docker, docker compose,
 // build.xahau.tech, and `cf` when Cloudflare mode is on) actually usable?
@@ -85,6 +89,17 @@ function checkDocker(): Check {
     };
   }
   return { name: 'docker', status: 'ok', detail: `v${r.stdout.trim()}` };
+}
+
+// Which uid:gid the xahaud containers run as, and why (see containerUser()).
+function checkContainerUser(): Check {
+  return {
+    name: 'container user',
+    status: 'info',
+    detail: dockerUserRemapped()
+      ? `${containerUser()} (rootless/userns docker: container root is the host user)`
+      : `${containerUser()} (host user)`,
+  };
 }
 
 async function checkBuildServer(): Promise<Check> {
@@ -226,6 +241,7 @@ export async function runChecks(): Promise<Check[]> {
     checkNode(process.version),
     checkDocker(),
     checkCompose(output('docker', ['compose', 'version', '--short'])),
+    checkContainerUser(),
     await checkBuildServer(),
     checkProxy(),
     checkAcme(),

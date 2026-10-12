@@ -82,7 +82,8 @@ export function renderCompose(spec: NetworkSpec): string {
       platform: 'linux/amd64',
       // Run as the host user so bind-mounted nodes/*/db isn't root-owned on
       // Linux (breaks `xng reset`/`remove` there; macOS's Docker VM hides
-      // this). docker.ts passes XNG_UID/XNG_GID for compose to interpolate.
+      // this). docker.ts passes XNG_UID/XNG_GID for compose to interpolate
+      // (0:0 under rootless Docker, where the host user is container root).
       user: '${XNG_UID:-0}:${XNG_GID:-0}',
       working_dir: '/node',
       command,
