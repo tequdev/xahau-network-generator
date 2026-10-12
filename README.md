@@ -143,10 +143,10 @@ only one root network per domain is allowed, and the names `explorer`,
 listing every network on the domain with live status, endpoints and a
 faucet. `wss://<domain>` stays on the same host (Traefik sends only
 WebSocket upgrades to the node). The page is the repo's `site/` directory,
-copied into the root network's `site/` on every `start`/`reset`, so edits
-show up on the next start; the list of networks next to it
-(`site/networks.json`) is rewritten on every `create`, `remove`, `start` and
-`reset`, with no restart needed.
+copied into the root network's `site/` on every `start`/`reset`/`apply`
+(also when `apply` finds no network changes), so edits show up with no
+restart needed; the list of networks next to it (`site/networks.json`) is
+rewritten at the same times and on every `create`/`remove`.
 
 ![landing page](assets/landing.png)
 
