@@ -112,22 +112,34 @@ test('renderXahaudCfg: empty or absent overrides renders the plain cfg', () => {
   assert.equal(renderXahaudCfg({ ...cfgOpts, overrides: undefined }), plain);
 });
 
-test('xahaud.cfg: pwaGateway adds a pwa-only [port_pwa] behind secure_gateway', () => {
-  const cfg = renderXahaudCfg({ ...cfgOpts, pwaGateway: ['172.18.0.0/16'] });
+test('xahaud.cfg: pwa adds a pwa-only [port_pwa] behind secure_gateway with its zone', () => {
+  const cfg = renderXahaudCfg({
+    ...cfgOpts,
+    pwa: {
+      domain: 'pwa.testnet-3.127.0.0.1.nip.io',
+      secureGateway: ['172.18.0.0/16'],
+    },
+  });
   assert.ok(cfg.includes('port_peer\nport_pwa\n'));
   assert.ok(
     cfg.includes(
-      '[port_pwa]\nport = 8088\nip = 0.0.0.0\nprotocol = pwa\nsecure_gateway = 172.18.0.0/16\n',
+      '[port_pwa]\nport = 8088\nip = 0.0.0.0\nprotocol = pwa\nsecure_gateway = 172.18.0.0/16\ndomain = pwa.testnet-3.127.0.0.1.nip.io\n',
     ),
   );
 });
 
-test('xahaud.cfg: no pwa port without pwaGateway', () => {
+test('xahaud.cfg: no pwa port without pwa', () => {
   assert.ok(!renderXahaudCfg(cfgOpts).includes('port_pwa'));
 });
 
 test('withPwaGateway rewrites only the secure_gateway line', () => {
-  const cfg = renderXahaudCfg({ ...cfgOpts, pwaGateway: ['172.18.0.0/16'] });
+  const cfg = renderXahaudCfg({
+    ...cfgOpts,
+    pwa: {
+      domain: 'pwa.testnet-3.127.0.0.1.nip.io',
+      secureGateway: ['172.18.0.0/16'],
+    },
+  });
   const next = withPwaGateway(cfg, ['172.31.0.0/16', 'fd00::/64']);
   assert.ok(next.includes('secure_gateway = 172.31.0.0/16, fd00::/64\n'));
   assert.ok(!next.includes('172.18.0.0/16'));

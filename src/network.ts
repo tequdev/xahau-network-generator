@@ -44,6 +44,7 @@ import {
   hostPorts,
   nodeName,
   ports,
+  pwaZone,
   validateSpec,
 } from './types.ts';
 
@@ -245,7 +246,9 @@ export async function writeNodeConfig(
         peers: Array.from({ length: spec.validators }, (_, i) => peerOf(i + 1)),
         vlKeyHex,
         vlUrl,
-        ...(spec.pwa ? { pwaGateway: proxySubnets() } : {}),
+        ...(spec.pwa
+          ? { pwa: { domain: pwaZone(spec), secureGateway: proxySubnets() } }
+          : {}),
         importVlKeys: spec.importVlKeys,
         overrides: spec.nodeConfig,
       };

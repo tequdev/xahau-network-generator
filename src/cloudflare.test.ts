@@ -89,6 +89,18 @@ test('certHosts: root network on the apex is covered by Universal SSL', () => {
   assert.equal(certHosts({ ...spec, root: true }, 'xahau-dev.net'), undefined);
 });
 
+test('certHosts: pwa adds the wildcard of the pwa zone', () => {
+  assert.deepEqual(certHosts({ ...spec, pwa: true }, 'xahau-dev.net'), [
+    'xahau-dev.net',
+    '*.jshooks.xahau-dev.net',
+    '*.pwa.jshooks.xahau-dev.net',
+  ]);
+  assert.deepEqual(
+    certHosts({ ...spec, root: true, pwa: true }, 'xahau-dev.net'),
+    ['xahau-dev.net', '*.pwa.xahau-dev.net'],
+  );
+});
+
 test('certHosts: nothing for non-TLS or standalone networks', () => {
   assert.equal(certHosts({ ...spec, tls: false }, 'xahau-dev.net'), undefined);
   assert.equal(

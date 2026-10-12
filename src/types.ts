@@ -25,7 +25,7 @@ export type NetworkSpec = {
   domain: string; // testnet only; default '127.0.0.1.nip.io'; hostnames are `<sub>.<name>.<domain>`
   tls: boolean; // testnet only; default false; true renders https/wss endpoint URLs
   root?: boolean; // testnet only; default false; true serves the bare domain (`<sub>.<domain>`) instead of `<sub>.<name>.<domain>`
-  pwa?: boolean; // testnet only; default false; node (index 0) serves on-ledger AppLoader documents (xahaud PR #793 `protocol = pwa`) at pwa.<base> through Traefik
+  pwa?: boolean; // testnet only; default false; node (index 0) serves on-ledger AppLoader documents (xahaud PR #793 `protocol = pwa`, dev builds from 2026.10.12) at pwa<AccountIndex>.pwa.<base> through Traefik; pwa.<base>/<r-address> redirects there
   external?: boolean; // testnet only; default false; runs on another host, only its hostnames are known here (network.json is a stub with version "")
   displayName?: string; // cosmetic, landing page only (section heading); never recreates a network
   displayShortName?: string; // cosmetic, landing page only (nav link, faucet pill); never recreates a network
@@ -313,7 +313,7 @@ export type Endpoints = {
   faucet?: string;
   vl?: string;
   debugstream?: string; // testnet only; ws(s)://<base>/debugstream/, append an r-address to filter; the same path over http(s) is a browser viewer (same as xahau-test.net)
-  pwa?: string;
+  pwa?: string; // http(s)://pwa.<base> (the pwa zone; /<r-address> on it 301s to pwa<AccountIndex>.pwa.<base>/<r-address>; xahaud PR #793, dev builds from 2026.10.12)
   rpcAdmin?: string;
   wsAdmin?: string;
 };
@@ -324,6 +324,12 @@ export type Endpoints = {
 // root network per domain can exist (checked in network.ts).
 export function hostBase(spec: NetworkSpec): string {
   return spec.root ? spec.domain : `${spec.name}.${spec.domain}`;
+}
+
+// The xahaud `[port_pwa] domain`: every account is served at
+// pwa<AccountIndex>.<zone>, the bare zone only redirects there.
+export function pwaZone(spec: NetworkSpec): string {
+  return `pwa.${hostBase(spec)}`;
 }
 
 export function endpoints(spec: NetworkSpec): Endpoints {
@@ -338,7 +344,7 @@ export function endpoints(spec: NetworkSpec): Endpoints {
       faucet: `${httpScheme}://faucet.${base}`,
       vl: `${httpScheme}://vl.${base}`,
       debugstream: `${wsScheme}://${base}/debugstream/`,
-      ...(spec.pwa ? { pwa: `${httpScheme}://pwa.${base}` } : {}),
+      ...(spec.pwa ? { pwa: `${httpScheme}://${pwaZone(spec)}` } : {}),
     };
   }
   const host = hostPorts(spec);
