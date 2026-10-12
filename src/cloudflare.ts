@@ -1,6 +1,6 @@
 import { execFile, spawnSync } from 'node:child_process';
 import { promisify } from 'node:util';
-import { hostBase } from './types.ts';
+import { hostBase, pwaZone } from './types.ts';
 import type { NetworkSpec } from './types.ts';
 
 const execFileAsync = promisify(execFile);
@@ -14,7 +14,9 @@ const execFileAsync = promisify(execFile);
 // no way to set this up once for all future networks: xng orders one
 // certificate pack per network through Cloudflare's `cf` CLI instead, and
 // deletes it again on `xng remove`. Everything else (DNS wildcard, tunnel
-// ingress) is one-time setup, see README.
+// ingress) is one-time setup, see README. A pwa network also needs
+// `*.pwa.<name>.<zone>`: xahaud serves each account at
+// pwa<AccountIndex>.pwa.<name>.<zone>.
 //
 // Enabled by XNG_CF_ZONE=<zone name>, e.g. `xahau-dev.net`; `cf` itself
 // authenticates via `cf auth login` or CLOUDFLARE_API_TOKEN.
@@ -54,7 +56,8 @@ export function cfConfigFromEnv(
 
 // The hosts of the certificate pack this network needs, or undefined when
 // the Universal certificate already covers every hostname it serves (a root
-// network on the zone apex, a non-TLS or standalone network). Cloudflare
+// network on the zone apex without pwa, a non-TLS or standalone network). A
+// pwa network also needs `*.pwa.<base>`. Cloudflare
 // requires the zone apex in every advanced pack.
 export function certHosts(
   spec: NetworkSpec,
@@ -67,12 +70,16 @@ export function certHosts(
       `XNG_CF_ZONE is "${zone}" but network "${spec.name}" is served under "${base}", which is outside that zone`,
     );
   }
-  if (base === zone) return undefined;
+  // pwa<AccountIndex>.pwa.<base> sits one label below pwa.<base>, which
+  // `*.<base>` does not cover.
+  const pwaWildcard = `*.${pwaZone(spec)}`;
+  if (base === zone) return spec.pwa ? [zone, pwaWildcard] : undefined;
   const hosts = [zone, `*.${base}`];
   // `<name>.<zone>` itself is covered by the Universal `*.<zone>`; only when
   // --domain is itself a subdomain of the zone is the base nested too.
   const label = base.slice(0, -(zone.length + 1));
   if (label.includes('.')) hosts.push(base);
+  if (spec.pwa) hosts.push(pwaWildcard);
   return hosts;
 }
 

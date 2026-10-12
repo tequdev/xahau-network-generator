@@ -170,6 +170,11 @@ test('compose: pwa adds a pwa.<base> router to port 8088 on node only when set',
   const on = labels({ ...testnetSpec, pwa: true });
   assert.ok(on.includes('pwa.testnet-3.127.0.0.1.nip.io'));
   assert.ok(on.includes('=8088'));
+  assert.ok(
+    on.includes(
+      'traefik.http.routers.testnet-3-pwa.rule=Host(`pwa.testnet-3.127.0.0.1.nip.io`) || HostRegexp(`^pwa[0-9]+\\.pwa\\.testnet-3\\.127\\.0\\.0\\.1\\.nip\\.io$$`)',
+    ),
+  );
 });
 
 test('compose: a root network serves the landing page and splits the bare domain by Upgrade header; a non-root one does not', () => {

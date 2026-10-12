@@ -6,6 +6,7 @@ import {
   defaultQuorum,
   displayNames,
   endpoints,
+  pwaZone,
   validateSpec,
 } from './types.ts';
 import type { NetworkSpec } from './types.ts';
@@ -173,6 +174,8 @@ test('endpoints: pwa only when set; validateSpec rejects bad pwa', () => {
     endpoints({ ...spec, pwa: true }).pwa,
     'https://pwa.dev.example.com',
   );
+  assert.equal(pwaZone(spec), 'pwa.dev.example.com');
+  assert.equal(pwaZone({ ...spec, root: true }), 'pwa.example.com');
   assert.throws(
     () =>
       validateSpec({

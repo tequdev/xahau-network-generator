@@ -8,7 +8,7 @@ export type XahaudCfgOptions = {
   peers: string[]; // testnet only; "hostname 51235" lines, excluding self
   vlKeyHex?: string; // testnet only
   vlUrl?: string; // testnet only
-  pwaGateway?: string[]; // testnet node only: secure_gateway networks for a [port_pwa] (PR #793); absent = no pwa port
+  pwa?: { domain: string; secureGateway: string[] }; // testnet node only: a [port_pwa] zone and the proxy subnets allowed to reach it (PR #793); absent = no pwa port
   importVlKeys: string[];
   overrides?: Record<string, string[]>; // extra/overriding sections; the caller picks nodeConfig or validatorConfig
 };
@@ -29,7 +29,7 @@ export function renderXahaudCfg(o: XahaudCfgOptions): string {
       'port_ws_admin_local',
       'port_ws_public',
       'port_peer',
-      ...(o.pwaGateway ? ['port_pwa'] : []),
+      ...(o.pwa ? ['port_pwa'] : []),
     ],
   ]);
 
@@ -68,17 +68,19 @@ export function renderXahaudCfg(o: XahaudCfgOptions): string {
     [`port = ${o.ports.peer}`, 'ip = 0.0.0.0', 'protocol = peer'],
   ]);
 
-  // pwa must be the only protocol on its port, requires secure_gateway, and
+  // pwa must be the only protocol on its port, requires secure_gateway and
+  // domain (the zone whose pwa<AccountIndex>.<zone> hosts it serves), and
   // refuses admin/user/ssl keys, so it gets its own section with just these
-  // four lines.
-  if (o.pwaGateway) {
+  // five lines.
+  if (o.pwa) {
     sections.push([
       'port_pwa',
       [
         `port = ${o.ports.pwa}`,
         'ip = 0.0.0.0',
         'protocol = pwa',
-        `secure_gateway = ${o.pwaGateway.join(', ')}`,
+        `secure_gateway = ${o.pwa.secureGateway.join(', ')}`,
+        `domain = ${o.pwa.domain}`,
       ],
     ]);
   }

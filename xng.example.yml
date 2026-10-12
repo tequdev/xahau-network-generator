@@ -33,7 +33,8 @@ networks:
                                      # or XNG_CF_ZONE (Cloudflare) for real certificates (default false)
     root: false                      # true | false, testnet only     (default false)
     pwa: false                       # true | false, testnet only     (default false): node serves
-                                     # AppLoader documents at pwa.<name>.<domain> (needs a xahaud build with PR #793)
+                                     # AppLoader documents at pwa<AccountIndex>.pwa.<name>.<domain>/<r-address>
+                                     # (needs a xahaud dev build from 2026.10.12, PR #793)
     displayName: JS Hooks            # 1-64 chars; landing page heading (default: the name, `main` for root)
     displayShortName: jshooks               # 1-24 chars; nav link and faucet pill (default: displayName)
                                      # both are cosmetic: changing them never recreates the network

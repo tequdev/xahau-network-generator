@@ -8,6 +8,7 @@ import {
   hostPorts,
   nodeName,
   ports,
+  pwaZone,
 } from './types.ts';
 import type { NetworkSpec } from './types.ts';
 
@@ -128,7 +129,16 @@ export function renderCompose(spec: NetworkSpec): string {
           ),
           ...traefikRoute(spec, 'rpc', `rpc.${base}`, containerPorts.rpcPublic),
           ...(spec.pwa
-            ? traefikRoute(spec, 'pwa', `pwa.${base}`, containerPorts.pwa)
+            ? // xahaud serves each account on its own pwa<AccountIndex>.<zone>
+              // host and 301s <zone>/<r-address> there, so both go to node's
+              // pwa port. HostRegexp is a Go regexp: anchor it by hand.
+              traefikRoute(
+                spec,
+                'pwa',
+                pwaZone(spec),
+                containerPorts.pwa,
+                ` || HostRegexp(\`^pwa[0-9]+\\.${pwaZone(spec).replaceAll('.', '\\.')}$$\`)`,
+              )
             : []),
         ];
       } else {

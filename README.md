@@ -191,6 +191,9 @@ Setup on the host — pick one of the two ways to get certificates:
    applies `traefik/compose.acme.yml`, so Traefik issues a Let's Encrypt
    certificate per hostname (HTTP-01 on port 80). Create networks with
    `--tls` so their advertised URLs are `https`/`wss`.
+   The `pwa<AccountIndex>.pwa.<name>.<domain>` hosts of a `--pwa` network
+   are not covered: Traefik only issues certificates for literal `Host()`
+   rules and a wildcard needs DNS-01, so use plain http there or option B.
 
 **B. Cloudflare only (Tunnel + Advanced Certificate Manager, no open ports)**
 
@@ -203,7 +206,11 @@ TLS skips Tunnel hostnames, so this can't be done once up front: with
 `XNG_CF_ZONE` set, `xng` orders that certificate through Cloudflare's
 [`cf` CLI](https://github.com/cloudflare/cf) and waits for it to go active
 on `xng create`, re-checks it (idempotently) on `xng start`/`xng reset`,
-and deletes it on `xng remove`. Everything else is one-time setup:
+and deletes it on `xng remove`. A `--pwa` network's pack also includes
+`*.pwa.<name>.<domain>` (`*.pwa.<domain>` for a root network, which
+otherwise needs no pack); an existing pwa network gets a new pack ordered on
+its next `xng start`, and the old one is deleted with `xng remove`.
+Everything else is one-time setup:
 
 1. Install and log in to `cf` (Node 22+): `npm i -g cf@0.15.0 && cf auth login`, or
    export `CLOUDFLARE_API_TOKEN` with *SSL and Certificates: Edit* on the
@@ -295,9 +302,13 @@ instead). `node` also gets `[hook_validate_rpc] 1` by default (validators never
 do); `nodeConfig` can override it. `validatorConfig`
 (`--validator-config <json>`) does the same for the testnet validators
 v1..vN only, never `node`. `pwa` (`--pwa`) adds a xahaud `protocol = pwa`
-port on `node`, routed at `pwa.<name>.<domain>`, with `secure_gateway` set
-to the `proxy` Docker network's subnets so only Traefik can reach it (as
-xahaud PR #793 requires); it needs a xahaud build containing that PR.
+port on `node` whose zone is `pwa.<name>.<domain>` (`pwa.<domain>` for a root
+network): each account's loader is served at
+`http(s)://pwa<AccountIndex>.pwa.<name>.<domain>/<r-address>` and
+`pwa.<name>.<domain>/<r-address>` redirects there. `secure_gateway` is the
+`proxy` Docker network's subnets so only Traefik can reach it; it needs a
+xahaud dev build from 2026.10.12 (PR #793). `[pwa_allowlist]` and
+`[pwa_blocklist]` (one r-address per line) can be added through `nodeConfig`.
 Defaults are the same as `xng create`; unknown keys are an error. The whole
 file is validated (including `XNG_CF_ZONE` certificate hosts) before
 anything runs. `networks: {}` is valid and means "remove everything".

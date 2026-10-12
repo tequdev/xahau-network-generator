@@ -208,7 +208,7 @@ program
   )
   .option(
     '--pwa',
-    'testnet only: serve on-ledger AppLoader documents (xahaud PR #793 `protocol = pwa`) at pwa.<name>.<domain> through Traefik',
+    'testnet only: serve on-ledger AppLoader documents (xahaud PR #793 `protocol = pwa`, dev builds from 2026.10.12) at pwa<AccountIndex>.pwa.<name>.<domain>/<r-address> through Traefik; pwa.<name>.<domain>/<r-address> redirects there',
     false,
   )
   .addOption(
