@@ -281,6 +281,8 @@ fetch('networks.json').then(r => r.ok ? r.json() : Promise.reject(r.status)).the
   document.getElementById('networks').append(...nets.map(([, s]) => s));
   document.getElementById('nav').append(...nets.map(([name, s]) => $('a', { href: '#' + s.id, textContent: name })),
     $('a', { href: 'https://docs.xahau.network/', textContent: 'Docs' }));
+  // Sections are built after load, so the browser's own hash jump found nothing; redo it.
+  document.getElementById(location.hash.slice(1))?.scrollIntoView();
 }).catch(() => document.getElementById('networks').append($('div', { className: 'err', role: 'alert', textContent: 'Could not load the network list.' })));
 </script>
 </body>
