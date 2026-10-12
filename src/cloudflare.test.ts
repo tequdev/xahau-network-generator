@@ -181,6 +181,60 @@ test('ensureCertificate: reuses an existing live pack (idempotent start)', async
   );
 });
 
+const PWA_PACK = {
+  id: 'pwa',
+  type: 'advanced',
+  status: 'active',
+  hosts: [
+    'xahau-dev.net',
+    '*.jshooks.xahau-dev.net',
+    '*.pwa.jshooks.xahau-dev.net',
+  ],
+};
+
+test('ensureCertificate: a pack ordered while pwa was on is reused once pwa is off', async () => {
+  const cf = fakeCf([PWA_PACK]);
+  await ensureCertificate({ ...spec, pwa: false }, cfg, {
+    ...quiet,
+    run: cf.run,
+  });
+  assert.deepEqual(
+    cf.calls.map((c) => c[2]),
+    ['list'],
+  );
+});
+
+test('removeCertificate: deletes a pack ordered while pwa was on after pwa is off', async () => {
+  const cf = fakeCf([PWA_PACK]);
+  await removeCertificate({ ...spec, pwa: false }, cfg, {
+    log: () => {},
+    run: cf.run,
+  });
+  assert.deepEqual(
+    cf.calls.filter((c) => c[2] === 'delete').map((c) => c[3]),
+    ['pwa'],
+  );
+});
+
+test('removeCertificate: a root network without pwa still deletes its pwa pack', async () => {
+  const cf = fakeCf([
+    {
+      id: 'rootpwa',
+      type: 'advanced',
+      status: 'active',
+      hosts: ['xahau-dev.net', '*.pwa.xahau-dev.net'],
+    },
+  ]);
+  await removeCertificate({ ...spec, root: true, pwa: false }, cfg, {
+    log: () => {},
+    run: cf.run,
+  });
+  assert.deepEqual(
+    cf.calls.filter((c) => c[2] === 'delete').map((c) => c[3]),
+    ['rootpwa'],
+  );
+});
+
 test('ensureCertificate: a pack missing a requested host is not reused', async () => {
   const nested = { ...spec, domain: 'dev.example.com' };
   const cf = fakeCf(

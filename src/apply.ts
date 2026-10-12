@@ -179,8 +179,9 @@ export type Action = {
   warning?: string; // why a recreate was needed instead of an upgrade
 };
 
-// Changes `xng upgrade` can apply in place (binary swap + rewritten xahaud.cfg).
-const UPGRADABLE = new Set(['version', 'nodeConfig', 'validatorConfig']);
+// Changes `xng upgrade` can apply in place: binary swap, rewritten xahaud.cfg,
+// and node's pwa port/route.
+const UPGRADABLE = new Set(['version', 'nodeConfig', 'validatorConfig', 'pwa']);
 
 // Sections xahaud cannot pick up on a restart against an existing data
 // directory (or that change a validator's identity): changing one of
@@ -378,6 +379,7 @@ export function plan(
     const unsafe = unsafeConfigChanges(a, d);
     if (
       d.type === 'testnet' &&
+      !d.external &&
       diff.every((c) => UPGRADABLE.has(c.key)) &&
       unsafe.length === 0
     ) {
@@ -402,6 +404,7 @@ export function plan(
             ...(has('validatorConfig')
               ? ['--validator-config', JSON.stringify(d.validatorConfig ?? {})]
               : []),
+            ...(has('pwa') ? [d.pwa ? '--pwa' : '--no-pwa'] : []),
           ],
         ],
       };
@@ -518,15 +521,24 @@ function describeSpec(spec: NetworkSpec): string {
   return `testnet ${spec.version}, ${spec.validators} validator${spec.validators === 1 ? '' : 's'}, ${spec.domain}${flags.length ? ` (${flags.join(', ')})` : ''}`;
 }
 
-// With XNG_CF_ZONE (`cf`), create/recreate order an edge certificate pack and
-// remove/recreate delete one (see cloudflare.ts); say so, or warn that nothing
+// With XNG_CF_ZONE (`cf`), create/recreate (and an upgrade that turns pwa on,
+// which adds `*.pwa.<base>`) order an edge certificate pack and remove/recreate
+// delete one (turning pwa off deletes nothing; see cloudflare.ts); say so, or warn that nothing
 // will happen when the variable is missing for a tls testnet.
+function pwaOn(a: Action): boolean {
+  return (
+    a.kind === 'upgrade' && !!a.to?.pwa && a.diff.some((c) => c.key === 'pwa')
+  );
+}
+
 function cloudflareBlock(
   rows: { a: Action }[],
   cf: { zone: string } | undefined,
 ): string[] {
   const ordered = rows.filter(
-    ({ a }) => ['create', 'recreate'].includes(a.kind) && isTlsTestnet(a.to),
+    ({ a }) =>
+      (['create', 'recreate'].includes(a.kind) || pwaOn(a)) &&
+      isTlsTestnet(a.to),
   );
   const deleted = rows.filter(
     ({ a }) => ['remove', 'recreate'].includes(a.kind) && isTlsTestnet(a.from),
@@ -551,7 +563,7 @@ function cloudflareBlock(
       const applies =
         side === 'from'
           ? ['remove', 'recreate'].includes(a.kind)
-          : ['create', 'recreate'].includes(a.kind);
+          : ['create', 'recreate'].includes(a.kind) || pwaOn(a);
       if (!spec || !applies || spec.external) return [];
       let hosts: string[] | undefined;
       try {
@@ -565,7 +577,8 @@ function cloudflareBlock(
       const verb = side === 'from' ? 'deleted' : 'ordered';
       return [
         [
-          `${side === 'from' ? '-' : '+'} certificate ${hosts[1]}`,
+          // The upgrade re-orders the pack with the pwa wildcard added.
+          `${side === 'from' ? '-' : '+'} certificate ${pwaOn(a) ? hosts.at(-1) : hosts[1]}`,
           `(${a.name}: ${verb} by ${a.kind})`,
         ],
       ];

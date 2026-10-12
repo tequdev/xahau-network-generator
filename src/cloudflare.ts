@@ -235,6 +235,12 @@ function ownPacks(
   );
 }
 
+// Every host xng may have ordered for this network: a pack ordered while pwa
+// was on keeps `*.pwa.<base>`, and must stay recognisable after pwa is off.
+function ownHosts(spec: NetworkSpec, zone: string): string[] | undefined {
+  return certHosts({ ...spec, pwa: true }, zone);
+}
+
 export type EnsureOptions = {
   run?: CfRunner;
   log?: (line: string) => void;
@@ -254,6 +260,7 @@ export async function ensureCertificate(
 ): Promise<void> {
   const hosts = certHosts(spec, cfg.zone);
   if (!hosts) return;
+  const own = ownHosts(spec, cfg.zone) ?? hosts;
   const run = opts.run ?? cfRunner();
   const log = opts.log ?? ((line: string) => console.log(line));
   const sleep =
@@ -263,7 +270,7 @@ export async function ensureCertificate(
 
   const existing = ownPacks(
     await listCertificatePacks(run, cfg.zone),
-    hosts,
+    own,
   ).find((p) => !isDead(p.status) && hosts.every((h) => p.hosts?.includes(h)));
   let pack: CertificatePack;
   if (existing) {
@@ -337,7 +344,7 @@ export async function removeCertificate(
   cfg: CfConfig,
   opts: Pick<EnsureOptions, 'run' | 'log'> = {},
 ): Promise<void> {
-  const hosts = certHosts(spec, cfg.zone);
+  const hosts = ownHosts(spec, cfg.zone);
   if (!hosts) return;
   const run = opts.run ?? cfRunner();
   const log = opts.log ?? ((line: string) => console.log(line));
