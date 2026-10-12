@@ -13,7 +13,9 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # docker.ts sets XNG_DOCKER_SOCK from `docker context` (rootless Docker's
+      # socket lives under $XDG_RUNTIME_DIR, not /var/run).
+      - ${XNG_DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock:ro
       - acme:/acme
     networks:
       - proxy

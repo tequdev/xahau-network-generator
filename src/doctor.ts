@@ -11,6 +11,7 @@ import {
 import {
   TRAEFIK_ACME_ENV,
   containerUser,
+  dockerSocketPath,
   dockerUserRemapped,
 } from './docker.ts';
 
@@ -100,6 +101,37 @@ function checkContainerUser(): Check {
       ? `${containerUser()} (rootless/userns docker: container root is the host user)`
       : `${containerUser()} (host user)`,
   };
+}
+
+function checkDockerSocket(): Check {
+  return { name: 'docker socket', status: 'info', detail: dockerSocketPath() };
+}
+
+// Rootless Docker can only publish Traefik's 80/443 when the kernel lets
+// unprivileged processes bind them (`compose up` fails otherwise).
+export function checkPrivilegedPorts(
+  remapped: boolean,
+  unprivilegedPortStart: number | undefined,
+): Check | undefined {
+  if (!remapped || unprivilegedPortStart === undefined) return undefined;
+  const ok = unprivilegedPortStart <= 80;
+  return {
+    name: 'ports 80/443',
+    status: ok ? 'ok' : 'fail',
+    detail: ok
+      ? `bindable (ip_unprivileged_port_start=${unprivilegedPortStart})`
+      : `rootless docker cannot bind them (ip_unprivileged_port_start=${unprivilegedPortStart}; \`sudo sysctl -w net.ipv4.ip_unprivileged_port_start=80\`)`,
+  };
+}
+
+function unprivilegedPortStart(): number | undefined {
+  try {
+    return Number(
+      readFileSync('/proc/sys/net/ipv4/ip_unprivileged_port_start', 'utf8'),
+    );
+  } catch {
+    return undefined;
+  }
 }
 
 async function checkBuildServer(): Promise<Check> {
@@ -242,6 +274,10 @@ export async function runChecks(): Promise<Check[]> {
     checkDocker(),
     checkCompose(output('docker', ['compose', 'version', '--short'])),
     checkContainerUser(),
+    checkDockerSocket(),
+    ...[
+      checkPrivilegedPorts(dockerUserRemapped(), unprivilegedPortStart()),
+    ].filter((c) => c !== undefined),
     await checkBuildServer(),
     checkProxy(),
     checkAcme(),
