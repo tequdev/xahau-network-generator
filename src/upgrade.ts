@@ -1,6 +1,7 @@
 import { chmod, copyFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fetchBinary } from './binary.ts';
+import { renderCompose } from './compose.ts';
 import { compose, composeOutput } from './docker.ts';
 import { writeNodeConfig } from './network.ts';
 import { endpoints, nodeName } from './types.ts';
@@ -143,13 +144,24 @@ export async function upgradeNetwork(
   spec: NetworkSpec,
   version: string,
   timeoutMs: number,
+  opts: { nodeOnly?: boolean } = {},
 ): Promise<void> {
   spec.version = version;
   // Fails fast if the version doesn't exist, before anything is touched.
   const { binaryPath } = await fetchBinary(version);
-  const services = Array.from({ length: spec.validators + 1 }, (_, i) =>
-    nodeName(spec, i),
+  // `node`'s pwa Traefik labels live in compose.yml, and the `compose up
+  // --force-recreate` below applies them; `xng start`/`reset` re-render it
+  // the same way.
+  await writeFile(
+    join('workspace', spec.name, 'compose.yml'),
+    renderCompose(spec),
   );
+  // When neither the binary nor validatorConfig changes, only `node`'s cfg can
+  // differ (nodeConfig, pwa), so validators are left running instead of being
+  // rolled for nothing.
+  const services = opts.nodeOnly
+    ? [nodeName(spec, 0)]
+    : Array.from({ length: spec.validators + 1 }, (_, i) => nodeName(spec, i));
 
   const upgraded: string[] = [];
   for (const [i, service] of services.entries()) {

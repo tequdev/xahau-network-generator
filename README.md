@@ -24,7 +24,7 @@ pnpm xng stop --name t1
 pnpm xng reset --name t1 --wait
 pnpm xng remove --name t1
 
-# rolling upgrade of a running testnet, no downtime: new binary and/or new xahaud.cfg
+# rolling upgrade of a running testnet, no downtime: new binary and/or new xahaud.cfg (or --pwa/--no-pwa)
 pnpm xng upgrade --name t1 --version 2026.9.9-dev+3667
 pnpm xng upgrade --name t1 --node-config '{"ledger_history":["5000"]}'
 
@@ -56,6 +56,8 @@ consensus on the new version before moving to the next, so the network is
 never fully stopped. The default quorum is capped at `validators - 1` (see
 below), so one validator can be mid-restart and consensus still keeps going;
 pass `--quorum` yourself to raise it if you want stricter safety instead.
+With the current binary and an unchanged `validatorConfig` (e.g. `--node-config`
+or `--pwa`/`--no-pwa` only) just `node` is restarted.
 
 `vote` (testnet only) runs `feature <amendment> accept|reject` on each
 validator. Every generated node sets `[amendment_majority_time]` to
@@ -309,6 +311,9 @@ network): each account's loader is served at
 `proxy` Docker network's subnets so only Traefik can reach it; it needs a
 xahaud dev build from 2026.10.12 (PR #793). `[pwa_allowlist]` and
 `[pwa_blocklist]` (one r-address per line) can be added through `nodeConfig`.
+Switching `pwa` on or off is also a rolling `upgrade` (`xng upgrade --name <n>
+--pwa|--no-pwa`): with the binary and `validatorConfig` unchanged only `node` is
+restarted, ledger data stays.
 Defaults are the same as `xng create`; unknown keys are an error. The whole
 file is validated (including `XNG_CF_ZONE` certificate hosts) before
 anything runs. `networks: {}` is valid and means "remove everything".
@@ -329,7 +334,7 @@ xng apply [-f xng.yml] [-y] [--dry-run] [--timeout <sec>] [--network <name>]...
 | --- | --- | --- |
 | only in the file | `create` | `create`, then `start --wait` |
 | only in `workspace/` | `remove` | `remove` |
-| testnet, only `version`/`nodeConfig`/`validatorConfig` differ (none of the sections above) | `upgrade` | (`start --wait` if stopped, then) `upgrade` with the changed `--node-config`/`--validator-config` |
+| testnet, only `version`/`nodeConfig`/`validatorConfig`/`pwa` differ (none of the sections above) | `upgrade` | (`start --wait` if stopped, then) `upgrade` with the changed `--node-config`/`--validator-config`/`--pwa`/`--no-pwa` |
 | standalone `version`/config, any other key, or an unsafe config section differs (the plan warns) | `recreate` | `remove`, `create`, `start --wait` (ledger data and keys are wiped) |
 | identical but `displayName`/`displayShortName` | `relabel` | `label` (`start --wait` if stopped); no recreate |
 | identical, any container not running | `start` | `start --wait` |
@@ -345,7 +350,7 @@ time; the first failure stops the run. Running `apply` again recomputes from
 the real state, so there is no rollback.
 
 With `XNG_CF_ZONE` set, the plan also lists the Cloudflare certificate packs
-that will be ordered (create, recreate) or deleted (remove, recreate); when it
+that will be ordered (create, recreate, upgrade that turns pwa on) or deleted (remove, recreate); when it
 is not set and a `tls` testnet is affected, the plan warns that no certificate
 will be ordered or deleted.
 

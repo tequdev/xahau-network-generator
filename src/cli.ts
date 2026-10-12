@@ -432,7 +432,7 @@ program
 program
   .command('upgrade')
   .description(
-    'rolling upgrade of a running testnet, one node at a time: swap the xahaud binary and/or rewrite xahaud.cfg (nodeConfig/validatorConfig)',
+    'rolling upgrade of a running testnet, one node at a time: swap the xahaud binary and/or rewrite xahaud.cfg (nodeConfig/validatorConfig, --pwa/--no-pwa); with the current binary and unchanged validatorConfig only `node` is restarted',
   )
   .requiredOption('--name <name>', 'network name', parseName)
   .option('--version <ver>', 'xahaud version to upgrade to (default: current)')
@@ -444,6 +444,8 @@ program
     '--validator-config <json>',
     'replace validatorConfig (see create); {} removes it',
   )
+  .option('--pwa', 'turn the pwa port on (see create)')
+  .option('--no-pwa', 'turn the pwa port off')
   .option(
     '--timeout <sec>',
     'per-node readiness timeout in seconds',
@@ -469,19 +471,28 @@ program
       if (Object.keys(sections).length === 0) delete spec[key];
       else spec[key] = sections;
     }
+    if (opts.pwa !== undefined) spec.pwa = opts.pwa;
     const unsafe = unsafeConfigChanges(before, spec);
     if (unsafe.length > 0) {
       throw program.error(
         `${unsafe.join(', ')} cannot change in place; use xng remove + create`,
       );
     }
-    const services = Array.from({ length: spec.validators + 1 }, (_, i) =>
-      nodeName(spec, i),
+    const nodeOnly =
+      version === before.version &&
+      JSON.stringify(before.validatorConfig ?? {}) ===
+        JSON.stringify(spec.validatorConfig ?? {});
+    const services = Array.from(
+      { length: nodeOnly ? 1 : spec.validators + 1 },
+      (_, i) => nodeName(spec, i),
     );
     console.log(
       `upgrading ${spec.name}: ${services.join(', ')} -> ${version} (xahaud.cfg rewritten)`,
     );
-    await upgradeNetwork(spec, version, opts.timeout * 1000);
+    await upgradeNetwork(spec, version, opts.timeout * 1000, { nodeOnly });
+    // A pwa network's Cloudflare pack also needs `*.pwa.<base>`;
+    // ensureCertificate is idempotent otherwise.
+    await syncCertificate(spec, { fatal: false });
     console.log(`upgraded network "${spec.name}" to ${version}`);
   });
 

@@ -681,14 +681,62 @@ test('plan: a validatorConfig change is an upgrade carrying --validator-config',
   ]);
 });
 
-test('plan: enabling pwa recreates the network', () => {
-  const actions = plan(
+test('plan: toggling pwa is an upgrade carrying --pwa / --no-pwa', () => {
+  const on = plan(
     desiredOf(`  t1:\n    version: ${V1}\n    pwa: true`),
     [created({ name: 't1' })],
     new Set(['t1']),
   );
+  assert.equal(on[0]?.kind, 'upgrade');
+  assert.deepEqual(on[0]?.diff, [{ key: 'pwa', from: false, to: true }]);
+  assert.deepEqual(argv(on[0]?.steps ?? []), [
+    `upgrade --name t1 --version ${V1} --timeout 300 --pwa`,
+  ]);
+  const off = plan(
+    desiredOf(`  t1:\n    version: ${V1}`),
+    [created({ name: 't1', pwa: true })],
+    new Set(['t1']),
+  );
+  assert.equal(off[0]?.kind, 'upgrade');
+  assert.deepEqual(argv(off[0]?.steps ?? []), [
+    `upgrade --name t1 --version ${V1} --timeout 300 --no-pwa`,
+  ]);
+});
+
+test('plan: an external network whose pwa changes is still recreated', () => {
+  const actions = plan(
+    desiredOf(
+      '  foo:\n    external: true\n    domain: xahau-dev.net\n    tls: true\n    pwa: true',
+    ),
+    [
+      created({
+        name: 'foo',
+        external: true,
+        domain: 'xahau-dev.net',
+        tls: true,
+      }),
+    ],
+    new Set(),
+  );
   assert.equal(actions[0]?.kind, 'recreate');
-  assert.deepEqual(actions[0]?.diff, [{ key: 'pwa', from: false, to: true }]);
+});
+
+test('formatPlan: an upgrade that turns pwa on orders the pwa wildcard pack', () => {
+  const out = formatPlan(
+    plan(
+      desiredOf(
+        `  t1:\n    version: ${V1}\n    domain: xahau-dev.net\n    tls: true\n    pwa: true`,
+      ),
+      [created({ name: 't1', domain: 'xahau-dev.net', tls: true })],
+      new Set(['t1']),
+    ),
+    'xng.yml',
+    ZONE,
+  );
+  assert.match(
+    out,
+    /^ {2}\+ certificate \*\.pwa\.t1\.xahau-dev\.net +\(t1: ordered by upgrade\)$/m,
+  );
 });
 
 const EXT =
