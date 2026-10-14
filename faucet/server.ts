@@ -121,9 +121,24 @@ function connectWithRetry(): void {
       setTimeout(connectWithRetry, 3000);
     });
 }
-// xrpl.js reconnects on its own after an unexpected close; a second
-// reconnect loop here would race it.
 connectWithRetry();
+
+// xahau.js reconnects on its own after an unexpected close, but only once: if
+// that attempt fails (node still restarting) it emits 'error' and gives up,
+// leaving the client disconnected for good. Take over from there.
+function reconnectWithRetry(): void {
+  client.connect().catch((err) => {
+    console.error(
+      `[faucet] reconnect failed: ${(err as Error).message}, retrying in 3s`,
+    );
+    setTimeout(reconnectWithRetry, 3000);
+  });
+}
+client.on('error', (code: string, message: string) => {
+  if (code !== 'reconnect') return;
+  console.error(`[faucet] reconnect failed: ${message}, retrying in 3s`);
+  setTimeout(reconnectWithRetry, 3000);
+});
 
 // ponytail: single promise chain serializes submissions to avoid Sequence
 // clashes; upgrade to per-account queues if concurrent throughput matters.
@@ -375,6 +390,12 @@ const server = createServer((req, res) => {
   ) {
     if (!funded) {
       sendJson(res, 503, { error: 'faucet not ready' });
+      return;
+    }
+    // Otherwise xahau.js fails with NotConnectedError, whose message is just
+    // the request JSON.
+    if (!client.isConnected()) {
+      sendJson(res, 503, { error: 'faucet not connected to the node' });
       return;
     }
     if (inFlight >= MAX_IN_FLIGHT) {
