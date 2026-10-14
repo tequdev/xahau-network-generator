@@ -389,7 +389,10 @@ export function plan(
         ...both,
         diff,
         steps: [
-          ...(running.has(name) ? [] : [startArgv(name)]),
+          // A stale network (e.g. faucet/ changed) is started first: upgrade
+          // rewrites compose.yml but recreates only the xahaud services, which
+          // would hide the drift from the next apply without rebuilding.
+          ...(running.has(name) && !stale ? [] : [startArgv(name)]),
           [
             'upgrade',
             '--name',
