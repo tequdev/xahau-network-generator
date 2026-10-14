@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { parse } from 'yaml';
-import { renderCompose } from './compose.ts';
+import { renderCompose, sourceHash } from './compose.ts';
 import { DEFAULT_IMPORT_VL_KEYS } from './types.ts';
 import type { NetworkSpec } from './types.ts';
 
@@ -212,7 +215,7 @@ test('compose: testnet runs a debugstream service tailing node/log; standalone h
   // biome-ignore lint/suspicious/noExplicitAny: compose.yml service shape has no fixed schema here
   const doc = parse(renderCompose(testnetSpec)) as any;
   const ds = doc.services.debugstream;
-  assert.equal(ds.build, '../../debugstream');
+  assert.equal(ds.build.context, '../../debugstream');
   assert.ok(ds.volumes.includes('./nodes/node/log:/log'));
   assert.equal(ds.ports, undefined);
   assert.equal(ds.mem_limit, '128m');
@@ -234,4 +237,26 @@ test('compose: xahaud services cap their docker log', () => {
     const doc = parse(renderCompose(spec)) as any;
     assert.equal(doc.services.node.logging.options['max-size'], '20m');
   }
+});
+
+test('compose: faucet/debugstream builds carry a stable source-hash label', () => {
+  // biome-ignore lint/suspicious/noExplicitAny: compose.yml service shape has no fixed schema here
+  const doc = (): any => parse(renderCompose(testnetSpec));
+  const f = doc().services.faucet.build.labels['xng.source'];
+  const d = doc().services.debugstream.build.labels['xng.source'];
+  assert.match(f, /^[0-9a-f]{12}$/);
+  assert.match(d, /^[0-9a-f]{12}$/);
+  assert.notEqual(f, d);
+  assert.equal(doc().services.faucet.build.labels['xng.source'], f);
+});
+
+test('sourceHash: content changes the hash, node_modules does not', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'xng-hash-'));
+  writeFileSync(join(dir, 'server.ts'), 'a');
+  const before = sourceHash(dir);
+  mkdirSync(join(dir, 'node_modules'));
+  writeFileSync(join(dir, 'node_modules', 'x.js'), 'x');
+  assert.equal(sourceHash(dir), before);
+  writeFileSync(join(dir, 'server.ts'), 'b');
+  assert.notEqual(sourceHash(dir), before);
 });

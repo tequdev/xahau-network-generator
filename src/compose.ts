@@ -1,3 +1,7 @@
+import { createHash } from 'node:crypto';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { stringify } from 'yaml';
 import {
   VL_HOST,
@@ -23,6 +27,26 @@ const NGINX_COMMAND = [
   '-c',
   "echo 'server_tokens off;' > /etc/nginx/conf.d/zz-tokens.conf && exec /docker-entrypoint.sh nginx -g 'daemon off;'",
 ];
+
+// Short hash of a flat repo directory's build inputs (names + contents, sorted;
+// node_modules skipped). faucet/ and debugstream/ have no subdirectories.
+export function sourceHash(dir: string): string {
+  const h = createHash('sha256');
+  for (const e of readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isFile())
+    .sort((a, b) => (a.name < b.name ? -1 : 1))) {
+    h.update(`${e.name}\0`).update(readFileSync(join(dir, e.name)));
+  }
+  return h.digest('hex').slice(0, 12);
+}
+const buildOf = (name: string) => ({
+  context: `../../${name}`,
+  labels: {
+    'xng.source': sourceHash(
+      fileURLToPath(new URL(`../${name}/`, import.meta.url)),
+    ),
+  },
+});
 
 // Every routed service is enrolled on both the default (inter-container)
 // network and the shared external `proxy` network Traefik watches, and
@@ -205,9 +229,11 @@ export function renderCompose(spec: NetworkSpec): string {
     }
 
     services.faucet = {
-      // Resolved against the compose file's directory (workspace/<name>/), so a
-      // faucet fix in the repo is built on the next start without copying.
-      build: '../../faucet',
+      // Context resolves against the compose file's directory (workspace/<name>/),
+      // so a repo fix is built on the next start without copying. The source-hash
+      // label makes compose.yml differ when faucet/ changes, so `xng apply`
+      // sees drift and plans a refresh (up -d --build).
+      build: buildOf('faucet'),
       environment: {
         XAHAU_WS_URL: `ws://${containerName(spec, nodeName(spec, 0))}:${ports(spec, 0).wsPublic}`,
         PORT: '8080',
@@ -224,8 +250,8 @@ export function renderCompose(spec: NetworkSpec): string {
     };
 
     services.debugstream = {
-      // Built from the repo like faucet, so a fix is picked up on next start.
-      build: '../../debugstream',
+      // Built from the repo like faucet, with the same source-hash label.
+      build: buildOf('debugstream'),
       environment: { LOG_FILE: '/log/debug.log', PORT: '8080' },
       // Hard ceiling for a sidecar that only tails a file; node itself is
       // ~40 MB RSS. Docker restarts it (unless-stopped) if it is ever hit.

@@ -286,6 +286,20 @@ test('plan: stopped stays a start, external stays unchanged when stale', () => {
   assert.equal(x?.kind, 'unchanged');
 });
 
+test('plan: a stale running upgrade starts first (upgrade alone would not rebuild faucet)', () => {
+  const [a] = plan(
+    desiredOf(`  t1:\n    version: ${V2}`),
+    [created({ name: 't1' })],
+    new Set(['t1']),
+    { stale: new Set(['t1']), timeout: 600 },
+  );
+  assert.equal(a?.kind, 'upgrade');
+  assert.deepEqual(argv(a?.steps ?? []), [
+    'start --name t1 --wait --timeout 600',
+    `upgrade --name t1 --version ${V2} --timeout 600`,
+  ]);
+});
+
 test('plan: a stale running relabel ends with start', () => {
   const [d] = desiredOf(`  foo:\n    version: ${V1}\n    displayName: Foo`);
   assert.ok(d);
