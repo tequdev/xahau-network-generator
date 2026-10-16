@@ -36,6 +36,7 @@ function created(over: Partial<NetworkSpec> & { name: string }): NetworkSpec {
     domain: '127.0.0.1.nip.io',
     tls: false,
     root: false,
+    pwa: !standalone,
     portOffset: 0,
     importVlKeys: DEFAULT_IMPORT_VL_KEYS,
     ...over,
@@ -62,11 +63,48 @@ test('parseXngYml: a minimal entry gets the same defaults as xng create', () => 
     domain: '127.0.0.1.nip.io',
     tls: false,
     root: false,
-    pwa: false,
+    pwa: true,
     external: false,
     portOffset: 0,
     importVlKeys: DEFAULT_IMPORT_VL_KEYS,
   });
+});
+
+test('parseXngYml: pwa is on for a testnet (external included), off for a standalone', () => {
+  const [t, s, ext] = parseXngYml(
+    `networks:
+  t: { version: ${V1} }
+  s: { version: ${V1}, type: standalone }
+  ext: { external: true }
+`,
+  );
+  assert.deepEqual([t?.pwa, s?.pwa, ext?.pwa], [true, false, true]);
+});
+
+test('parseXngYml: top-level domain/tls default every testnet; the entry wins; standalone ignores them', () => {
+  const [a, b, c, ext, s] = parseXngYml(
+    `domain: xahau-dev.net
+tls: true
+networks:
+  a: { version: ${V1} }
+  b: { version: ${V1}, domain: 127.0.0.1.nip.io, tls: false }
+  c: { version: ${V1}, tls: false }
+  ext: { external: true }
+  s: { version: ${V1}, type: standalone }
+`,
+  );
+  assert.deepEqual([a?.domain, a?.tls], ['xahau-dev.net', true]);
+  assert.deepEqual([b?.domain, b?.tls], ['127.0.0.1.nip.io', false]);
+  assert.deepEqual([c?.domain, c?.tls], ['xahau-dev.net', false]);
+  assert.deepEqual([ext?.domain, ext?.tls], ['xahau-dev.net', true]);
+  assert.deepEqual([s?.domain, s?.tls], ['127.0.0.1.nip.io', false]);
+});
+
+test('parseXngYml: an unknown top-level key is an error', () => {
+  assert.throws(
+    () => parseXngYml('doman: x\nnetworks: {}\n'),
+    /unknown top-level key\(s\) doman \(allowed: networks, domain, tls\)/,
+  );
 });
 
 test('parseXngYml: missing version names the network', () => {
@@ -92,7 +130,7 @@ test('parseXngYml: every validateSpec rule is enforced', () => {
     [`  a:\n    version: ${V1}\n    quorum: 4`, /quorum must be/],
     [`  a:\n    version: ${V1}\n    portOffset: 14301`, /portOffset must be/],
     [`  a:\n    version: ${V1}\n    tls: "yes"`, /tls must be/],
-    [`  a:\n    version: ${V1}\n    pwa: "yes"`, /pwa must be/],
+    [`  a:\n    version: ${V1}\n    pwa: true`, /unknown key\(s\) pwa/],
     [
       `  a:\n    type: standalone\n    version: ${V1}\n    root: true`,
       /root is testnet only/,
@@ -408,7 +446,7 @@ test('formatPlan: summary counts, row symbols and create description', () => {
   );
   assert.match(
     out,
-    /^\+ jshooks +create +testnet .*, 3 validators, xahau-dev\.net \(tls\)$/m,
+    /^\+ jshooks +create +testnet .*, 3 validators, xahau-dev\.net \(tls, pwa\)$/m,
   );
   assert.match(
     out,
@@ -456,11 +494,11 @@ test('formatPlan: with a zone, lists certificate packs ordered and deleted', () 
     out,
     /^ {2}- certificate \*\.old\.xahau-dev\.net +\(old: deleted by remove\)$/m,
   );
-  assert.equal(
-    out.match(/certificate/g)?.length,
-    2,
-    'apex and standalone add no line',
+  assert.match(
+    out,
+    /^ {2}\+ certificate \*\.pwa\.xahau-dev\.net +\(apex: ordered by create\)$/m,
   );
+  assert.equal(out.match(/certificate/g)?.length, 3, 'standalone adds no line');
 });
 
 test('formatPlan: without a zone, warns for tls testnets that would need certificates', () => {
@@ -473,6 +511,16 @@ test('formatPlan: without a zone, warns for tls testnets that would need certifi
   assert.match(
     out,
     /^cloudflare: XNG_CF_ZONE is not set, .*ordered for jshooks or deleted for old /m,
+  );
+});
+
+test('formatPlan: without a zone, a tls root network warns too (its *.pwa pack)', () => {
+  const desired = desiredOf(
+    `  main:\n    version: ${V1}\n    domain: xahau-dev.net\n    tls: true\n    root: true`,
+  );
+  assert.match(
+    formatPlan(plan(desired, [], new Set())),
+    /^cloudflare: XNG_CF_ZONE is not set, .*ordered for main/m,
   );
 });
 
@@ -695,10 +743,10 @@ test('plan: a validatorConfig change is an upgrade carrying --validator-config',
   ]);
 });
 
-test('plan: toggling pwa is an upgrade carrying --pwa / --no-pwa', () => {
+test('plan: an old network.json without pwa is an upgrade carrying --pwa', () => {
   const on = plan(
-    desiredOf(`  t1:\n    version: ${V1}\n    pwa: true`),
-    [created({ name: 't1' })],
+    desiredOf(`  t1:\n    version: ${V1}`),
+    [created({ name: 't1', pwa: false })],
     new Set(['t1']),
   );
   assert.equal(on[0]?.kind, 'upgrade');
@@ -706,21 +754,12 @@ test('plan: toggling pwa is an upgrade carrying --pwa / --no-pwa', () => {
   assert.deepEqual(argv(on[0]?.steps ?? []), [
     `upgrade --name t1 --version ${V1} --timeout 300 --pwa`,
   ]);
-  const off = plan(
-    desiredOf(`  t1:\n    version: ${V1}`),
-    [created({ name: 't1', pwa: true })],
-    new Set(['t1']),
-  );
-  assert.equal(off[0]?.kind, 'upgrade');
-  assert.deepEqual(argv(off[0]?.steps ?? []), [
-    `upgrade --name t1 --version ${V1} --timeout 300 --no-pwa`,
-  ]);
 });
 
-test('plan: an external network whose pwa changes is still recreated', () => {
+test('plan: an old external network.json without pwa is recreated', () => {
   const actions = plan(
     desiredOf(
-      '  foo:\n    external: true\n    domain: xahau-dev.net\n    tls: true\n    pwa: true',
+      '  foo:\n    external: true\n    domain: xahau-dev.net\n    tls: true',
     ),
     [
       created({
@@ -728,6 +767,7 @@ test('plan: an external network whose pwa changes is still recreated', () => {
         external: true,
         domain: 'xahau-dev.net',
         tls: true,
+        pwa: false,
       }),
     ],
     new Set(),
@@ -735,13 +775,20 @@ test('plan: an external network whose pwa changes is still recreated', () => {
   assert.equal(actions[0]?.kind, 'recreate');
 });
 
-test('formatPlan: an upgrade that turns pwa on orders the pwa wildcard pack', () => {
+test('formatPlan: an upgrade that migrates an old network to pwa orders the pwa wildcard pack', () => {
   const out = formatPlan(
     plan(
       desiredOf(
-        `  t1:\n    version: ${V1}\n    domain: xahau-dev.net\n    tls: true\n    pwa: true`,
+        `  t1:\n    version: ${V1}\n    domain: xahau-dev.net\n    tls: true`,
       ),
-      [created({ name: 't1', domain: 'xahau-dev.net', tls: true })],
+      [
+        created({
+          name: 't1',
+          domain: 'xahau-dev.net',
+          tls: true,
+          pwa: false,
+        }),
+      ],
       new Set(['t1']),
     ),
     'xng.yml',
@@ -756,7 +803,7 @@ test('formatPlan: an upgrade that turns pwa on orders the pwa wildcard pack', ()
 const EXT =
   '  foo:\n    external: true\n    domain: xahau-dev.net\n    tls: true';
 
-test('parseXngYml: an external entry needs no version and only takes domain, tls, pwa', () => {
+test('parseXngYml: an external entry needs no version and only takes domain and tls', () => {
   const [spec] = desiredOf(EXT);
   assert.equal(spec?.external, true);
   assert.equal(spec?.version, '');

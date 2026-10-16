@@ -24,7 +24,7 @@ pnpm xng stop --name t1
 pnpm xng reset --name t1 --wait
 pnpm xng remove --name t1
 
-# rolling upgrade of a running testnet, no downtime: new binary and/or new xahaud.cfg (or --pwa/--no-pwa)
+# rolling upgrade of a running testnet, no downtime: new binary and/or new xahaud.cfg
 pnpm xng upgrade --name t1 --version 2026.9.9-dev+3667
 pnpm xng upgrade --name t1 --node-config '{"ledger_history":["5000"]}'
 
@@ -57,7 +57,7 @@ never fully stopped. The default quorum is capped at `validators - 1` (see
 below), so one validator can be mid-restart and consensus still keeps going;
 pass `--quorum` yourself to raise it if you want stricter safety instead.
 With the current binary and an unchanged `validatorConfig` (e.g. `--node-config`
-or `--pwa`/`--no-pwa` only) just `node` is restarted.
+only) just `node` is restarted.
 
 `vote` (testnet only) runs `feature <amendment> accept|reject` on each
 validator. Every generated node sets `[amendment_majority_time]` to
@@ -175,7 +175,7 @@ networks:
     tls: true
 ```
 
-Only `domain`, `tls`, `pwa`, `displayName` and `displayShortName` are allowed on an external network (it
+Only `domain`, `tls`, `displayName` and `displayShortName` are allowed on an external network (it
 cannot be `root`), and `start`/`stop`/`reset`/`upgrade`/`vote` refuse it.
 DNS (`foo.<domain>` and `*.foo.<domain>` to the other server) and its certificate are yours to
 arrange there.
@@ -193,7 +193,7 @@ Setup on the host — pick one of the two ways to get certificates:
    applies `traefik/compose.acme.yml`, so Traefik issues a Let's Encrypt
    certificate per hostname (HTTP-01 on port 80). Create networks with
    `--tls` so their advertised URLs are `https`/`wss`.
-   The `pwa<AccountIndex>.pwa.<name>.<domain>` hosts of a `--pwa` network
+   The `pwa<AccountIndex>.pwa.<name>.<domain>` hosts of a testnet
    are not covered: Traefik only issues certificates for literal `Host()`
    rules and a wildcard needs DNS-01, so use plain http there or option B.
 
@@ -208,10 +208,11 @@ TLS skips Tunnel hostnames, so this can't be done once up front: with
 `XNG_CF_ZONE` set, `xng` orders that certificate through Cloudflare's
 [`cf` CLI](https://github.com/cloudflare/cf) and waits for it to go active
 on `xng create`, re-checks it (idempotently) on `xng start`/`xng reset`,
-and deletes it on `xng remove`. A `--pwa` network's pack also includes
+and deletes it on `xng remove`. A testnet's pack also includes
 `*.pwa.<name>.<domain>` (`*.pwa.<domain>` for a root network, which
-otherwise needs no pack); an existing pwa network gets a new pack ordered on
-its next `xng start`, and the old one is deleted with `xng remove`.
+otherwise needs no pack); a network created before pwa was always on gets its new pack from
+`xng upgrade --name <n> --pwa` (which `apply` plans), and the old one is
+deleted with `xng remove`.
 Everything else is one-time setup:
 
 1. Install and log in to `cf` (Node 22+): `npm i -g cf@0.15.0 && cf auth login`, or
@@ -255,7 +256,7 @@ Everything else is one-time setup:
 Create networks with `--tls`, and don't pass `--acme-email` in this mode.
 A certificate takes a few minutes to become active (TXT validation is
 automatic on a full-setup zone); `xng create` prints the URLs and then waits
-for it. A root network on the zone apex needs no certificate of its own.
+for it. A root network on the zone apex needs a pack only for `*.pwa.<domain>`.
 Non-Enterprise zones have a cap on advanced certificate packs; check
 `cf ssl certificate-packs quota get -z <domain>` before running many networks.
 
@@ -272,15 +273,13 @@ commands as child processes.
 
 ```yaml
 # xng.yml
+domain: xahau-dev.net       # default for every testnet below (optional)
+tls: true                   # likewise; a network's own domain/tls wins
 networks:
   jshooks:                    # the key is the network name
     version: 2026.9.8-jshooks+3640   # required; "latest" is never resolved implicitly
-    domain: xahau-dev.net
-    tls: true
   main:
     version: 2026.9.9-dev+3667
-    domain: xahau-dev.net
-    tls: true
     root: true
   s1:
     type: standalone
@@ -293,7 +292,7 @@ key (`cp xng.example.yml xng.yml`).
 
 The keys are those of `workspace/<name>/network.json`: `type` (default
 `testnet`), `version`, `validators` (3), `quorum`, `networkId` (21339),
-`domain` (`127.0.0.1.nip.io`), `tls` (false), `root` (false), `pwa` (false),
+`domain` (`127.0.0.1.nip.io`), `tls` (false), `root` (false),
 `external` (false), `portOffset` (0), `displayName`, `displayShortName`, `nodeConfig`, `validatorConfig`. `nodeConfig` (also `xng
 create --node-config <json>`) adds or overrides `xahaud.cfg` sections of the
 non-validating `node` only: a section xng already writes is replaced, any
@@ -303,7 +302,8 @@ standalone, or a change to `node_db`, `database_path`, `relational_db`,
 instead). `node` also gets `[hook_validate_rpc] 1` by default (validators never
 do); `nodeConfig` can override it. `validatorConfig`
 (`--validator-config <json>`) does the same for the testnet validators
-v1..vN only, never `node`. `pwa` (`--pwa`) adds a xahaud `protocol = pwa`
+v1..vN only, never `node`. Every testnet (external ones included, never a standalone) has pwa, which is not
+configurable: a xahaud `protocol = pwa`
 port on `node` whose zone is `pwa.<name>.<domain>` (`pwa.<domain>` for a root
 network): each account's loader is served at
 `http(s)://pwa<AccountIndex>.pwa.<name>.<domain>/<r-address>` and
@@ -311,10 +311,14 @@ network): each account's loader is served at
 `proxy` Docker network's subnets so only Traefik can reach it; it needs a
 xahaud dev build from 2026.10.12 (PR #793). `[pwa_allowlist]` and
 `[pwa_blocklist]` (one r-address per line) can be added through `nodeConfig`.
-Switching `pwa` on or off is also a rolling `upgrade` (`xng upgrade --name <n>
---pwa|--no-pwa`): with the binary and `validatorConfig` unchanged only `node` is
-restarted, ledger data stays.
-Defaults are the same as `xng create`; unknown keys are an error. The whole
+A network created before pwa was always on is migrated by a rolling `upgrade`
+(`xng upgrade --name <n> --pwa`, which `apply` plans by itself): with the binary
+and `validatorConfig` unchanged only `node` is restarted, ledger data stays.
+Top-level `domain` and `tls` (next to `networks:`) are the defaults for every
+testnet, external ones included; a network's own `domain`/`tls` wins, and a
+standalone ignores them. Precedence: network entry, then top-level, then the
+built-in default. Defaults are the same as `xng create`; unknown keys (also
+top-level ones; allowed: `networks`, `domain`, `tls`) are an error. The whole
 file is validated (including `XNG_CF_ZONE` certificate hosts) before
 anything runs. `networks: {}` is valid and means "remove everything".
 
@@ -334,7 +338,7 @@ xng apply [-f xng.yml] [-y] [--dry-run] [--timeout <sec>] [--network <name>]...
 | --- | --- | --- |
 | only in the file | `create` | `create`, then `start --wait` |
 | only in `workspace/` | `remove` | `remove` |
-| testnet, only `version`/`nodeConfig`/`validatorConfig`/`pwa` differ (none of the sections above) | `upgrade` | (`start --wait` if stopped, then) `upgrade` with the changed `--node-config`/`--validator-config`/`--pwa`/`--no-pwa` |
+| testnet, only `version`/`nodeConfig`/`validatorConfig` differ (or an old network.json lacks pwa) (none of the sections above) | `upgrade` | (`start --wait` if stopped, then) `upgrade` with the changed `--node-config`/`--validator-config`/`--pwa` (migration only) |
 | standalone `version`/config, any other key, or an unsafe config section differs (the plan warns) | `recreate` | `remove`, `create`, `start --wait` (ledger data and keys are wiped) |
 | identical but `displayName`/`displayShortName` | `relabel` | `label` (`start --wait` if stopped); no recreate |
 | identical, any container not running | `start` | `start --wait` |
@@ -350,7 +354,7 @@ time; the first failure stops the run. Running `apply` again recomputes from
 the real state, so there is no rollback.
 
 With `XNG_CF_ZONE` set, the plan also lists the Cloudflare certificate packs
-that will be ordered (create, recreate, upgrade that turns pwa on) or deleted (remove, recreate); when it
+that will be ordered (create, recreate, upgrade that migrates to pwa) or deleted (remove, recreate); when it
 is not set and a `tls` testnet is affected, the plan warns that no certificate
 will be ordered or deleted.
 

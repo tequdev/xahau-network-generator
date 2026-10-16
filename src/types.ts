@@ -25,7 +25,7 @@ export type NetworkSpec = {
   domain: string; // testnet only; default '127.0.0.1.nip.io'; hostnames are `<sub>.<name>.<domain>`
   tls: boolean; // testnet only; default false; true renders https/wss endpoint URLs
   root?: boolean; // testnet only; default false; true serves the bare domain (`<sub>.<domain>`) instead of `<sub>.<name>.<domain>`
-  pwa?: boolean; // testnet only; default false; node (index 0) serves on-ledger AppLoader documents (xahaud PR #793 `protocol = pwa`, dev builds from 2026.10.12) at pwa<AccountIndex>.pwa.<base> through Traefik; pwa.<base>/<r-address> redirects there
+  pwa?: boolean; // always true for a testnet, never for a standalone; set by xng, not configurable (only an old network.json lacks it, `xng upgrade --pwa` migrates); node (index 0) serves on-ledger AppLoader documents (xahaud PR #793 `protocol = pwa`, dev builds from 2026.10.12) at pwa<AccountIndex>.pwa.<base> through Traefik; pwa.<base>/<r-address> redirects there
   external?: boolean; // testnet only; default false; runs on another host, only its hostnames are known here (network.json is a stub with version "")
   displayName?: string; // cosmetic, landing page only (section heading); never recreates a network
   displayShortName?: string; // cosmetic, landing page only (nav link, faucet pill); never recreates a network

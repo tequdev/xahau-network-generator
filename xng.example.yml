@@ -13,11 +13,21 @@
 # an error. `version` is never resolved implicitly: pick one from
 # https://build.xahau.tech (release, dev, or a feature branch build).
 
+# Top-level defaults for every TESTNET below (external ones included); a
+# standalone ignores them. Precedence: the network's own entry, then these,
+# then the built-in default (127.0.0.1.nip.io / false). Both are optional,
+# and no other top-level key is allowed besides `networks`.
+domain: xahau-dev.net
+tls: true
+
 networks:
   # The key is the network name: lowercase letters, digits, "-" and "_",
   # starting with a letter or digit, at most 63 characters; it becomes the
   # workspace/ directory, the container prefix and (unless root: true) the
   # hostname label. A testnet cannot be named explorer, rpc, faucet, vl or pwa.
+  # Every testnet also serves on-ledger AppLoader documents (pwa) at
+  # pwa<AccountIndex>.pwa.<name>.<domain>/<r-address>; this needs a xahaud dev
+  # build from 2026.10.12 (PR #793). It is not configurable.
 
   # A testnet on a real domain, nested under its name:
   #   wss://jshooks.xahau-dev.net, https://rpc.jshooks.xahau-dev.net,
@@ -28,13 +38,12 @@ networks:
     validators: 3                    # 1, or >= 3 (2 cannot survive a rolling restart; default 3)
     quorum: 2                        # 1..validators (default min(ceil(0.8*n), n-1): 3->2, 5->4, 1->1)
     networkId: 21339                 # integer >= 0                    (default 21339)
-    domain: xahau-dev.net            # lowercase letters, digits, ".", "-" (default 127.0.0.1.nip.io)
+    domain: xahau-dev.net            # lowercase letters, digits, ".", "-" (default: the top-level domain,
+                                     # else 127.0.0.1.nip.io); same as the top-level one here
     tls: true                        # true | false: https/wss URLs; needs `xng proxy up --acme-email`
-                                     # or XNG_CF_ZONE (Cloudflare) for real certificates (default false)
+                                     # or XNG_CF_ZONE (Cloudflare) for real certificates (default: the
+                                     # top-level tls, else false); same as the top-level one here
     root: false                      # true | false, testnet only     (default false)
-    pwa: false                       # true | false, testnet only     (default false): node serves
-                                     # AppLoader documents at pwa<AccountIndex>.pwa.<name>.<domain>/<r-address>
-                                     # (needs a xahaud dev build from 2026.10.12, PR #793)
     displayName: JS Hooks            # 1-64 chars; landing page heading (default: the name, `main` for root)
     displayShortName: jshooks               # 1-24 chars; nav link and faucet pill (default: displayName)
                                      # both are cosmetic: changing them never recreates the network
@@ -75,8 +84,8 @@ networks:
     validators: 1                    # smallest testnet; quorum is then 1
     quorum: 1
     networkId: 21339
-    domain: 127.0.0.1.nip.io
-    tls: false
+    domain: 127.0.0.1.nip.io         # overrides the top-level domain
+    tls: false                       # overrides the top-level tls
     root: false
     # Extra/overriding xahaud.cfg sections for `node` only; validators are
     # unaffected (so validator-only sections such as [voting] do nothing
@@ -96,8 +105,9 @@ networks:
 
   # A network that runs on another host. Nothing is started here; it is only
   # listed on this host's landing page (the `root: true` network above serves
-  # it). Only domain, tls, pwa, displayName and displayShortName are allowed; point DNS for foo.<domain> and
-  # *.foo.<domain> and its certificate at the other host yourself.
+  # it). Only domain, tls, displayName and displayShortName are allowed
+  # (domain and tls default to the top-level ones); point DNS for foo.<domain>
+  # and *.foo.<domain> and its certificate at the other host yourself.
   # foo:
   #   external: true
   #   domain: xahau-dev.net
