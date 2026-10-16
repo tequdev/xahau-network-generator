@@ -12,6 +12,8 @@ concurrency:
 
 env:
   XAHAUD_VERSION: 2026.10.13-release+4119
+  # upgrade target, and the version of the standalone-dev job
+  UPGRADE_TO: 2026.10.14-dev+4134
 
 jobs:
   e2e:
@@ -23,15 +25,15 @@ jobs:
         include:
           - name: testnet-3
             args: "--type testnet --validators 3 --domain localhost"
-            upgrade_to: 2026.10.14-dev+4134
+            upgrade: true
           - name: testnet-1
             args: "--type testnet --validators 1 --domain localhost --root"
-            upgrade_to: 2026.10.14-dev+4134
+            upgrade: true
           - name: standalone
             args: "--type standalone"
           - name: standalone-dev
             args: "--type standalone"
-            version: 2026.10.14-dev+4134
+            dev: true
     steps:
       - uses: actions/checkout@v7
 
@@ -55,19 +57,19 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: ~/.cache/xahau-network-generator
-          key: xahaud-${{ matrix.version || env.XAHAUD_VERSION }}
+          key: xahaud-${{ matrix.dev && env.UPGRADE_TO || env.XAHAUD_VERSION }}
 
       - uses: actions/cache@v6
-        if: matrix.upgrade_to
+        if: matrix.upgrade
         with:
           path: ~/.cache/xahau-network-generator
-          key: xahaud-${{ matrix.upgrade_to }}
+          key: xahaud-${{ env.UPGRADE_TO }}
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm test
 
-      - run: pnpm xng create --name ${{ matrix.name }} --version "${{ matrix.version || env.XAHAUD_VERSION }}" ${{ matrix.args }}
+      - run: pnpm xng create --name ${{ matrix.name }} --version "${{ matrix.dev && env.UPGRADE_TO || env.XAHAUD_VERSION }}" ${{ matrix.args }}
       - run: pnpm xng start --name ${{ matrix.name }} --wait --timeout 600
       - run: pnpm e2e --name ${{ matrix.name }}
       - run: pnpm xng reset --name ${{ matrix.name }} --wait --timeout 600
@@ -78,11 +80,11 @@ jobs:
       - run: pnpm e2e --name ${{ matrix.name }}
 
       - name: xng upgrade
-        if: matrix.upgrade_to
-        run: pnpm xng upgrade --name ${{ matrix.name }} --version "${{ matrix.upgrade_to }}" --timeout 600
+        if: matrix.upgrade
+        run: pnpm xng upgrade --name ${{ matrix.name }} --version "${{ env.UPGRADE_TO }}" --timeout 600
       - name: e2e after upgrade
-        if: matrix.upgrade_to
-        run: pnpm e2e --name ${{ matrix.name }} --expect-version "${{ matrix.upgrade_to }}"
+        if: matrix.upgrade
+        run: pnpm e2e --name ${{ matrix.name }} --expect-version "${{ env.UPGRADE_TO }}"
 
       - name: docker compose logs
         if: failure()
@@ -97,8 +99,6 @@ jobs:
   apply:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      UPGRADE_TO: 2026.10.14-dev+4134
     steps:
       - uses: actions/checkout@v7
 
