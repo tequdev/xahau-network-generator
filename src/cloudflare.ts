@@ -56,7 +56,7 @@ export function cfConfigFromEnv(
 
 // The hosts of the certificate pack this network needs, or undefined when
 // the Universal certificate already covers every hostname it serves (a root
-// network on the zone apex without pwa, a non-TLS or standalone network). A
+// network on the zone apex whose network.json predates pwa, a non-TLS or standalone network). A
 // pwa network also needs `*.pwa.<base>`. Cloudflare
 // requires the zone apex in every advanced pack.
 export function certHosts(
@@ -236,7 +236,7 @@ function ownPacks(
 }
 
 // Every host xng may have ordered for this network: a pack ordered while pwa
-// was on keeps `*.pwa.<base>`, and must stay recognisable after pwa is off.
+// was on keeps `*.pwa.<base>`, and must stay recognisable for a spec without pwa.
 function ownHosts(spec: NetworkSpec, zone: string): string[] | undefined {
   return certHosts({ ...spec, pwa: true }, zone);
 }

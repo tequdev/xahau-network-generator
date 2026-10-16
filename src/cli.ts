@@ -206,15 +206,10 @@ program
     'testnet only: serve the bare domain (hostnames are <sub>.<domain>, not <sub>.<name>.<domain>); one per domain',
     false,
   )
-  .option(
-    '--pwa',
-    'testnet only: serve on-ledger AppLoader documents (xahaud PR #793 `protocol = pwa`, dev builds from 2026.10.12) at pwa<AccountIndex>.pwa.<name>.<domain>/<r-address> through Traefik; pwa.<name>.<domain>/<r-address> redirects there',
-    false,
-  )
   .addOption(
     new Option(
       '--external',
-      "testnet only: register a network that runs on another host so it appears on this host's landing page; writes network.json only (only --domain, --tls and --pwa apply)",
+      "testnet only: register a network that runs on another host so it appears on this host's landing page; writes network.json only (only --domain and --tls apply)",
     )
       .default(false)
       // Anything else baked into the stub would make `apply` see a difference
@@ -270,7 +265,7 @@ program
       domain: opts.domain,
       tls: opts.tls,
       root: opts.root,
-      pwa: opts.pwa,
+      pwa: opts.type === 'testnet',
       external: opts.external,
       portOffset: opts.portOffset,
       importVlKeys: DEFAULT_IMPORT_VL_KEYS,
@@ -432,7 +427,7 @@ program
 program
   .command('upgrade')
   .description(
-    'rolling upgrade of a running testnet, one node at a time: swap the xahaud binary and/or rewrite xahaud.cfg (nodeConfig/validatorConfig, --pwa/--no-pwa); with the current binary and unchanged validatorConfig only `node` is restarted',
+    'rolling upgrade of a running testnet, one node at a time: swap the xahaud binary and/or rewrite xahaud.cfg (nodeConfig/validatorConfig; --pwa migrates a network created before pwa was always on); with the current binary and unchanged validatorConfig only `node` is restarted',
   )
   .requiredOption('--name <name>', 'network name', parseName)
   .option('--version <ver>', 'xahaud version to upgrade to (default: current)')
@@ -444,8 +439,7 @@ program
     '--validator-config <json>',
     'replace validatorConfig (see create); {} removes it',
   )
-  .option('--pwa', 'turn the pwa port on (see create)')
-  .option('--no-pwa', 'turn the pwa port off')
+  .option('--pwa', 'enable the pwa port on a network.json that predates it')
   .option(
     '--timeout <sec>',
     'per-node readiness timeout in seconds',
@@ -471,7 +465,7 @@ program
       if (Object.keys(sections).length === 0) delete spec[key];
       else spec[key] = sections;
     }
-    if (opts.pwa !== undefined) spec.pwa = opts.pwa;
+    if (opts.pwa) spec.pwa = true;
     const unsafe = unsafeConfigChanges(before, spec);
     if (unsafe.length > 0) {
       throw program.error(

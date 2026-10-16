@@ -38,8 +38,14 @@ const COMPARED = [
 // Cosmetic landing-page labels: accepted in yml but not in COMPARED, so changing
 // one never recreates a network (it only plans `relabel`).
 const LABELS = ['displayName', 'displayShortName'] as const;
-const YML_KEYS: readonly string[] = [...COMPARED, ...LABELS];
-const EXTERNAL_KEYS = ['external', 'domain', 'tls', 'pwa', ...LABELS];
+// pwa is compared (old network.json files lack it) but not configurable.
+const YML_KEYS: readonly string[] = [
+  ...COMPARED.filter((k) => k !== 'pwa'),
+  ...LABELS,
+];
+// Top-level `domain` and `tls` are the defaults of every testnet below.
+const TOP_KEYS = ['networks', 'domain', 'tls'];
+const EXTERNAL_KEYS = ['external', 'domain', 'tls', ...LABELS];
 
 export function parseXngYml(text: string): NetworkSpec[] {
   let doc: unknown;
@@ -48,7 +54,14 @@ export function parseXngYml(text: string): NetworkSpec[] {
   } catch (err) {
     throw new Error(`invalid YAML: ${(err as Error).message}`);
   }
-  const networks = (doc as { networks?: unknown } | null)?.networks;
+  const top = (doc ?? {}) as Record<string, unknown>;
+  const badTop = Object.keys(top).filter((k) => !TOP_KEYS.includes(k));
+  if (badTop.length > 0) {
+    throw new Error(
+      `unknown top-level key(s) ${badTop.join(', ')} (allowed: ${TOP_KEYS.join(', ')})`,
+    );
+  }
+  const networks = top.networks;
   if (
     typeof networks !== 'object' ||
     networks === null ||
@@ -60,7 +73,7 @@ export function parseXngYml(text: string): NetworkSpec[] {
   const specs: NetworkSpec[] = [];
   for (const [name, raw] of Object.entries(networks)) {
     try {
-      specs.push(toSpec(name, raw));
+      specs.push(toSpec(name, raw, { domain: top.domain, tls: top.tls }));
     } catch (err) {
       throw new Error(`network "${name}": ${(err as Error).message}`);
     }
@@ -69,7 +82,11 @@ export function parseXngYml(text: string): NetworkSpec[] {
   return specs;
 }
 
-function toSpec(name: string, raw: unknown): NetworkSpec {
+function toSpec(
+  name: string,
+  raw: unknown,
+  top: { domain?: unknown; tls?: unknown },
+): NetworkSpec {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     throw new Error('must be a mapping (`version` is required)');
   }
@@ -106,10 +123,16 @@ function toSpec(name: string, raw: unknown): NetworkSpec {
     validators,
     quorum: (entry.quorum ?? defaultQuorum(validators)) as number,
     networkId: (entry.networkId ?? 21339) as number,
-    domain: (entry.domain ?? '127.0.0.1.nip.io') as string,
-    tls: (entry.tls ?? false) as boolean,
+    // The top-level defaults are for testnets: domain/tls do not apply to a
+    // standalone, and inheriting them would only diff against its network.json.
+    domain: (entry.domain ??
+      (type === 'testnet' ? top.domain : undefined) ??
+      '127.0.0.1.nip.io') as string,
+    tls: (entry.tls ??
+      (type === 'testnet' ? top.tls : undefined) ??
+      false) as boolean,
     root: (entry.root ?? false) as boolean,
-    pwa: (entry.pwa ?? false) as boolean,
+    pwa: type === 'testnet',
     external,
     portOffset: (entry.portOffset ?? 0) as number,
     importVlKeys: DEFAULT_IMPORT_VL_KEYS,
@@ -237,7 +260,6 @@ function createArgv(spec: NetworkSpec): string[] {
       '--domain',
       spec.domain,
       ...(spec.tls ? ['--tls'] : []),
-      ...(spec.pwa ? ['--pwa'] : []),
       ...labels,
     ];
   }
@@ -259,7 +281,6 @@ function createArgv(spec: NetworkSpec): string[] {
     spec.domain,
     ...(spec.tls ? ['--tls'] : []),
     ...(spec.root ? ['--root'] : []),
-    ...(spec.pwa ? ['--pwa'] : []),
     '--port-offset',
     String(spec.portOffset),
     ...(spec.nodeConfig
@@ -407,7 +428,7 @@ export function plan(
             ...(has('validatorConfig')
               ? ['--validator-config', JSON.stringify(d.validatorConfig ?? {})]
               : []),
-            ...(has('pwa') ? [d.pwa ? '--pwa' : '--no-pwa'] : []),
+            ...(has('pwa') ? ['--pwa'] : []),
           ],
         ],
       };
@@ -524,9 +545,9 @@ function describeSpec(spec: NetworkSpec): string {
   return `testnet ${spec.version}, ${spec.validators} validator${spec.validators === 1 ? '' : 's'}, ${spec.domain}${flags.length ? ` (${flags.join(', ')})` : ''}`;
 }
 
-// With XNG_CF_ZONE (`cf`), create/recreate (and an upgrade that turns pwa on,
-// which adds `*.pwa.<base>`) order an edge certificate pack and remove/recreate
-// delete one (turning pwa off deletes nothing; see cloudflare.ts); say so, or warn that nothing
+// With XNG_CF_ZONE (`cf`), create/recreate (and an upgrade that migrates an old
+// network to pwa, which adds `*.pwa.<base>`) order an edge certificate pack and
+// remove/recreate delete one (see cloudflare.ts); say so, or warn that nothing
 // will happen when the variable is missing for a tls testnet.
 function pwaOn(a: Action): boolean {
   return (
@@ -598,9 +619,15 @@ function cloudflareBlock(
 }
 
 // Without a zone the apex is unknown, but a root network normally sits on
-// it and needs no pack of its own, so it is left out of the warning.
+// it and needs a pack only for `*.pwa.<domain>` (none for an old network.json
+// without pwa), so only then is it in the warning.
 function isTlsTestnet(spec?: NetworkSpec): boolean {
-  return spec?.type === 'testnet' && spec.tls && !spec.root && !spec.external;
+  return (
+    spec?.type === 'testnet' &&
+    spec.tls &&
+    (!spec.root || !!spec.pwa) &&
+    !spec.external
+  );
 }
 
 export function formatPlan(
