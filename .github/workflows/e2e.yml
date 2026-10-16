@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  XAHAUD_VERSION: 2026.6.21-release+3350
+  XAHAUD_VERSION: 2026.10.13-release+4119
 
 jobs:
   e2e:
@@ -23,15 +23,15 @@ jobs:
         include:
           - name: testnet-3
             args: "--type testnet --validators 3 --domain localhost"
-            upgrade_to: 2026.9.9-dev+3667
+            upgrade_to: 2026.10.14-dev+4134
           - name: testnet-1
             args: "--type testnet --validators 1 --domain localhost --root"
-            upgrade_to: 2026.9.9-dev+3667
+            upgrade_to: 2026.10.14-dev+4134
           - name: standalone
             args: "--type standalone"
           - name: standalone-dev
             args: "--type standalone"
-            version: 2026.9.9-dev+3667
+            version: 2026.10.14-dev+4134
     steps:
       - uses: actions/checkout@v7
 
@@ -98,7 +98,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      UPGRADE_TO: 2026.9.9-dev+3667
+      UPGRADE_TO: 2026.10.14-dev+4134
     steps:
       - uses: actions/checkout@v7
 
