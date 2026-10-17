@@ -28,6 +28,15 @@ const NGINX_COMMAND = [
   "echo 'server_tokens off;' > /etc/nginx/conf.d/zz-tokens.conf && exec /docker-entrypoint.sh nginx -g 'daemon off;'",
 ];
 
+// The landing page's networks.json is readable from any origin, so other
+// sites can list the devnets. An empty map value sends no header, keeping
+// CORS off the page itself. `$$` is compose's escape for `$`.
+const SITE_COMMAND = [
+  'sh',
+  '-c',
+  `echo 'map $$uri $$cors { /networks.json *; } add_header Access-Control-Allow-Origin $$cors;' > /etc/nginx/conf.d/zz-cors.conf && ${NGINX_COMMAND[2]}`,
+];
+
 // Short hash of a flat repo directory's build inputs (names + contents, sorted;
 // node_modules skipped). faucet/ and debugstream/ have no subdirectories.
 export function sourceHash(dir: string): string {
@@ -217,7 +226,7 @@ export function renderCompose(spec: NetworkSpec): string {
       // read-only one cannot be created by Docker.
       services.site = {
         image: 'nginx:alpine',
-        command: NGINX_COMMAND,
+        command: SITE_COMMAND,
         volumes: ['./site:/usr/share/nginx/html:ro'],
         networks: ['default', 'proxy'],
         labels: [

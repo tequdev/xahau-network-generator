@@ -190,6 +190,11 @@ test('compose: a root network serves the landing page and splits the bare domain
   for (const svc of [root.services.site, root.services.vl]) {
     assert.ok(svc.command.join(' ').includes('server_tokens off;'));
   }
+  assert.ok(
+    root.services.site.command[2].includes(
+      'map $$uri $$cors { /networks.json *; }',
+    ),
+  );
   const rule = (labels: string[], router: string) =>
     labels.find((l) =>
       l.startsWith(`traefik.http.routers.dev-${router}.rule=`),

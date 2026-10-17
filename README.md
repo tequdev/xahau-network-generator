@@ -146,7 +146,8 @@ WebSocket upgrades to the node). The page is the repo's `site/` directory,
 copied into the root network's `site/` on every `start`/`reset`/`apply`
 (also when `apply` finds no network changes), so edits show up with no
 restart needed; the list of networks next to it (`site/networks.json`) is
-rewritten at the same times and on every `create`/`remove`/`upgrade`.
+rewritten at the same times and on every `create`/`remove`/`upgrade`, and
+is readable from any origin (CORS) so other sites can list the devnets.
 
 ![landing page](assets/landing.png)
 
