@@ -28,14 +28,6 @@ const NGINX_COMMAND = [
   "echo 'server_tokens off;' > /etc/nginx/conf.d/zz-tokens.conf && exec /docker-entrypoint.sh nginx -g 'daemon off;'",
 ];
 
-// The landing page's nginx also answers `GET /networks` with networks.json,
-// readable cross-origin so other tools can discover every network.
-const SITE_COMMAND = [
-  'sh',
-  '-c',
-  `echo 'server { listen 80; root /usr/share/nginx/html; location = /networks { default_type application/json; add_header Access-Control-Allow-Origin *; try_files /networks.json =404; } }' > /etc/nginx/conf.d/default.conf && ${NGINX_COMMAND[2]}`,
-];
-
 // Short hash of a flat repo directory's build inputs (names + contents, sorted;
 // node_modules skipped). faucet/ and debugstream/ have no subdirectories.
 export function sourceHash(dir: string): string {
@@ -225,7 +217,7 @@ export function renderCompose(spec: NetworkSpec): string {
       // read-only one cannot be created by Docker.
       services.site = {
         image: 'nginx:alpine',
-        command: SITE_COMMAND,
+        command: NGINX_COMMAND,
         volumes: ['./site:/usr/share/nginx/html:ro'],
         networks: ['default', 'proxy'],
         labels: [
