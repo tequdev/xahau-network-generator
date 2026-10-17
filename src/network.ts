@@ -374,6 +374,8 @@ export async function writeSiteIndex(outDir = 'workspace'): Promise<void> {
       .map((s) => ({
         name: s.name,
         root: !!s.root,
+        version: s.version, // "" for an external network
+
         ...displayNames(s),
         endpoints: endpoints(s),
       }));

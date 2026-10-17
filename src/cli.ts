@@ -484,6 +484,7 @@ program
       `upgrading ${spec.name}: ${services.join(', ')} -> ${version} (xahaud.cfg rewritten)`,
     );
     await upgradeNetwork(spec, version, opts.timeout * 1000, { nodeOnly });
+    await writeSiteIndex(); // the root's networks.json lists versions
     // A pwa network's Cloudflare pack also needs `*.pwa.<base>`;
     // ensureCertificate is idempotent otherwise.
     await syncCertificate(spec, { fatal: false });

@@ -47,6 +47,7 @@ test('writeSiteIndex: lists same-domain testnets (external too), root first, no 
   );
   assert.equal(out.networks[0].endpoints.ws, 'wss://example.com');
   assert.equal(out.networks[2].endpoints.ws, 'wss://foo.example.com');
+  assert.equal(out.networks[0].version, 'x');
   // The page is copied next to the list; only roots get a site/ directory.
   assert.ok((await readdir(join(dir, 'zeta', 'site'))).includes('index.html'));
   await assert.rejects(readdir(join(dir, 'beta', 'site')));
