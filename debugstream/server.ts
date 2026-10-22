@@ -12,12 +12,14 @@ const MAX_LOG_BYTES = 10 * 1024 * 1024;
 const MAX_BUFFERED = 1024 * 1024;
 const POLL_MS = 250;
 
-// Per-account clients get every log line mentioning the account, exactly as
+// Per-account clients get every log entry mentioning the account, exactly as
 // wss://xahau-test.net/debugstream/<account> does (hook trace()s, HookSet
 // validation, RPC replies, consensus metadata...). The unfiltered firehose
-// would be the whole log, so it only gets hook lines, logged as e.g.
+// would be the whole log, so it only gets hook entries, logged as e.g.
 // `... View:TRC HookTrace[rHOOKACC-rOTXNACC]: message`.
 const HOOK_LINE = /Hook(?:Trace|Info|Error|Emit|Set)(?:\(\d+\))?\[/;
+// xahaud's timestamp starts an entry; pretty-printed JSON lines continue it (#43).
+const ENTRY_SEP = /\r?\n(?=\d{4}-[A-Z][a-z]{2}-\d{2} )/;
 const ADDR = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/;
 // /debugstream, /debugstream/, /debugstream/<account>[/]: group 1 is the
 // account. A browser GET on the same path gets the viewer page.
@@ -74,9 +76,12 @@ async function poll() {
       offset += bytesRead;
       // ponytail: a multibyte char split across reads would be mangled; hook
       // logs are ASCII in practice.
-      const lines = (partial + buf.toString('utf8', 0, bytesRead)).split('\n');
-      partial = lines.pop() ?? '';
-      for (const l of lines) broadcast(l.replace(/\r$/, ''));
+      const text = partial + buf.toString('utf8', 0, bytesRead);
+      const cut = text.lastIndexOf('\n') + 1;
+      partial = text.slice(cut);
+      // Flushed per poll: an entry xahaud is mid-writing at poll time goes out split (rare).
+      if (cut)
+        for (const e of text.slice(0, cut - 1).split(ENTRY_SEP)) broadcast(e);
     }
     if (st.size > MAX_LOG_BYTES) {
       // xahaud opens the log with O_APPEND and never renames it, so truncating
