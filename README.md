@@ -96,8 +96,7 @@ service tails that file and streams it over WebSocket at
 `ws(s)://<base>/debugstream/<r-address>` (every log entry mentioning that
 account, what `wss://xahau-test.net/debugstream/<r-address>` sends) or
 `/debugstream/` (the `Hook*` entries for every account). Messages are the raw
-log entries, one per frame (an RPC request or reply is one multi-line entry),
-and anything a client sends is answered with the account, as on xahau-test.net.
+log entries, and anything a client sends is answered with the account, as on xahau-test.net.
 Opening the same path in a browser (`http(s)://<base>/debugstream/<r-address>`)
 shows a live viewer page, as on xahau-test.net. The file is only the hand-off between xahaud and the service: it keeps
 no history and is truncated once it passes 10 MiB, so it never accumulates.
