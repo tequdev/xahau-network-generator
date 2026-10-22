@@ -93,10 +93,11 @@ SetHook validation, RPC replies and consensus metadata (xahaud's `View`,
 `OpenLedger`, `LedgerConsensus`, `RPC`, `Server` and `NetworkOPs` partitions
 at trace) to `workspace/<name>/nodes/node/log/debug.log`. The `debugstream`
 service tails that file and streams it over WebSocket at
-`ws(s)://<base>/debugstream/<r-address>` (every line mentioning that account,
-what `wss://xahau-test.net/debugstream/<r-address>` sends) or `/debugstream/`
-(the `Hook*` lines for every account). Messages are the raw log lines, and
-anything a client sends is answered with the account, as on xahau-test.net.
+`ws(s)://<base>/debugstream/<r-address>` (every log entry mentioning that
+account, what `wss://xahau-test.net/debugstream/<r-address>` sends) or
+`/debugstream/` (the `Hook*` entries for every account). Messages are the raw
+log entries, one per frame (an RPC request or reply is one multi-line entry),
+and anything a client sends is answered with the account, as on xahau-test.net.
 Opening the same path in a browser (`http(s)://<base>/debugstream/<r-address>`)
 shows a live viewer page, as on xahau-test.net. The file is only the hand-off between xahaud and the service: it keeps
 no history and is truncated once it passes 10 MiB, so it never accumulates.

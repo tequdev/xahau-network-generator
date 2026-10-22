@@ -12,12 +12,16 @@ const MAX_LOG_BYTES = 10 * 1024 * 1024;
 const MAX_BUFFERED = 1024 * 1024;
 const POLL_MS = 250;
 
-// Per-account clients get every log line mentioning the account, exactly as
+// Per-account clients get every log entry mentioning the account, exactly as
 // wss://xahau-test.net/debugstream/<account> does (hook trace()s, HookSet
 // validation, RPC replies, consensus metadata...). The unfiltered firehose
-// would be the whole log, so it only gets hook lines, logged as e.g.
+// would be the whole log, so it only gets hook entries, logged as e.g.
 // `... View:TRC HookTrace[rHOOKACC-rOTXNACC]: message`.
 const HOOK_LINE = /Hook(?:Trace|Info|Error|Emit|Set)(?:\(\d+\))?\[/;
+// An entry is one timestamped line plus any continuation lines (RPC requests
+// and replies are pretty-printed JSON spanning many lines); filtering per
+// line would forward only the inner lines naming the account (#43).
+const ENTRY_START = /^\d{4}-[A-Z][a-z]{2}-\d{2} /;
 const ADDR = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/;
 // /debugstream, /debugstream/, /debugstream/<account>[/]: group 1 is the
 // account. A browser GET on the same path gets the viewer page.
@@ -29,7 +33,7 @@ type Client = WebSocket & { account?: string; alive?: boolean };
 
 const wss = new WebSocketServer({ noServer: true });
 
-function broadcast(line: string) {
+function broadcast(entry: string) {
   for (const c of wss.clients as Set<Client>) {
     if (c.readyState !== WebSocket.OPEN) continue;
     if (c.bufferedAmount > MAX_BUFFERED) {
@@ -37,8 +41,10 @@ function broadcast(line: string) {
       continue;
     }
     const wanted =
-      c.account === undefined ? HOOK_LINE.test(line) : line.includes(c.account);
-    if (wanted) c.send(line);
+      c.account === undefined
+        ? HOOK_LINE.test(entry)
+        : entry.includes(c.account);
+    if (wanted) c.send(entry);
   }
 }
 
@@ -76,7 +82,19 @@ async function poll() {
       // logs are ASCII in practice.
       const lines = (partial + buf.toString('utf8', 0, bytesRead)).split('\n');
       partial = lines.pop() ?? '';
-      for (const l of lines) broadcast(l.replace(/\r$/, ''));
+      // ponytail: entries are flushed per poll, so an entry xahaud is still
+      // writing when we read goes out in two frames; it writes whole entries
+      // in one call, so that never happens in practice.
+      let entry: string | undefined;
+      for (const raw of lines) {
+        const l = raw.replace(/\r$/, '');
+        if (!ENTRY_START.test(l) && entry !== undefined) entry += `\n${l}`;
+        else {
+          if (entry !== undefined) broadcast(entry);
+          entry = l;
+        }
+      }
+      if (entry !== undefined) broadcast(entry);
     }
     if (st.size > MAX_LOG_BYTES) {
       // xahaud opens the log with O_APPEND and never renames it, so truncating
