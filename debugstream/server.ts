@@ -79,7 +79,7 @@ async function poll() {
       const text = partial + buf.toString('utf8', 0, bytesRead);
       const cut = text.lastIndexOf('\n') + 1;
       partial = text.slice(cut);
-      // ponytail: flushed per poll; an entry mid-write at poll time goes out split (rare)
+      // Flushed per poll: an entry xahaud is mid-writing at poll time goes out split (rare).
       if (cut)
         for (const e of text.slice(0, cut - 1).split(ENTRY_SEP)) broadcast(e);
     }
