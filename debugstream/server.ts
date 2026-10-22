@@ -80,7 +80,8 @@ async function poll() {
       const cut = text.lastIndexOf('\n') + 1;
       partial = text.slice(cut);
       // ponytail: flushed per poll; an entry mid-write at poll time goes out split (rare)
-      if (cut) for (const e of text.slice(0, cut - 1).split(ENTRY_SEP)) broadcast(e);
+      if (cut)
+        for (const e of text.slice(0, cut - 1).split(ENTRY_SEP)) broadcast(e);
     }
     if (st.size > MAX_LOG_BYTES) {
       // xahaud opens the log with O_APPEND and never renames it, so truncating
