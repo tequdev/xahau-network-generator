@@ -17,7 +17,7 @@ if (!Number.isFinite(MAX_XRP_AMOUNT) || MAX_XRP_AMOUNT <= 0) {
   process.exit(1);
 }
 // A flood would otherwise queue requests that each time out after 60 s.
-// ponytail: global counter; per-IP limits if abuse ever matters.
+// Global counter; per-IP limits if abuse ever matters.
 const MAX_IN_FLIGHT = 20;
 let inFlight = 0;
 
@@ -140,8 +140,8 @@ client.on('error', (code: string, message: string) => {
   setTimeout(reconnectWithRetry, 3000);
 });
 
-// ponytail: single promise chain serializes submissions to avoid Sequence
-// clashes; upgrade to per-account queues if concurrent throughput matters.
+// A single promise chain serializes submissions to avoid Sequence clashes;
+// upgrade to per-account queues if concurrent throughput matters.
 let submitQueue: Promise<unknown> = Promise.resolve();
 
 function readBody(req: IncomingMessage): Promise<string> {
