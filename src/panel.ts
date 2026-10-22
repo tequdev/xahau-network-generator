@@ -211,7 +211,7 @@ export function parseFeatureList(stdout: string): FeatureEntry[] {
 // Job runner: a serial in-memory queue that runs the CLI itself as a child
 // process, so there is exactly one implementation of create/.../vote, and
 // its synchronous docker calls never block this server.
-// ponytail: one global queue; per-network queues if parallel deploys ever matter.
+// One global queue; per-network queues if parallel deploys ever matter.
 // ---------------------------------------------------------------------------
 
 type Job = {

@@ -72,8 +72,8 @@ async function poll() {
         await fh.close();
       }
       offset += bytesRead;
-      // ponytail: a multibyte char split across reads would be mangled; hook
-      // logs are ASCII in practice.
+      // A multibyte char split across reads would be mangled; hook logs are
+      // ASCII in practice.
       const lines = (partial + buf.toString('utf8', 0, bytesRead)).split('\n');
       partial = lines.pop() ?? '';
       for (const l of lines) broadcast(l.replace(/\r$/, ''));
@@ -83,7 +83,7 @@ async function poll() {
       // from outside is safe (same principle as logrotate copytruncate). A
       // line xahaud writes between the read above and this truncate is lost;
       // that window is microseconds every few hours, accepted.
-      // ponytail: truncate-to-zero cap; real rotation if someone needs history
+      // Truncate-to-zero cap; real rotation if someone needs history.
       await truncate(LOG_FILE, 0);
       offset = 0;
       partial = '';
