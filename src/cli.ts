@@ -624,7 +624,7 @@ proxyCmd
   .description('create the shared proxy network and start Traefik')
   .option(
     '--acme-email <email>',
-    "enable Let's Encrypt for every routed hostname (persisted in traefik/acme.env; delete that file to disable)",
+    "enable Let's Encrypt for every routed hostname (persisted in ~/.config/xahau-network-generator/acme.env; delete that file to disable)",
   )
   .action((opts) => {
     if (opts.acmeEmail) enableAcme(opts.acmeEmail);

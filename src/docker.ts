@@ -1,5 +1,7 @@
 import { execFile, spawnSync } from 'node:child_process';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
@@ -17,12 +19,23 @@ const TRAEFIK_COMPOSE = fileURLToPath(
 const TRAEFIK_ACME_COMPOSE = fileURLToPath(
   new URL('../traefik/compose.acme.yml', import.meta.url),
 );
-export const TRAEFIK_ACME_ENV = fileURLToPath(
+const ACME_ENV = join(
+  process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'),
+  'xahau-network-generator',
+  'acme.env',
+);
+// Legacy location from the checkout era (inside the package directory).
+const LEGACY_ACME_ENV = fileURLToPath(
   new URL('../traefik/acme.env', import.meta.url),
 );
+export function acmeEnvFile(): string {
+  return !existsSync(ACME_ENV) && existsSync(LEGACY_ACME_ENV)
+    ? LEGACY_ACME_ENV
+    : ACME_ENV;
+}
 
-// `xng proxy up --acme-email` records the email in traefik/acme.env
-// (gitignored); from then on every ensureProxy() applies the ACME overlay
+// `xng proxy up --acme-email` records the email in ~/.config/xahau-network-generator/acme.env
+// (or $XDG_CONFIG_HOME/...); from then on every ensureProxy() applies the ACME overlay
 // (Let's Encrypt for every routed hostname, see traefik/compose.acme.yml).
 // Persisted in a file rather than read from the ambient environment on
 // purpose: ensureProxy() also runs from `xng start`/`reset` (and from panel
@@ -30,19 +43,14 @@ export const TRAEFIK_ACME_ENV = fileURLToPath(
 // Traefik with fewer files, recreating it without the cert resolver and
 // breaking HTTPS for every network at once.
 export function enableAcme(email: string): void {
-  writeFileSync(TRAEFIK_ACME_ENV, `XNG_ACME_EMAIL=${email}\n`);
+  mkdirSync(dirname(ACME_ENV), { recursive: true });
+  writeFileSync(ACME_ENV, `XNG_ACME_EMAIL=${email}\n`);
 }
 
 function traefikArgs(): string[] {
-  if (!existsSync(TRAEFIK_ACME_ENV)) return ['-f', TRAEFIK_COMPOSE];
-  return [
-    '--env-file',
-    TRAEFIK_ACME_ENV,
-    '-f',
-    TRAEFIK_COMPOSE,
-    '-f',
-    TRAEFIK_ACME_COMPOSE,
-  ];
+  const env = acmeEnvFile();
+  if (!existsSync(env)) return ['-f', TRAEFIK_COMPOSE];
+  return ['--env-file', env, '-f', TRAEFIK_COMPOSE, '-f', TRAEFIK_ACME_COMPOSE];
 }
 
 // `docker info` SecurityOptions, e.g. "name=seccomp,profile=builtin name=rootless".
