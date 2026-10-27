@@ -36,7 +36,6 @@ import {
   resetNetworkData,
   writeSiteIndex,
 } from './network.ts';
-import { startPanel } from './panel.ts';
 import {
   DEFAULT_IMPORT_VL_KEYS,
   DOMAIN_RE,
@@ -634,72 +633,6 @@ proxyCmd
   .command('down')
   .description('stop the shared Traefik instance')
   .action(() => proxyDown());
-
-program
-  .command('panel')
-  .description(
-    'run a web control panel (create/start/stop/reset/remove/upgrade/vote + live status)',
-  )
-  .addOption(
-    new Option('--port <n>', 'port to listen on')
-      .env('XNG_PANEL_PORT')
-      .argParser(intArg(1, 65535))
-      .default(7777),
-  )
-  .addOption(
-    new Option('--host <host>', 'address to bind')
-      .env('XNG_PANEL_HOST')
-      .default('127.0.0.1'),
-  )
-  .addOption(
-    new Option(
-      '--domain <domain>',
-      'domain for networks created from the panel (per-network hostnames are <sub>.<name>.<domain>)',
-    )
-      .env('XNG_DOMAIN')
-      .argParser(parseDomain)
-      .default('127.0.0.1.nip.io'),
-  )
-  .addOption(
-    new Option(
-      '--tls',
-      'networks created from the panel get --tls (see `xng create --tls`); or XNG_TLS=1',
-    )
-      // Not .env(): commander treats a boolean env var as set whenever the
-      // name exists, so XNG_TLS=false/0 would turn TLS *on*.
-      .default(['1', 'true'].includes(process.env.XNG_TLS ?? '')),
-  )
-  .addOption(
-    new Option(
-      '--access-team <team>',
-      'Cloudflare Access team (<team>.cloudflareaccess.com); with --access-aud, requires a valid Access JWT on every request',
-    ).env('XNG_ACCESS_TEAM'),
-  )
-  .addOption(
-    new Option(
-      '--access-aud <aud>',
-      'Cloudflare Access application audience tag',
-    ).env('XNG_ACCESS_AUD'),
-  )
-  .option(
-    '--insecure-no-auth',
-    'run without Cloudflare Access verification, serving loopback clients only (local development)',
-    false,
-  )
-  .action(async (opts) => {
-    if (!!opts.accessTeam !== !!opts.accessAud) {
-      program.error('--access-team and --access-aud must be given together');
-    }
-    // Refusing to start is deliberate: with a cloudflared tunnel in front,
-    // the tunnel's peer *is* loopback, so a forgotten env var would
-    // otherwise open the panel to the internet with only a log warning.
-    if (!opts.accessTeam && !opts.insecureNoAuth) {
-      program.error(
-        'refusing to start without --access-team/--access-aud (or --insecure-no-auth for local use)',
-      );
-    }
-    await startPanel(opts);
-  });
 
 program
   .command('doctor')
