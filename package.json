@@ -26,7 +26,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json && cp src/panel.html dist/",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "prepack": "pnpm build",
     "xng": "tsx src/cli.ts",
     "e2e": "tsx e2e/check.ts",

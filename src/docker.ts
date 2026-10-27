@@ -7,8 +7,8 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
-// Child `xng` invocations (the panel's job runner, `xng apply`) run the CLI
-// itself rather than a second implementation of each command. Callers spawn
+// Child `xng` invocations (`xng apply`) run the CLI itself rather than a
+// second implementation of each command. Callers spawn
 // `process.execPath` with `[...process.execArgv, CLI_PATH, ...args]`, which
 // reproduces the parent's runtime (tsx loader or strip-types) in both cases.
 // cli.ts when running the sources (tsx), cli.js from the compiled dist/.
@@ -146,31 +146,6 @@ export function composeOutput(name: string, args: string[]): string {
   return result.stdout;
 }
 
-// Like composeOutput(), but non-blocking — for callers (the panel's HTTP
-// server) that can't afford spawnSync's event-loop stall.
-export async function composeOutputAsync(
-  name: string,
-  args: string[],
-  timeoutMs?: number,
-): Promise<string> {
-  try {
-    const { stdout } = await execFileAsync(
-      'docker',
-      ['compose', '-f', `workspace/${name}/compose.yml`, ...args],
-      {
-        env: composeEnv(),
-        timeout: timeoutMs,
-      },
-    );
-    return stdout;
-  } catch (err) {
-    const e = err as { code?: number; stderr?: string; stdout?: string };
-    throw new Error(
-      `docker compose ${args.join(' ')} exited with code ${e.code}: ${e.stderr ?? ''}${e.stdout ?? ''}`,
-    );
-  }
-}
-
 // Host path of the daemon's socket, for Traefik's docker provider. Rootless
 // Docker's is $XDG_RUNTIME_DIR/docker.sock; /var/run/docker.sock there is
 // either missing or the rootful daemon's, which the user can't read, and
@@ -251,11 +226,9 @@ export function proxyDown(): void {
 
 export type Container = { service: string; state: string; status: string };
 
-// One `docker ps` for every network rather than a `compose ps` per network:
-// the panel's status path is polled every few seconds and must never wait on
-// compose. Rows are grouped by the compose project label (= network name).
+// Rows are grouped by the compose project label (= network name).
 // Throws when docker is unreachable: `xng apply` must not mistake a stopped
-// daemon for "nothing is running" (the panel catches and shows an empty list).
+// daemon for "nothing is running".
 export async function listContainers(): Promise<Map<string, Container[]>> {
   const byProject = new Map<string, Container[]>();
   const { stdout } = await execFileAsync(

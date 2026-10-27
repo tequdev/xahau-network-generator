@@ -5,20 +5,6 @@ CLI that generates and runs disposable Xahau `testnet` (N validators) or
 
 ## Usage
 
-Install from npm (Node >= 22, Docker with Compose):
-
-```sh
-npm i -g xahau-network-generator
-xng doctor
-xng create --name t1 --type testnet --validators 3
-```
-
-`xng` and `pnpm xng` are interchangeable: the examples below use the
-`pnpm xng` form, which is for running from a checkout (it runs the
-TypeScript sources through tsx; the npm package ships the compiled `dist/`,
-built by `pnpm build`). `workspace/` and
-`xng.yml` live in the current directory.
-
 ```sh
 pnpm install
 pnpm xng doctor   # docker, compose, build.xahau.tech reachable? optional features (proxy, TLS, Cloudflare) on/off
@@ -203,18 +189,14 @@ Setup on the host — pick one of the two ways to get certificates:
    A DNS wildcard matches nested labels too, so
    `explorer.jshooks.<domain>` resolves. Keep these records DNS-only if the
    domain is on Cloudflare (proxying needs option B).
-2. TLS: `pnpm xng proxy up --acme-email you@example.com` records the
-   email in `~/.config/xahau-network-generator/acme.env`
-   (`$XDG_CONFIG_HOME` is honoured) and from then on every `xng start`
+2. TLS: `pnpm xng proxy up --acme-email you@example.com` records the email
+   in `traefik/acme.env` (gitignored) and from then on every `xng start`
    applies `traefik/compose.acme.yml`, so Traefik issues a Let's Encrypt
    certificate per hostname (HTTP-01 on port 80). Create networks with
    `--tls` so their advertised URLs are `https`/`wss`.
    The `pwa<AccountIndex>.pwa.<name>.<domain>` hosts of a testnet
    are not covered: Traefik only issues certificates for literal `Host()`
    rules and a wildcard needs DNS-01, so use plain http there or option B.
-   Upgrading from a checkout that had `traefik/acme.env`? xng refuses to
-   start until that file is moved to the new path; `xng doctor` prints the
-   exact command.
 
 **B. Cloudflare only (Tunnel + Advanced Certificate Manager, no open ports)**
 
@@ -239,12 +221,11 @@ Everything else is one-time setup:
    zone. xng is verified against that cf release (`CF_VERSION` in
    `src/cloudflare.ts`); `xng doctor` warns when a different one is installed.
 2. Create a remotely-managed tunnel and route everything to Traefik's
-   published HTTP port (keep the panel rule, if any, before the wildcard):
+   published HTTP port:
 
    ```sh
    export CLOUDFLARE_ACCOUNT_ID=<account id>
    cf tunnels config update <tunnel-id> --body '{"config":{"ingress":[
-     {"hostname":"xng.<domain>","service":"http://localhost:7777"},
      {"hostname":"<domain>","service":"http://localhost:80"},
      {"hostname":"*.<domain>","service":"http://localhost:80"},
      {"service":"http_status:404"}]}}'
@@ -263,7 +244,7 @@ Everything else is one-time setup:
    ```
 
 4. Run `cloudflared tunnel run --token <token>` on the host (e.g. as a
-   systemd service), and export for `xng` (and `xng panel`):
+   systemd service), and export for `xng`:
 
    | variable | meaning |
    | --- | --- |
@@ -388,36 +369,6 @@ Things to know:
 - A directory under `workspace/` without a valid `network.json` (or whose
   `name` differs from the directory name) makes `apply` stop before doing
   anything; fix or remove it by hand.
-- Do not run `xng panel` actions and `xng apply` at the same time.
-
-### Web control panel
-
-`pnpm xng panel` serves a small page (`src/panel.html`) that lists every
-network with its state, validated ledger index, uptime and peers, and can
-create, start/stop/reset, remove, upgrade and vote for amendments. Each
-action runs the matching `xng` command as a child process, one at a time,
-with its log shown in the page.
-
-```sh
-XNG_DOMAIN=xahau-dev.net XNG_TLS=1 \
-XNG_ACCESS_TEAM=<team> XNG_ACCESS_AUD=<application audience tag> \
-pnpm xng panel            # listens on 127.0.0.1:7777
-```
-
-Access control is Cloudflare Access: put the panel behind a
-[cloudflared tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
-(`ingress: hostname: xng.<domain>, service: http://localhost:7777`) with an
-Access application on that hostname, and pass the team name and the
-application's audience (AUD) tag. The panel verifies the
-`Cf-Access-Jwt-Assertion` token Cloudflare adds to every request, so it is
-unusable without a valid login even if something else reaches the port. It
-refuses to start without both values unless given `--insecure-no-auth`,
-which serves loopback clients only (local development).
-
-Run it as a service from the project directory (where `workspace/` and
-`xng.yml` live), e.g. a systemd unit with `WorkingDirectory=/path/to/project`,
-`ExecStart=/usr/local/bin/xng panel` (or `/usr/bin/pnpm xng panel` from a
-checkout) and the environment above.
 
 Container-to-container references (xahaud's peer list, the validator list
 URL, the faucet's websocket URL) use container names (`<name>-<service>`,
@@ -441,9 +392,3 @@ pnpm e2e      # end-to-end check against a running network
 pnpm e2e:restart --name t1 -- <reboot-simulating command>  # e.g. CI uses `sudo systemctl restart docker`
 pnpm e2e:apply --version <ver> --upgrade-to <ver>  # xng apply end to end; needs an empty workspace/ (aborts otherwise)
 ```
-
-## Releasing
-
-Bump `version` in `package.json`, merge to `main`, then run the **Release** workflow (Actions → Release → Run workflow). It defaults to a dry run; untick it to create the `v<version>` tag and a GitHub release with generated notes. It refuses to run when that tag already exists.
-
-The workflow also publishes to npm (with provenance; a dry run runs `npm publish --dry-run`). The first publish needs an `NPM_TOKEN` repository secret holding an npm granular token with publish rights. Afterwards register a trusted publisher on npmjs.com (repository `tequdev/xahau-network-generator`, workflow `release.yml`) and delete the secret, so later releases publish over OIDC.
