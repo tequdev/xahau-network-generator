@@ -11,7 +11,13 @@ const execFileAsync = promisify(execFile);
 // itself rather than a second implementation of each command. Callers spawn
 // `process.execPath` with `[...process.execArgv, CLI_PATH, ...args]`, which
 // reproduces the parent's runtime (tsx loader or strip-types) in both cases.
-export const CLI_PATH = fileURLToPath(new URL('./cli.ts', import.meta.url));
+// cli.ts when running the sources (tsx), cli.js from the compiled dist/.
+export const CLI_PATH = fileURLToPath(
+  new URL(
+    import.meta.url.endsWith('.ts') ? './cli.ts' : './cli.js',
+    import.meta.url,
+  ),
+);
 
 const TRAEFIK_COMPOSE = fileURLToPath(
   new URL('../traefik/compose.yml', import.meta.url),
