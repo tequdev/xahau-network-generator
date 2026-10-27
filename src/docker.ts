@@ -1,12 +1,5 @@
 import { execFile, spawnSync } from 'node:child_process';
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  rmSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,16 +30,25 @@ const ACME_ENV = join(
   'xahau-network-generator',
   'acme.env',
 );
-// Legacy location from the checkout era, moved once to ACME_ENV.
-const LEGACY_ACME_ENV = fileURLToPath(
+// Legacy location from the checkout era; no longer read.
+export const LEGACY_ACME_ENV = fileURLToPath(
   new URL('../traefik/acme.env', import.meta.url),
 );
+// Not migrated automatically: ACME_ENV depends on the user running xng,
+// and moving the file under the wrong HOME would make the next
+// ensureProxy() recreate Traefik without the cert resolver.
+export function legacyAcmeEnvProblem(
+  legacy = LEGACY_ACME_ENV,
+  current = ACME_ENV,
+): string | undefined {
+  if (!existsSync(legacy)) return undefined;
+  return existsSync(current)
+    ? `${legacy} is no longer read (xng uses ${current}); delete it`
+    : `${legacy} has moved: run \`mkdir -p ${dirname(current)} && mv ${legacy} ${current}\` as the user that runs xng, or \`xng proxy up --acme-email <email>\``;
+}
 export function acmeEnvFile(): string {
-  if (existsSync(LEGACY_ACME_ENV) && !existsSync(ACME_ENV)) {
-    mkdirSync(dirname(ACME_ENV), { recursive: true });
-    copyFileSync(LEGACY_ACME_ENV, ACME_ENV);
-    unlinkSync(LEGACY_ACME_ENV);
-  }
+  const problem = legacyAcmeEnvProblem();
+  if (problem) throw new Error(problem);
   return ACME_ENV;
 }
 
@@ -54,10 +56,10 @@ export function acmeEnvFile(): string {
 // (or $XDG_CONFIG_HOME/...); from then on every ensureProxy() applies the ACME overlay
 // (Let's Encrypt for every routed hostname, see traefik/compose.acme.yml).
 // Persisted in a file rather than read from the ambient environment on
-// purpose: ensureProxy() also runs from `xng start`/`reset` (and from panel
-// jobs), and a single invocation without the env var would `compose up`
-// Traefik with fewer files, recreating it without the cert resolver and
-// breaking HTTPS for every network at once.
+// purpose: ensureProxy() also runs from `xng start`/`reset`, and a single
+// invocation without the env var would `compose up` Traefik with fewer
+// files, recreating it without the cert resolver and breaking HTTPS for
+// every network at once.
 export function enableAcme(email: string): void {
   mkdirSync(dirname(ACME_ENV), { recursive: true });
   rmSync(LEGACY_ACME_ENV, { force: true });

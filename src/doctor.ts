@@ -13,6 +13,7 @@ import {
   containerUser,
   dockerSocketPath,
   dockerUserRemapped,
+  legacyAcmeEnvProblem,
 } from './docker.ts';
 
 // `xng doctor`: is everything xng shells out to (docker, docker compose,
@@ -173,6 +174,8 @@ function checkProxy(): Check {
 
 function checkAcme(): Check {
   const name = "let's encrypt";
+  const problem = legacyAcmeEnvProblem();
+  if (problem) return { name, status: 'fail', detail: problem };
   try {
     const email = readFileSync(acmeEnvFile(), 'utf8').match(
       /^XNG_ACME_EMAIL=(.*)$/m,

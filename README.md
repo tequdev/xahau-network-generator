@@ -203,14 +203,18 @@ Setup on the host — pick one of the two ways to get certificates:
    A DNS wildcard matches nested labels too, so
    `explorer.jshooks.<domain>` resolves. Keep these records DNS-only if the
    domain is on Cloudflare (proxying needs option B).
-2. TLS: `pnpm xng proxy up --acme-email you@example.com` records the email
-   in `~/.config/xahau-network-generator/acme.env` (`$XDG_CONFIG_HOME` is honoured) and from then on every `xng start`
+2. TLS: `pnpm xng proxy up --acme-email you@example.com` records the
+   email in `~/.config/xahau-network-generator/acme.env`
+   (`$XDG_CONFIG_HOME` is honoured) and from then on every `xng start`
    applies `traefik/compose.acme.yml`, so Traefik issues a Let's Encrypt
    certificate per hostname (HTTP-01 on port 80). Create networks with
    `--tls` so their advertised URLs are `https`/`wss`.
    The `pwa<AccountIndex>.pwa.<name>.<domain>` hosts of a testnet
    are not covered: Traefik only issues certificates for literal `Host()`
    rules and a wildcard needs DNS-01, so use plain http there or option B.
+   Upgrading from a checkout that had `traefik/acme.env`? xng refuses to
+   start until that file is moved to the new path; `xng doctor` prints the
+   exact command.
 
 **B. Cloudflare only (Tunnel + Advanced Certificate Manager, no open ports)**
 
