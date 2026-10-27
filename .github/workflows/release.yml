@@ -1,16 +1,16 @@
-# Manual release: tags package.json's version as v<version> and creates a GitHub release with
-# generated notes. Defaults to a dry run. No npm publish: the package is private and runs from a
-# checkout (pnpm install && pnpm xng ...).
+# Manual release: tags package.json's version as v<version>, publishes it to npm and creates a
+# GitHub release with generated notes. Defaults to a dry run (nothing tagged, released or published).
 name: Release
 on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Dry run (no tag, no release)"
+        description: "Dry run (no tag, no release, npm publish --dry-run)"
         type: boolean
         default: true
 permissions:
   contents: write # tag + release
+  id-token: write # npm provenance / OIDC
 jobs:
   release:
     if: github.ref == 'refs/heads/main'
@@ -20,7 +20,8 @@ jobs:
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24 # npm >= 11.5 for OIDC publishing
+          registry-url: https://registry.npmjs.org
           cache: pnpm
       - id: v
         run: echo "tag=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
@@ -29,6 +30,21 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm exec tsc --noEmit
+      - name: Packed-install smoke test
+        run: |
+          npm pack
+          npm i -g ./xahau-network-generator-*.tgz
+          xng --help
+          xng doctor --help
+          npm uninstall -g xahau-network-generator
+      - run: |
+          if npm view "xahau-network-generator@${TAG#v}" version >/dev/null 2>&1; then echo "already published"
+          else npm publish --provenance --access public ${{ inputs.dry_run && '--dry-run' || '' }}; fi
+        env:
+          TAG: ${{ steps.v.outputs.tag }}
+          # NPM_TOKEN when set (needed for the first publish, before a trusted publisher can exist); otherwise keep
+          # setup-node's placeholder so OIDC is used (an empty token has been reported to break OIDC).
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN || env.NODE_AUTH_TOKEN }}
       - if: ${{ !inputs.dry_run }}
         run: gh release create "${{ steps.v.outputs.tag }}" --target "$GITHUB_SHA" --generate-notes # also creates the tag
         env:
