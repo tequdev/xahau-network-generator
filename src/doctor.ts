@@ -257,17 +257,6 @@ async function checkCloudflare(): Promise<Check[]> {
   return checks;
 }
 
-function checkPanelAccess(): Check {
-  const on = process.env.XNG_ACCESS_TEAM && process.env.XNG_ACCESS_AUD;
-  return {
-    name: 'panel access',
-    status: 'info',
-    detail: on
-      ? `Cloudflare Access (${process.env.XNG_ACCESS_TEAM})`
-      : 'off (set XNG_ACCESS_TEAM and XNG_ACCESS_AUD, or run `xng panel --insecure-no-auth`)',
-  };
-}
-
 export async function runChecks(): Promise<Check[]> {
   return [
     checkNode(process.version),
@@ -282,7 +271,6 @@ export async function runChecks(): Promise<Check[]> {
     checkProxy(),
     checkAcme(),
     ...(await checkCloudflare()),
-    checkPanelAccess(),
   ];
 }
 

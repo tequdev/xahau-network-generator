@@ -5,8 +5,8 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
-// Child `xng` invocations (the panel's job runner, `xng apply`) run the CLI
-// itself rather than a second implementation of each command.
+// Child `xng` invocations (`xng apply`) run the CLI itself rather than a
+// second implementation of each command.
 export const TSX_BIN = fileURLToPath(
   new URL('../node_modules/.bin/tsx', import.meta.url),
 );
@@ -26,10 +26,10 @@ export const TRAEFIK_ACME_ENV = fileURLToPath(
 // (gitignored); from then on every ensureProxy() applies the ACME overlay
 // (Let's Encrypt for every routed hostname, see traefik/compose.acme.yml).
 // Persisted in a file rather than read from the ambient environment on
-// purpose: ensureProxy() also runs from `xng start`/`reset` (and from panel
-// jobs), and a single invocation without the env var would `compose up`
-// Traefik with fewer files, recreating it without the cert resolver and
-// breaking HTTPS for every network at once.
+// purpose: ensureProxy() also runs from `xng start`/`reset`, and a single
+// invocation without the env var would `compose up` Traefik with fewer
+// files, recreating it without the cert resolver and breaking HTTPS for
+// every network at once.
 export function enableAcme(email: string): void {
   writeFileSync(TRAEFIK_ACME_ENV, `XNG_ACME_EMAIL=${email}\n`);
 }
@@ -120,31 +120,6 @@ export function composeOutput(name: string, args: string[]): string {
   return result.stdout;
 }
 
-// Like composeOutput(), but non-blocking — for callers (the panel's HTTP
-// server) that can't afford spawnSync's event-loop stall.
-export async function composeOutputAsync(
-  name: string,
-  args: string[],
-  timeoutMs?: number,
-): Promise<string> {
-  try {
-    const { stdout } = await execFileAsync(
-      'docker',
-      ['compose', '-f', `workspace/${name}/compose.yml`, ...args],
-      {
-        env: composeEnv(),
-        timeout: timeoutMs,
-      },
-    );
-    return stdout;
-  } catch (err) {
-    const e = err as { code?: number; stderr?: string; stdout?: string };
-    throw new Error(
-      `docker compose ${args.join(' ')} exited with code ${e.code}: ${e.stderr ?? ''}${e.stdout ?? ''}`,
-    );
-  }
-}
-
 // Host path of the daemon's socket, for Traefik's docker provider. Rootless
 // Docker's is $XDG_RUNTIME_DIR/docker.sock; /var/run/docker.sock there is
 // either missing or the rootful daemon's, which the user can't read, and
@@ -225,11 +200,9 @@ export function proxyDown(): void {
 
 export type Container = { service: string; state: string; status: string };
 
-// One `docker ps` for every network rather than a `compose ps` per network:
-// the panel's status path is polled every few seconds and must never wait on
-// compose. Rows are grouped by the compose project label (= network name).
+// Rows are grouped by the compose project label (= network name).
 // Throws when docker is unreachable: `xng apply` must not mistake a stopped
-// daemon for "nothing is running" (the panel catches and shows an empty list).
+// daemon for "nothing is running".
 export async function listContainers(): Promise<Map<string, Container[]>> {
   const byProject = new Map<string, Container[]>();
   const { stdout } = await execFileAsync(
