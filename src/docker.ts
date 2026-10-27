@@ -200,7 +200,6 @@ export function proxyDown(): void {
 
 export type Container = { service: string; state: string; status: string };
 
-// One `docker ps` for every network rather than a `compose ps` per network.
 // Rows are grouped by the compose project label (= network name).
 // Throws when docker is unreachable: `xng apply` must not mistake a stopped
 // daemon for "nothing is running".

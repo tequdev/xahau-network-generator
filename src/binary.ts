@@ -56,7 +56,7 @@ export function parseVersionIndex(html: string): BuildVersion[] {
   return entries.map(({ y, mo, d, ...rest }) => rest);
 }
 
-export async function listVersions(): Promise<BuildVersion[]> {
+async function listVersions(): Promise<BuildVersion[]> {
   const res = await fetch('https://build.xahau.tech/');
   if (!res.ok) throw new Error(`failed to list versions: ${res.status}`);
   return parseVersionIndex(await res.text());
