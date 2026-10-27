@@ -5,7 +5,7 @@ CLI that generates and runs disposable Xahau `testnet` (N validators) or
 
 ## Usage
 
-Install from npm (Node >= 22.6, Docker with Compose):
+Install from npm (Node >= 22, Docker with Compose):
 
 ```sh
 npm i -g xahau-network-generator
@@ -14,7 +14,9 @@ xng create --name t1 --type testnet --validators 3
 ```
 
 `xng` and `pnpm xng` are interchangeable: the examples below use the
-`pnpm xng` form, which is for running from a checkout. `workspace/` and
+`pnpm xng` form, which is for running from a checkout (it runs the
+TypeScript sources through tsx; the npm package ships the compiled `dist/`,
+built by `pnpm build`). `workspace/` and
 `xng.yml` live in the current directory.
 
 ```sh

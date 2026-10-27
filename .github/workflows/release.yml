@@ -32,11 +32,14 @@ jobs:
       - run: pnpm exec tsc --noEmit
       - name: Packed-install smoke test
         run: |
-          npm pack
-          npm i -g ./xahau-network-generator-*.tgz
-          xng --help
-          xng doctor --help
-          npm uninstall -g xahau-network-generator
+          npm pack # prepack builds dist/
+          dir="$(mktemp -d)"
+          cp xahau-network-generator-*.tgz "$dir/pkg.tgz"
+          cd "$dir"
+          npm init -y > /dev/null
+          npm i ./pkg.tgz
+          ./node_modules/.bin/xng --help
+          ./node_modules/.bin/xng doctor --help
       - run: |
           if npm view "xahau-network-generator@${TAG#v}" version >/dev/null 2>&1; then echo "already published"
           else npm publish --provenance --access public ${{ inputs.dry_run && '--dry-run' || '' }}; fi
