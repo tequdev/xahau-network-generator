@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { test } from 'node:test';
 import { parse } from 'yaml';
 import { renderCompose, sourceHash } from './compose.ts';
@@ -220,7 +220,8 @@ test('compose: testnet runs a debugstream service tailing node/log; standalone h
   // biome-ignore lint/suspicious/noExplicitAny: compose.yml service shape has no fixed schema here
   const doc = parse(renderCompose(testnetSpec)) as any;
   const ds = doc.services.debugstream;
-  assert.equal(ds.build.context, '../../debugstream');
+  assert.ok(isAbsolute(ds.build.context));
+  assert.ok(ds.build.context.endsWith('/debugstream'));
   assert.ok(ds.volumes.includes('./nodes/node/log:/log'));
   assert.equal(ds.ports, undefined);
   assert.equal(ds.mem_limit, '128m');

@@ -5,12 +5,7 @@ import http from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { listVersions } from './binary.ts';
-import {
-  CLI_PATH,
-  TSX_BIN,
-  composeOutputAsync,
-  listContainers,
-} from './docker.ts';
+import { CLI_PATH, composeOutputAsync, listContainers } from './docker.ts';
 import type { Container } from './docker.ts';
 import { NAME_RE, endpoints } from './types.ts';
 import type { NetworkSpec } from './types.ts';
@@ -253,14 +248,18 @@ function killRunning(): void {
 function runStep(job: Job, argv: string[]): Promise<boolean> {
   const timeout = job.timeoutMs;
   return new Promise((resolve) => {
-    // tsx launches the real CLI as a child; SIGKILL on the launcher alone
-    // would orphan it (it keeps stdout open, so `close` never fires). Run in
+    // The CLI may spawn children of its own (docker, ...); SIGKILL on it alone
+    // would orphan them (they keep stdout open, so `close` never fires). Run in
     // its own process group and kill the whole group on timeout.
-    const child = spawn(TSX_BIN, [CLI_PATH, ...argv], {
-      cwd: process.cwd(),
-      env: process.env,
-      detached: true,
-    });
+    const child = spawn(
+      process.execPath,
+      [...process.execArgv, CLI_PATH, ...argv],
+      {
+        cwd: process.cwd(),
+        env: process.env,
+        detached: true,
+      },
+    );
     running = child;
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -643,10 +642,6 @@ export async function startPanel(opts: PanelOptions): Promise<void> {
       process.exit(130);
     });
   }
-  // The CLI (run as child processes below) and the workspace scan both use
-  // paths relative to the repo root, whatever directory the panel was
-  // started from (systemd, cron, ...).
-  process.chdir(fileURLToPath(new URL('..', import.meta.url)));
   panelHtml = await readFile(
     fileURLToPath(new URL('./panel.html', import.meta.url)),
     'utf8',

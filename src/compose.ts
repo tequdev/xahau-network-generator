@@ -49,7 +49,7 @@ export function sourceHash(dir: string): string {
   return h.digest('hex').slice(0, 12);
 }
 const buildOf = (name: string) => ({
-  context: `../../${name}`,
+  context: fileURLToPath(new URL(`../${name}`, import.meta.url)),
   labels: {
     'xng.source': sourceHash(
       fileURLToPath(new URL(`../${name}/`, import.meta.url)),

@@ -6,10 +6,9 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 
 // Child `xng` invocations (the panel's job runner, `xng apply`) run the CLI
-// itself rather than a second implementation of each command.
-export const TSX_BIN = fileURLToPath(
-  new URL('../node_modules/.bin/tsx', import.meta.url),
-);
+// itself rather than a second implementation of each command. Callers spawn
+// `process.execPath` with `[...process.execArgv, CLI_PATH, ...args]`, which
+// reproduces the parent's runtime (tsx loader or strip-types) in both cases.
 export const CLI_PATH = fileURLToPath(new URL('./cli.ts', import.meta.url));
 
 const TRAEFIK_COMPOSE = fileURLToPath(

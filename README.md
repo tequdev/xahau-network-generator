@@ -396,9 +396,10 @@ unusable without a valid login even if something else reaches the port. It
 refuses to start without both values unless given `--insecure-no-auth`,
 which serves loopback clients only (local development).
 
-Run it as a service from the repo root, e.g. a systemd unit with
-`WorkingDirectory=/path/to/xahau-network-generator`,
-`ExecStart=/usr/bin/pnpm xng panel` and the environment above.
+Run it as a service from the project directory (where `workspace/` and
+`xng.yml` live), e.g. a systemd unit with `WorkingDirectory=/path/to/project`,
+`ExecStart=/usr/local/bin/xng panel` (or `/usr/bin/pnpm xng panel` from a
+checkout) and the environment above.
 
 Container-to-container references (xahaud's peer list, the validator list
 URL, the faucet's websocket URL) use container names (`<name>-<service>`,
