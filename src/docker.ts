@@ -1,5 +1,12 @@
 import { execFile, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -30,14 +37,17 @@ const ACME_ENV = join(
   'xahau-network-generator',
   'acme.env',
 );
-// Legacy location from the checkout era (inside the package directory).
+// Legacy location from the checkout era, moved once to ACME_ENV.
 const LEGACY_ACME_ENV = fileURLToPath(
   new URL('../traefik/acme.env', import.meta.url),
 );
 export function acmeEnvFile(): string {
-  return !existsSync(ACME_ENV) && existsSync(LEGACY_ACME_ENV)
-    ? LEGACY_ACME_ENV
-    : ACME_ENV;
+  if (existsSync(LEGACY_ACME_ENV) && !existsSync(ACME_ENV)) {
+    mkdirSync(dirname(ACME_ENV), { recursive: true });
+    copyFileSync(LEGACY_ACME_ENV, ACME_ENV);
+    unlinkSync(LEGACY_ACME_ENV);
+  }
+  return ACME_ENV;
 }
 
 // `xng proxy up --acme-email` records the email in ~/.config/xahau-network-generator/acme.env
@@ -50,6 +60,7 @@ export function acmeEnvFile(): string {
 // breaking HTTPS for every network at once.
 export function enableAcme(email: string): void {
   mkdirSync(dirname(ACME_ENV), { recursive: true });
+  rmSync(LEGACY_ACME_ENV, { force: true });
   writeFileSync(ACME_ENV, `XNG_ACME_EMAIL=${email}\n`);
 }
 
