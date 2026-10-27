@@ -422,3 +422,7 @@ pnpm e2e      # end-to-end check against a running network
 pnpm e2e:restart --name t1 -- <reboot-simulating command>  # e.g. CI uses `sudo systemctl restart docker`
 pnpm e2e:apply --version <ver> --upgrade-to <ver>  # xng apply end to end; needs an empty workspace/ (aborts otherwise)
 ```
+
+## Releasing
+
+Bump `version` in `package.json`, merge to `main`, then run the **Release** workflow (Actions → Release → Run workflow). It defaults to a dry run; untick it to create the `v<version>` tag and a GitHub release with generated notes. It refuses to run when that tag already exists.

@@ -1,0 +1,35 @@
+# Manual release: tags package.json's version as v<version> and creates a GitHub release with
+# generated notes. Defaults to a dry run. No npm publish: the package is private and runs from a
+# checkout (pnpm install && pnpm xng ...).
+name: Release
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (no tag, no release)"
+        type: boolean
+        default: true
+permissions:
+  contents: write # tag + release
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - id: v
+        run: echo "tag=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+      - run: git fetch --tags && ! git rev-parse -q --verify "refs/tags/${{ steps.v.outputs.tag }}" # version must be unreleased
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm exec tsc --noEmit
+      - if: ${{ !inputs.dry_run }}
+        run: gh release create "${{ steps.v.outputs.tag }}" --target "$GITHUB_SHA" --generate-notes # also creates the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
