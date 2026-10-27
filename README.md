@@ -15,7 +15,8 @@ npx xng apply
 ```
 
 Or globally, `npm i -g xahau-network-generator` and plain `xng ...` from
-that directory. `npx xng`, `xng` and `pnpm xng` are interchangeable: the
+that directory. `npm i xahau-network-generator@dev` installs the latest
+commit on `main` that passed e2e (`0.0.0-dev.<run>.g<sha>`, see Releasing). `npx xng`, `xng` and `pnpm xng` are interchangeable: the
 examples below use the `pnpm xng` form, which is for running from a
 checkout (it runs the TypeScript sources through tsx; the npm package ships
 the compiled `dist/`, built by `pnpm build`).
@@ -416,4 +417,6 @@ pnpm e2e:apply --version <ver> --upgrade-to <ver>  # xng apply end to end; needs
 
 Bump `version` in `package.json`, merge to `main`, then run the **Release** workflow (Actions → Release → Run workflow). It defaults to a dry run; untick it to create the `v<version>` tag and a GitHub release with generated notes. It refuses to run when that tag already exists.
 
-The workflow also publishes to npm (with provenance; a dry run runs `npm publish --dry-run`). The first publish needs an `NPM_TOKEN` repository secret holding an npm granular token with publish rights. Afterwards register a trusted publisher on npmjs.com (repository `tequdev/xahau-network-generator`, workflow `release.yml`) and delete the secret, so later releases publish over OIDC.
+The workflow also publishes to npm as `latest` (with provenance; a dry run runs `npm publish --dry-run`). The first publish needs an `NPM_TOKEN` repository secret holding an npm granular token with publish rights. Afterwards register a trusted publisher on npmjs.com (repository `tequdev/xahau-network-generator`, workflow `release.yml`) and delete the secret, so later releases publish over OIDC.
+
+Every push to `main` whose e2e run succeeds (and is still the tip of `main` when it finishes) is also published automatically under the `dev` dist-tag as `0.0.0-dev.<run number>.g<short sha>` (the `dev` job in the same workflow; `xng --version` prints it). `package.json`'s version is untouched, and `0.0.0-…` never satisfies a `^x.y.z` range, so `latest` users are unaffected. Do the first real release before relying on `@dev`: a brand-new package's first publish also sets `latest`, whatever the tag.
