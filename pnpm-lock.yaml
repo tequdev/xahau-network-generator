@@ -15,26 +15,26 @@ importers:
         specifier: ^5.0.0
         version: 5.0.0
       xahau-binary-codec:
-        specifier: ^2.2.0
-        version: 2.2.0
+        specifier: ^2.3.0
+        version: 2.3.0
       xahau-keypairs:
         specifier: ^2.0.0
         version: 2.0.0
       yaml:
-        specifier: ^2.5.1
+        specifier: ^2.9.1
         version: 2.9.1
     devDependencies:
       '@biomejs/biome':
         specifier: ^1.9.4
         version: 1.9.4
       '@types/node':
-        specifier: ^22.10.2
-        version: 22.20.2
+        specifier: ^22.20.5
+        version: 22.20.5
       tsx:
-        specifier: ^4.19.2
-        version: 4.23.13
+        specifier: ^4.23.15
+        version: 4.23.15
       typescript:
-        specifier: ^5.7.2
+        specifier: ^5.9.3
         version: 5.9.3
 
 packages:
@@ -267,8 +267,8 @@ packages:
   '@scure/base@1.2.6':
     resolution: {integrity: sha512-g/nm5FgUa//MCj1gV09zTJTaM6KBAHqLN907YVQqf7zC49+DcO4B1so4ZX07Ef10Twr6nuqYEH9GEggFXA4Fmg==}
 
-  '@types/node@22.20.2':
-    resolution: {integrity: sha512-xlvWf4Vs9n1PEVYwP1n4vvG07M6y8WgvJ2t0vbrWTmijsIHp1cS+uJ2kMIRdY3nHZK0nCYKrPeD171+SzF4/zw==}
+  '@types/node@22.20.5':
+    resolution: {integrity: sha512-U2+DNr+wSjpsTS/wZGYHq7GcwfuSmKiKvoPvK22zwTlRhU91yOniN4qRR5KhIjvif7ysw/dz/hKmfDH0Ris4aA==}
 
   '@xrplf/isomorphic@1.0.2':
     resolution: {integrity: sha512-ncZUdMXr6VlSXtdoiDi0jTH+gBrgGxwVeEidhoegII3PmyErbQsyj6e+j7acmR4LW/lvBkPkzb9QzRfJH0n3rA==}
@@ -294,8 +294,8 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
 
-  tsx@4.23.13:
-    resolution: {integrity: sha512-BL5MGkRln6aDYhb0xbQlEAGw743BaZYWdbWtdJOBriYJboKgUUYCadFp2/FpBBZquBC/ezNBn7wMMPx7FDZUDw==}
+  tsx@4.23.15:
+    resolution: {integrity: sha512-Yiex1Ovn8z2xPpOWckIiysV1SSyRMY9BkLF++q0yKiDxCqRhosKfMg3janKkiLBwZ5c/YryloKwGZcrEmtwxKw==}
     engines: {node: '>=18.0.0'}
     hasBin: true
 
@@ -323,8 +323,8 @@ packages:
     resolution: {integrity: sha512-z1K0fQXCDdkPynBKNx3HsShd1B9HXbjn4lBTLpEnUD09zyY62kepqg4KJOrt1Pfc38PuBlqYTRz328ucejXiZg==}
     engines: {node: '>= 18'}
 
-  xahau-binary-codec@2.2.0:
-    resolution: {integrity: sha512-5t0qpn5ydkeMlqVc4PFBy10l/oJNC0F6w5soXCohU4d7Dpoa8a8kS5ML45H/QcGDXDVa7/iMsxGX5KH+KP2/Ig==}
+  xahau-binary-codec@2.3.0:
+    resolution: {integrity: sha512-Q5D5CrZhvOUQduGWKjJO217KBMqTnRVg8r0xShtq2g7m9G0nzJkh6OrVLlrvyaNCYu5z2St58FEM+k84BeQ+hQ==}
     engines: {node: '>= 18'}
 
   xahau-keypairs@2.0.0:
@@ -461,7 +461,7 @@ snapshots:
 
   '@scure/base@1.2.6': {}
 
-  '@types/node@22.20.2':
+  '@types/node@22.20.5':
     dependencies:
       undici-types: 6.21.0
 
@@ -512,7 +512,7 @@ snapshots:
   fsevents@2.3.3:
     optional: true
 
-  tsx@4.23.13:
+  tsx@4.23.15:
     dependencies:
       esbuild: 0.28.2
     optionalDependencies:
@@ -532,7 +532,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  xahau-binary-codec@2.2.0:
+  xahau-binary-codec@2.3.0:
     dependencies:
       '@xrplf/isomorphic': 1.0.2
       bignumber.js: 9.3.1
