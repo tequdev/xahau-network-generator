@@ -17,9 +17,9 @@
     "assets",
     "site",
     "traefik",
+    "!traefik/acme.env",
     "faucet",
     "debugstream",
-    "docs",
     "xng.example.yml"
   ],
   "engines": {
