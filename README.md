@@ -5,6 +5,18 @@ CLI that generates and runs disposable Xahau `testnet` (N validators) or
 
 ## Usage
 
+Install from npm (Node >= 22.6, Docker with Compose):
+
+```sh
+npm i -g xahau-network-generator
+xng doctor
+xng create --name t1 --type testnet --validators 3
+```
+
+`xng` and `pnpm xng` are interchangeable: the examples below use the
+`pnpm xng` form, which is for running from a checkout. `workspace/` and
+`xng.yml` live in the current directory.
+
 ```sh
 pnpm install
 pnpm xng doctor   # docker, compose, build.xahau.tech reachable? optional features (proxy, TLS, Cloudflare) on/off
@@ -427,3 +439,5 @@ pnpm e2e:apply --version <ver> --upgrade-to <ver>  # xng apply end to end; needs
 ## Releasing
 
 Bump `version` in `package.json`, merge to `main`, then run the **Release** workflow (Actions → Release → Run workflow). It defaults to a dry run; untick it to create the `v<version>` tag and a GitHub release with generated notes. It refuses to run when that tag already exists.
+
+The workflow also publishes to npm (with provenance; a dry run runs `npm publish --dry-run`). The first publish needs an `NPM_TOKEN` repository secret holding an npm granular token with publish rights. Afterwards register a trusted publisher on npmjs.com (repository `tequdev/xahau-network-generator`, workflow `release.yml`) and delete the secret, so later releases publish over OIDC.
