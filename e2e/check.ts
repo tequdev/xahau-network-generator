@@ -254,6 +254,17 @@ async function checkTestnet(
   assert.ok(ep.faucet, 'testnet spec missing faucet endpoint');
   const faucetBase = ep.faucet;
 
+  // Validators aren't routed through Traefik, so they can only be checked
+  // indirectly via `node`: it must be peered to every validator, and the
+  // ledger must keep advancing (i.e. consensus is actually running among
+  // them).
+  const nodeUrl = ep.rpc;
+  const info1 = await rpc(nodeUrl, 'server_info');
+  assert.ok(
+    info1.info.peers >= spec.validators,
+    `node has ${info1.info.peers} peers, expected >= ${spec.validators}`,
+  );
+
   const first = await fetch(`${faucetBase}/accounts`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -301,85 +312,79 @@ async function checkTestnet(
     `[e2e] faucet topped up ${firstBody.account.classicAddress} balance=${secondBody.balance}`,
   );
 
-  const nc1 = await fetch(`${faucetBase}/newcreds`, {
-    method: 'POST',
-    signal: AbortSignal.timeout(60_000),
-  });
-  assert.equal(
-    nc1.status,
-    200,
-    `faucet /newcreds (generated) did not return 200: ${await nc1.clone().text()}`,
-  );
-  const nc1Body = await nc1.json();
-  assert.ok(typeof nc1Body.address === 'string', 'newcreds: no address');
-  assert.ok(typeof nc1Body.secret === 'string', 'newcreds: no secret');
-  assert.ok(typeof nc1Body.hash === 'string', 'newcreds: no hash');
-  assert.equal(nc1Body.code, 'tesSUCCESS');
-  assert.ok(Number(nc1Body.xrp) > 0, `newcreds: bad xrp ${nc1Body.xrp}`);
-  console.log(
-    `[e2e] faucet /newcreds created ${nc1Body.address} xrp=${nc1Body.xrp}`,
-  );
+  // These two chains are independent (different accounts, and the faucet queue
+  // is only touched by one of them), so they share ledgers. On a lone
+  // validator each tx-bearing ledger costs ~15s.
+  await Promise.all([
+    (async () => {
+      const nc1 = await fetch(`${faucetBase}/newcreds`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(60_000),
+      });
+      assert.equal(
+        nc1.status,
+        200,
+        `faucet /newcreds (generated) did not return 200: ${await nc1.clone().text()}`,
+      );
+      const nc1Body = await nc1.json();
+      assert.ok(typeof nc1Body.address === 'string', 'newcreds: no address');
+      assert.ok(typeof nc1Body.secret === 'string', 'newcreds: no secret');
+      assert.ok(typeof nc1Body.hash === 'string', 'newcreds: no hash');
+      assert.equal(nc1Body.code, 'tesSUCCESS');
+      assert.ok(Number(nc1Body.xrp) > 0, `newcreds: bad xrp ${nc1Body.xrp}`);
+      console.log(
+        `[e2e] faucet /newcreds created ${nc1Body.address} xrp=${nc1Body.xrp}`,
+      );
 
-  const nc2 = await fetch(`${faucetBase}/newcreds?account=${nc1Body.address}`, {
-    method: 'POST',
-    signal: AbortSignal.timeout(60_000),
-  });
-  assert.equal(
-    nc2.status,
-    200,
-    `faucet /newcreds (account) did not return 200: ${await nc2.clone().text()}`,
-  );
-  const nc2Body = await nc2.json();
-  assert.equal(nc2Body.address, nc1Body.address);
+      const nc2 = await fetch(
+        `${faucetBase}/newcreds?account=${nc1Body.address}`,
+        {
+          method: 'POST',
+          signal: AbortSignal.timeout(60_000),
+        },
+      );
+      assert.equal(
+        nc2.status,
+        200,
+        `faucet /newcreds (account) did not return 200: ${await nc2.clone().text()}`,
+      );
+      const nc2Body = await nc2.json();
+      assert.equal(nc2Body.address, nc1Body.address);
+      assert.ok(
+        !('secret' in nc2Body),
+        'newcreds: secret returned for given account',
+      );
+      console.log(`[e2e] faucet /newcreds topped up ${nc2Body.address}`);
+
+      const nc3 = await fetch(`${faucetBase}/newcreds?account=notanaddress`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(60_000),
+      });
+      assert.equal(nc3.status, 400, 'newcreds: invalid account must be 400');
+      assert.ok(
+        'error' in (await nc3.json()),
+        'newcreds: 400 body has no error',
+      );
+      console.log('[e2e] faucet /newcreds rejected an invalid account');
+    })(),
+    checkDebugStream(
+      spec,
+      firstBody.account.classicAddress,
+      firstBody.account.secret,
+    ),
+  ]);
+
+  // The validated transactions above already advanced the ledger.
+  const info2 = await rpc(nodeUrl, 'server_info');
   assert.ok(
-    !('secret' in nc2Body),
-    'newcreds: secret returned for given account',
+    info2.info.validated_ledger.seq > info1.info.validated_ledger.seq,
+    `node validated_ledger.seq did not advance: ${info1.info.validated_ledger.seq} -> ${info2.info.validated_ledger.seq}`,
   );
-  console.log(`[e2e] faucet /newcreds topped up ${nc2Body.address}`);
-
-  const nc3 = await fetch(`${faucetBase}/newcreds?account=notanaddress`, {
-    method: 'POST',
-    signal: AbortSignal.timeout(60_000),
-  });
-  assert.equal(nc3.status, 400, 'newcreds: invalid account must be 400');
-  assert.ok('error' in (await nc3.json()), 'newcreds: 400 body has no error');
-  console.log('[e2e] faucet /newcreds rejected an invalid account');
-
-  // Validators aren't routed through Traefik, so they can only be checked
-  // indirectly via `node`: it must be peered to every validator, and the
-  // ledger must keep advancing (i.e. consensus is actually running among
-  // them).
-  const nodeUrl = ep.rpc;
-  const info1 = await rpc(nodeUrl, 'server_info');
-  assert.ok(
-    info1.info.peers >= spec.validators,
-    `node has ${info1.info.peers} peers, expected >= ${spec.validators}`,
-  );
-
-  // With a single validator there are no other proposers, so an idle ledger
-  // only closes on xahaud's idle interval (~15s); poll well past that rather
-  // than sleeping a fixed few seconds.
-  const advanceDeadline = Date.now() + 30_000;
-  let info2 = info1;
-  while (info2.info.validated_ledger.seq <= info1.info.validated_ledger.seq) {
-    assert.ok(
-      Date.now() < advanceDeadline,
-      `node validated_ledger.seq did not advance within 30s: ${info1.info.validated_ledger.seq} -> ${info2.info.validated_ledger.seq}`,
-    );
-    await sleep(2000);
-    info2 = await rpc(nodeUrl, 'server_info');
-  }
   console.log(
     `[e2e] node server_info: peers=${info1.info.peers} validated_ledger.seq=${info1.info.validated_ledger.seq}->${info2.info.validated_ledger.seq}`,
   );
 
   if (expectVersion) checkVersion(spec, info2.info, expectVersion);
-
-  await checkDebugStream(
-    spec,
-    firstBody.account.classicAddress,
-    firstBody.account.secret,
-  );
 
   const faucetKeysPath = path.resolve(
     'workspace',
