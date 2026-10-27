@@ -1,5 +1,10 @@
-# Manual release: tags package.json's version as v<version>, publishes it to npm and creates a
-# GitHub release with generated notes. Defaults to a dry run (nothing tagged, released or published).
+# Two npm publishers in one file, because npm allows a single trusted publisher (workflow file)
+# per package:
+# - release (manual): tags package.json's version as v<version>, publishes it to npm as `latest`
+#   and creates a GitHub release with generated notes. Defaults to a dry run (nothing tagged,
+#   released or published).
+# - dev (automatic): after e2e succeeds on main, publishes that commit as
+#   0.0.0-dev.<run>.g<sha> under the `dev` dist-tag (`npm i xahau-network-generator@dev`).
 name: Release
 on:
   workflow_dispatch:
@@ -8,12 +13,16 @@ on:
         description: "Dry run (no tag, no release, npm publish --dry-run)"
         type: boolean
         default: true
+  workflow_run:
+    workflows: [e2e]
+    types: [completed]
+    branches: [main]
 permissions:
   contents: write # tag + release
   id-token: write # npm provenance / OIDC
 jobs:
   release:
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -53,3 +62,40 @@ jobs:
         run: gh release create "${{ steps.v.outputs.tag }}" --target "$GITHUB_SHA" --generate-notes # also creates the tag
         env:
           GH_TOKEN: ${{ github.token }}
+
+  dev:
+    # Only a push to this repo's main (the `branches` filter above matches a fork PR whose head
+    # branch is also called main), and only while that commit is still the tip of main: for
+    # workflow_run events the provenance's sha claim is github.sha (= current main), not head_sha,
+    # so a later push would be attested instead of the commit actually built. The later push's own
+    # e2e run publishes it.
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.head_sha == github.sha
+    runs-on: ubuntu-latest
+    concurrency: npm-dev
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # 0.0.0-… sorts below every real release, so dev builds never satisfy a ^x.y.z range and
+      # package.json's version stays the one `release` last published. Not committed anywhere.
+      - run: npm version --no-git-tag-version "0.0.0-dev.${GITHUB_RUN_NUMBER}.g${SHA::7}"
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha }}
+      - run: npm publish --provenance --access public --tag dev # prepack builds dist/
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN || env.NODE_AUTH_TOKEN }}
