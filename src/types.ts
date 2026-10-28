@@ -32,7 +32,7 @@ export type NetworkSpec = {
   portOffset: number; // standalone only; default 0; shifts every published host port
   nodeConfig?: Record<string, string[]>; // `node` (index 0) only: extra/overriding xahaud.cfg sections, section -> lines; validators never get it
   validatorConfig?: Record<string, string[]>; // testnet validators v1..vN only: same shape as nodeConfig; `node` never gets it
-  importVlKeys: string[]; // default ["ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC1"]
+  importVlKeys: string[]; // default DEFAULT_IMPORT_VL_KEYS (XRPL Testnet UNL publisher, https://vl.altnet.rippletest.net/)
 };
 
 // Landing-page labels with their defaults: the network name (`main` for root).
@@ -250,7 +250,8 @@ export function defaultQuorum(validators: number): number {
 }
 
 export const DEFAULT_IMPORT_VL_KEYS = [
-  'ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC1',
+  // https://vl.altnet.rippletest.net/
+  'ED264807102805220DA0F312E71FC2C69E1552C9C5790F6C25E3729DEB573D5860',
 ];
 
 export type Ports = {
