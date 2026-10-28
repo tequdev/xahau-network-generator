@@ -97,7 +97,7 @@ networks:
     # a rolling upgrade (a recreate if it touches node_db, database_path,
     # relational_db, network_id, validator_token or validation_seed).
     nodeConfig:
-      ledger_history: 50000          # one line (xng writes 10000)
+      ledger_history: 50000          # one line (xng writes 1000000, 3000000 for root)
       node_db:                       # a mapping: "key = value" lines
         type: NuDB
         path: db/nudb

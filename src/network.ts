@@ -243,6 +243,7 @@ export async function writeNodeConfig(
         type: 'testnet',
         networkId: spec.networkId,
         ports: ports(spec, 0),
+        root: spec.root,
         peers: Array.from({ length: spec.validators }, (_, i) => peerOf(i + 1)),
         vlKeyHex,
         vlUrl,
