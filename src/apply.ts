@@ -34,6 +34,7 @@ const COMPARED = [
   'portOffset',
   'nodeConfig',
   'validatorConfig',
+  'importVlKeys',
 ] as const;
 // Cosmetic landing-page labels: accepted in yml but not in COMPARED, so changing
 // one never recreates a network (it only plans `relabel`).
@@ -135,8 +136,17 @@ function toSpec(
     pwa: type === 'testnet',
     external,
     portOffset: (entry.portOffset ?? 0) as number,
-    importVlKeys: DEFAULT_IMPORT_VL_KEYS,
+    importVlKeys: (entry.importVlKeys ?? DEFAULT_IMPORT_VL_KEYS) as string[],
   };
+  if (
+    entry.importVlKeys !== undefined &&
+    !(
+      Array.isArray(entry.importVlKeys) &&
+      entry.importVlKeys.every((k) => typeof k === 'string')
+    )
+  ) {
+    throw new Error('importVlKeys must be a list of hex public keys');
+  }
   for (const key of LABELS) {
     if (entry[key] !== undefined) spec[key] = entry[key] as string;
   }
@@ -204,7 +214,13 @@ export type Action = {
 
 // Changes `xng upgrade` can apply in place: binary swap, rewritten xahaud.cfg,
 // and node's pwa port/route.
-const UPGRADABLE = new Set(['version', 'nodeConfig', 'validatorConfig', 'pwa']);
+const UPGRADABLE = new Set([
+  'version',
+  'nodeConfig',
+  'validatorConfig',
+  'importVlKeys',
+  'pwa',
+]);
 
 // Sections xahaud cannot pick up on a restart against an existing data
 // directory (or that change a validator's identity): changing one of
@@ -237,6 +253,11 @@ export function unsafeConfigChanges(
 function comparable(spec: NetworkSpec, key: (typeof COMPARED)[number]) {
   if (key === 'nodeConfig' || key === 'validatorConfig') {
     return JSON.stringify(spec[key] ?? {});
+  }
+  // An external stub's keys reach no node; ignore them so an old stub never
+  // diffs against the yml (which cannot set them).
+  if (key === 'importVlKeys') {
+    return spec.external ? '' : JSON.stringify(spec.importVlKeys);
   }
   if (key === 'root' || key === 'pwa' || key === 'external') {
     return !!spec[key];
@@ -283,6 +304,8 @@ function createArgv(spec: NetworkSpec): string[] {
     ...(spec.root ? ['--root'] : []),
     '--port-offset',
     String(spec.portOffset),
+    '--import-vl-keys',
+    spec.importVlKeys.join(','),
     ...(spec.nodeConfig
       ? ['--node-config', JSON.stringify(spec.nodeConfig)]
       : []),
@@ -427,6 +450,9 @@ export function plan(
               : []),
             ...(has('validatorConfig')
               ? ['--validator-config', JSON.stringify(d.validatorConfig ?? {})]
+              : []),
+            ...(has('importVlKeys')
+              ? ['--import-vl-keys', d.importVlKeys.join(',')]
               : []),
             ...(has('pwa') ? ['--pwa'] : []),
           ],
