@@ -195,6 +195,14 @@ export function validateSpec(spec: NetworkSpec): void {
       );
     }
   }
+  if (
+    !Array.isArray(spec.importVlKeys) ||
+    !spec.importVlKeys.every((k) => IMPORT_VL_KEY_RE.test(k))
+  ) {
+    throw new Error(
+      `importVlKeys must be a list of 33-byte hex public keys, got "${JSON.stringify(spec.importVlKeys)}"`,
+    );
+  }
   if (spec.validatorConfig !== undefined && spec.type !== 'testnet') {
     throw new Error('validatorConfig is testnet only');
   }
@@ -248,6 +256,8 @@ export function defaultQuorum(validators: number): number {
   if (validators === 1) return 1;
   return Math.min(Math.ceil(0.8 * validators), validators - 1);
 }
+
+export const IMPORT_VL_KEY_RE = /^[0-9A-Fa-f]{66}$/;
 
 export const DEFAULT_IMPORT_VL_KEYS = [
   // https://vl.altnet.rippletest.net/

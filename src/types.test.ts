@@ -298,3 +298,23 @@ test('validateSpec: displayName 1-64 and displayShortName 1-24 chars, no control
     assert.throws(() => validateSpec({ ...base, ...bad }), /Name must be/);
   }
 });
+
+test('validateSpec: importVlKeys must be 33-byte hex keys ([] is fine)', () => {
+  const base: NetworkSpec = {
+    name: 't1',
+    type: 'testnet',
+    version: 'v',
+    validators: 3,
+    quorum: 2,
+    networkId: 21339,
+    domain: 'a.b',
+    tls: false,
+    portOffset: 0,
+    importVlKeys: [],
+  };
+  validateSpec(base);
+  assert.throws(
+    () => validateSpec({ ...base, importVlKeys: ['xyz'] }),
+    /importVlKeys must be a list of 33-byte hex public keys/,
+  );
+});

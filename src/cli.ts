@@ -40,6 +40,7 @@ import { startPanel } from './panel.ts';
 import {
   DEFAULT_IMPORT_VL_KEYS,
   DOMAIN_RE,
+  IMPORT_VL_KEY_RE,
   NAME_RE,
   configSections,
   defaultQuorum,
@@ -97,6 +98,21 @@ function parseDomain(value: string): string {
     );
   }
   return value;
+}
+
+function keysArg(value: string): string[] {
+  const keys = value
+    .split(',')
+    .map((k) => k.trim())
+    .filter(Boolean);
+  for (const k of keys) {
+    if (!IMPORT_VL_KEY_RE.test(k)) {
+      throw new InvalidArgumentError(
+        `must be comma-separated 33-byte hex public keys, got "${k}"`,
+      );
+    }
+  }
+  return keys;
 }
 
 function intArg(min: number, max = Number.POSITIVE_INFINITY) {
@@ -222,6 +238,7 @@ program
         'portOffset',
         'nodeConfig',
         'validatorConfig',
+        'importVlKeys',
       ]),
   )
   .option(
@@ -246,6 +263,12 @@ program
     '--validator-config <json>',
     'testnet validators only: extra/overriding xahaud.cfg sections as JSON, same shape as --node-config',
   )
+  .option(
+    '--import-vl-keys <keys>',
+    'comma-separated hex public keys of the validator lists trusted for Import (default: the XRPL Testnet UNL publisher)',
+    keysArg,
+    DEFAULT_IMPORT_VL_KEYS,
+  )
   .action(async (opts) => {
     // A standalone is always one validator; validateSpec (below) covers the
     // rest, so `create` and `apply` accept exactly the same specs.
@@ -268,7 +291,7 @@ program
       pwa: opts.type === 'testnet',
       external: opts.external,
       portOffset: opts.portOffset,
-      importVlKeys: DEFAULT_IMPORT_VL_KEYS,
+      importVlKeys: opts.importVlKeys,
       displayName: opts.displayName,
       displayShortName: opts.displayShortName,
     };
@@ -439,6 +462,11 @@ program
     '--validator-config <json>',
     'replace validatorConfig (see create); {} removes it',
   )
+  .option(
+    '--import-vl-keys <keys>',
+    'replace importVlKeys: comma-separated hex public keys of the validator lists trusted for Import (empty = none)',
+    keysArg,
+  )
   .option('--pwa', 'enable the pwa port on a network.json that predates it')
   .option(
     '--timeout <sec>',
@@ -465,6 +493,7 @@ program
       if (Object.keys(sections).length === 0) delete spec[key];
       else spec[key] = sections;
     }
+    if (opts.importVlKeys !== undefined) spec.importVlKeys = opts.importVlKeys;
     if (opts.pwa) spec.pwa = true;
     const unsafe = unsafeConfigChanges(before, spec);
     if (unsafe.length > 0) {
@@ -475,7 +504,8 @@ program
     const nodeOnly =
       version === before.version &&
       JSON.stringify(before.validatorConfig ?? {}) ===
-        JSON.stringify(spec.validatorConfig ?? {});
+        JSON.stringify(spec.validatorConfig ?? {}) &&
+      JSON.stringify(before.importVlKeys) === JSON.stringify(spec.importVlKeys);
     const services = Array.from(
       { length: nodeOnly ? 1 : spec.validators + 1 },
       (_, i) => nodeName(spec, i),
