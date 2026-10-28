@@ -1,13 +1,33 @@
 {
   "name": "xahau-network-generator",
   "version": "0.1.0",
-  "private": true,
+  "description": "Generate and run disposable Xahau testnet and standalone networks via Docker Compose",
   "packageManager": "pnpm@11.10.0",
   "type": "module",
+  "bin": {
+    "xng": "dist/cli.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tequdev/xahau-network-generator.git"
+  },
+  "keywords": ["xahau", "xrpl", "testnet", "docker"],
+  "files": [
+    "dist",
+    "assets",
+    "site",
+    "traefik",
+    "!traefik/acme.env",
+    "faucet",
+    "debugstream",
+    "xng.example.yml"
+  ],
   "engines": {
     "node": ">=22"
   },
   "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "prepack": "pnpm build",
     "xng": "tsx src/cli.ts",
     "e2e": "tsx e2e/check.ts",
     "e2e:apply": "tsx e2e/apply.ts",

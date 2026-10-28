@@ -5,6 +5,21 @@ CLI that generates and runs disposable Xahau `testnet` (N validators) or
 
 ## Usage
 
+Install from npm (Node >= 22, Docker with Compose) into the directory
+that holds `xng.yml`; `workspace/` is created next to it:
+
+```sh
+npm i xahau-network-generator
+npx xng doctor
+npx xng apply
+```
+
+Or globally, `npm i -g xahau-network-generator` and plain `xng ...` from
+that directory. `npx xng`, `xng` and `pnpm xng` are interchangeable: the
+examples below use the `pnpm xng` form, which is for running from a
+checkout (it runs the TypeScript sources through tsx; the npm package ships
+the compiled `dist/`, built by `pnpm build`).
+
 ```sh
 pnpm install
 pnpm xng doctor   # docker, compose, build.xahau.tech reachable? optional features (proxy, TLS, Cloudflare) on/off
@@ -189,14 +204,18 @@ Setup on the host — pick one of the two ways to get certificates:
    A DNS wildcard matches nested labels too, so
    `explorer.jshooks.<domain>` resolves. Keep these records DNS-only if the
    domain is on Cloudflare (proxying needs option B).
-2. TLS: `pnpm xng proxy up --acme-email you@example.com` records the email
-   in `traefik/acme.env` (gitignored) and from then on every `xng start`
+2. TLS: `pnpm xng proxy up --acme-email you@example.com` records the
+   email in `~/.config/xahau-network-generator/acme.env`
+   (`$XDG_CONFIG_HOME` is honoured) and from then on every `xng start`
    applies `traefik/compose.acme.yml`, so Traefik issues a Let's Encrypt
    certificate per hostname (HTTP-01 on port 80). Create networks with
    `--tls` so their advertised URLs are `https`/`wss`.
    The `pwa<AccountIndex>.pwa.<name>.<domain>` hosts of a testnet
    are not covered: Traefik only issues certificates for literal `Host()`
    rules and a wildcard needs DNS-01, so use plain http there or option B.
+   Upgrading from a checkout that had `traefik/acme.env`? xng refuses to
+   start until that file is moved to the new path; `xng doctor` prints the
+   exact command.
 
 **B. Cloudflare only (Tunnel + Advanced Certificate Manager, no open ports)**
 
@@ -392,3 +411,9 @@ pnpm e2e      # end-to-end check against a running network
 pnpm e2e:restart --name t1 -- <reboot-simulating command>  # e.g. CI uses `sudo systemctl restart docker`
 pnpm e2e:apply --version <ver> --upgrade-to <ver>  # xng apply end to end; needs an empty workspace/ (aborts otherwise)
 ```
+
+## Releasing
+
+Bump `version` in `package.json`, merge to `main`, then run the **Release** workflow (Actions → Release → Run workflow). It defaults to a dry run; untick it to create the `v<version>` tag and a GitHub release with generated notes. It refuses to run when that tag already exists.
+
+The workflow also publishes to npm (with provenance; a dry run runs `npm publish --dry-run`). The first publish needs an `NPM_TOKEN` repository secret holding an npm granular token with publish rights. Afterwards register a trusted publisher on npmjs.com (repository `tequdev/xahau-network-generator`, workflow `release.yml`) and delete the secret, so later releases publish over OIDC.

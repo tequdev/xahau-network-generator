@@ -1,16 +1,23 @@
 import { execFile, spawnSync } from 'node:child_process';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
 // Child `xng` invocations (`xng apply`) run the CLI itself rather than a
-// second implementation of each command.
-export const TSX_BIN = fileURLToPath(
-  new URL('../node_modules/.bin/tsx', import.meta.url),
+// second implementation of each command. Callers spawn
+// `process.execPath` with `[...process.execArgv, CLI_PATH, ...args]`, which
+// reproduces the parent's runtime (tsx loader or strip-types) in both cases.
+// cli.ts when running the sources (tsx), cli.js from the compiled dist/.
+export const CLI_PATH = fileURLToPath(
+  new URL(
+    import.meta.url.endsWith('.ts') ? './cli.ts' : './cli.js',
+    import.meta.url,
+  ),
 );
-export const CLI_PATH = fileURLToPath(new URL('./cli.ts', import.meta.url));
 
 const TRAEFIK_COMPOSE = fileURLToPath(
   new URL('../traefik/compose.yml', import.meta.url),
@@ -18,12 +25,35 @@ const TRAEFIK_COMPOSE = fileURLToPath(
 const TRAEFIK_ACME_COMPOSE = fileURLToPath(
   new URL('../traefik/compose.acme.yml', import.meta.url),
 );
-export const TRAEFIK_ACME_ENV = fileURLToPath(
+const ACME_ENV = join(
+  process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'),
+  'xahau-network-generator',
+  'acme.env',
+);
+// Legacy location from the checkout era; no longer read.
+export const LEGACY_ACME_ENV = fileURLToPath(
   new URL('../traefik/acme.env', import.meta.url),
 );
+// Not migrated automatically: ACME_ENV depends on the user running xng,
+// and moving the file under the wrong HOME would make the next
+// ensureProxy() recreate Traefik without the cert resolver.
+export function legacyAcmeEnvProblem(
+  legacy = LEGACY_ACME_ENV,
+  current = ACME_ENV,
+): string | undefined {
+  if (!existsSync(legacy)) return undefined;
+  return existsSync(current)
+    ? `${legacy} is no longer read (xng uses ${current}); delete it`
+    : `${legacy} has moved: run \`mkdir -p ${dirname(current)} && mv ${legacy} ${current}\` as the user that runs xng, or \`xng proxy up --acme-email <email>\``;
+}
+export function acmeEnvFile(): string {
+  const problem = legacyAcmeEnvProblem();
+  if (problem) throw new Error(problem);
+  return ACME_ENV;
+}
 
-// `xng proxy up --acme-email` records the email in traefik/acme.env
-// (gitignored); from then on every ensureProxy() applies the ACME overlay
+// `xng proxy up --acme-email` records the email in ~/.config/xahau-network-generator/acme.env
+// (or $XDG_CONFIG_HOME/...); from then on every ensureProxy() applies the ACME overlay
 // (Let's Encrypt for every routed hostname, see traefik/compose.acme.yml).
 // Persisted in a file rather than read from the ambient environment on
 // purpose: ensureProxy() also runs from `xng start`/`reset`, and a single
@@ -31,19 +61,15 @@ export const TRAEFIK_ACME_ENV = fileURLToPath(
 // files, recreating it without the cert resolver and breaking HTTPS for
 // every network at once.
 export function enableAcme(email: string): void {
-  writeFileSync(TRAEFIK_ACME_ENV, `XNG_ACME_EMAIL=${email}\n`);
+  mkdirSync(dirname(ACME_ENV), { recursive: true });
+  rmSync(LEGACY_ACME_ENV, { force: true });
+  writeFileSync(ACME_ENV, `XNG_ACME_EMAIL=${email}\n`);
 }
 
 function traefikArgs(): string[] {
-  if (!existsSync(TRAEFIK_ACME_ENV)) return ['-f', TRAEFIK_COMPOSE];
-  return [
-    '--env-file',
-    TRAEFIK_ACME_ENV,
-    '-f',
-    TRAEFIK_COMPOSE,
-    '-f',
-    TRAEFIK_ACME_COMPOSE,
-  ];
+  const env = acmeEnvFile();
+  if (!existsSync(env)) return ['-f', TRAEFIK_COMPOSE];
+  return ['--env-file', env, '-f', TRAEFIK_COMPOSE, '-f', TRAEFIK_ACME_COMPOSE];
 }
 
 // `docker info` SecurityOptions, e.g. "name=seccomp,profile=builtin name=rootless".

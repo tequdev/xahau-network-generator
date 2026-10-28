@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import YAML from 'yaml';
 import { certHosts } from './cloudflare.ts';
 import { renderCompose } from './compose.ts';
-import { CLI_PATH, TSX_BIN } from './docker.ts';
+import { CLI_PATH } from './docker.ts';
 import {
   DEFAULT_IMPORT_VL_KEYS,
   configSections,
@@ -733,9 +733,11 @@ export function runPlan(actions: Action[]): boolean {
   const label = (s: string[]) => `xng ${s.join(' ')}`;
   for (const [i, step] of steps.entries()) {
     console.log(`$ ${label(step)}`);
-    const result = spawnSync(TSX_BIN, [CLI_PATH, ...step], {
-      stdio: 'inherit',
-    });
+    const result = spawnSync(
+      process.execPath,
+      [...process.execArgv, CLI_PATH, ...step],
+      { stdio: 'inherit' },
+    );
     if (result.error || result.status !== 0) {
       const why = result.error
         ? result.error.message

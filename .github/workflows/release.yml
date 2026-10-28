@@ -1,0 +1,55 @@
+# Manual release: tags package.json's version as v<version>, publishes it to npm and creates a
+# GitHub release with generated notes. Defaults to a dry run (nothing tagged, released or published).
+name: Release
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (no tag, no release, npm publish --dry-run)"
+        type: boolean
+        default: true
+permissions:
+  contents: write # tag + release
+  id-token: write # npm provenance / OIDC
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24 # npm >= 11.5 for OIDC publishing
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+      - id: v
+        run: echo "tag=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+      - run: git fetch --tags && ! git rev-parse -q --verify "refs/tags/${{ steps.v.outputs.tag }}" # version must be unreleased
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm exec tsc --noEmit
+      - name: Packed-install smoke test
+        run: |
+          npm pack # prepack builds dist/
+          dir="$(mktemp -d)"
+          cp xahau-network-generator-*.tgz "$dir/pkg.tgz"
+          cd "$dir"
+          npm init -y > /dev/null
+          npm i ./pkg.tgz
+          ./node_modules/.bin/xng --help
+          ./node_modules/.bin/xng doctor --help
+          test -f node_modules/xahau-network-generator/faucet/npm-shrinkwrap.json && test -f node_modules/xahau-network-generator/debugstream/npm-shrinkwrap.json
+      - run: |
+          if [ -n "$(npm view "xahau-network-generator@${TAG#v}" version 2>/dev/null)" ]; then echo "already published"
+          else npm publish --provenance --access public ${{ inputs.dry_run && '--dry-run' || '' }}; fi
+        env:
+          TAG: ${{ steps.v.outputs.tag }}
+          # NPM_TOKEN when set (needed for the first publish, before a trusted publisher can exist); otherwise keep
+          # setup-node's placeholder so OIDC is used (an empty token has been reported to break OIDC).
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN || env.NODE_AUTH_TOKEN }}
+      - if: ${{ !inputs.dry_run }}
+        run: gh release create "${{ steps.v.outputs.tag }}" --target "$GITHUB_SHA" --generate-notes # also creates the tag
+        env:
+          GH_TOKEN: ${{ github.token }}

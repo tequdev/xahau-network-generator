@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { CF_VERSION } from './cloudflare.ts';
+import { legacyAcmeEnvProblem } from './docker.ts';
 import {
   checkCf,
   checkCompose,
@@ -47,4 +51,17 @@ test('checkPrivilegedPorts: only under rootless/userns, fails above port 80', ()
   assert.equal(checkPrivilegedPorts(true, 1024)?.status, 'fail');
   assert.equal(checkPrivilegedPorts(true, 80)?.status, 'ok');
   assert.equal(checkPrivilegedPorts(true, 0)?.status, 'ok');
+});
+
+test('legacy acme.env is reported, not migrated', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'xng-acme-'));
+  const legacy = join(dir, 'legacy.env');
+  const current = join(dir, 'current.env');
+  assert.equal(legacyAcmeEnvProblem(legacy, current), undefined);
+  writeFileSync(legacy, 'XNG_ACME_EMAIL=x@example.com\n');
+  const moved = legacyAcmeEnvProblem(legacy, current);
+  assert.match(moved ?? '', /mv /);
+  assert.ok(moved?.includes(current));
+  writeFileSync(current, 'XNG_ACME_EMAIL=x@example.com\n');
+  assert.match(legacyAcmeEnvProblem(legacy, current) ?? '', /delete/);
 });

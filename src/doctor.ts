@@ -9,10 +9,11 @@ import {
   listCertificatePacks,
 } from './cloudflare.ts';
 import {
-  TRAEFIK_ACME_ENV,
+  acmeEnvFile,
   containerUser,
   dockerSocketPath,
   dockerUserRemapped,
+  legacyAcmeEnvProblem,
 } from './docker.ts';
 
 // `xng doctor`: is everything xng shells out to (docker, docker compose,
@@ -173,8 +174,10 @@ function checkProxy(): Check {
 
 function checkAcme(): Check {
   const name = "let's encrypt";
+  const problem = legacyAcmeEnvProblem();
+  if (problem) return { name, status: 'fail', detail: problem };
   try {
-    const email = readFileSync(TRAEFIK_ACME_ENV, 'utf8').match(
+    const email = readFileSync(acmeEnvFile(), 'utf8').match(
       /^XNG_ACME_EMAIL=(.*)$/m,
     )?.[1];
     return { name, status: 'info', detail: `on (${email ?? '?'})` };
