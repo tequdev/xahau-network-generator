@@ -51,13 +51,13 @@ generated at create time only; xahaud.cfg is re-rendered by `xng upgrade`
 `xahaud.cfg` (`--node-config`/`--validator-config` replace those settings, `{}`
 removes them; `--version` defaults to the current one, so a config-only change
 keeps the binary) one node at a time —
-`node` first, then each validator in order — waiting for each to rejoin
+`node` first, then `relay` if any, then each validator in order — waiting for each to rejoin
 consensus on the new version before moving to the next, so the network is
 never fully stopped. The default quorum is capped at `validators - 1` (see
 below), so one validator can be mid-restart and consensus still keeps going;
 pass `--quorum` yourself to raise it if you want stricter safety instead.
 With the current binary and an unchanged `validatorConfig` and `importVlKeys` (e.g. `--node-config`
-only) just `node` is restarted.
+only) just `node` is restarted; `--relay-config` restarts only `relay` (and `node`).
 
 `vote` (testnet only) runs `feature <amendment> accept|reject` on each
 validator. Every generated node sets `[amendment_majority_time]` to
@@ -107,6 +107,36 @@ service and write no log file; `node` still traces hooks to stderr, so
 xahaud.cfg is written at create time, so a testnet created by an older xng
 gets the stream service on its next start but no log to tail until it is
 recreated.
+
+### featureExport (relayer)
+
+A xahaud build with featureExport needs a non-validating xahaud that peers
+with the other network (the "relayer"). Put its `[xrpl_relay]` section in
+`relayConfig` (testnet only; `xng create`/`upgrade --relay-config <json>`) and
+xng runs it as a separate `relay` service (container `<name>-relay`) beside
+`node`, peered to every validator:
+
+```yaml
+relayConfig:
+  xrpl_relay: ["s.altnet.rippletest.net 51235", "network_id=1"]
+```
+
+The default `importVlKeys` is the XRPL Testnet publisher key, so relaying to
+the XRPL Testnet needs nothing else. For mainnet set `importVlKeys` to the
+mainnet publisher key and drop `network_id`. `vl_url` must be https and may be
+omitted (the validator list arrives from the peer). When the build has
+featureExport, every validator's master account is pre-funded in genesis (100
+XAH), since its export key is recorded there. `export_setup` is reachable on
+`rpc.<name>.<domain>`.
+
+For a local XRPL stand-in (a second xng network) the relay must peer with one
+of ITS validators, not its `node`, which may not yet hold the ledger when
+validations arrive, and must be able to reach it:
+`docker network connect <other>_default <name>-relay` (not persistent across
+container recreation).
+
+Changing `relayConfig` (or the version / `importVlKeys`) on a running network
+recreates only `relay`; `--relay-config {}` removes it and discards its db.
 
 ### Faucet API
 
@@ -293,7 +323,7 @@ key (`cp xng.example.yml xng.yml`).
 The keys are those of `workspace/<name>/network.json`: `type` (default
 `testnet`), `version`, `validators` (3), `quorum`, `networkId` (21339),
 `domain` (`127.0.0.1.nip.io`), `tls` (false), `root` (false),
-`external` (false), `portOffset` (0), `displayName`, `displayShortName`, `nodeConfig`, `validatorConfig`, `importVlKeys` (a list of hex publisher keys for `[import_vl_keys]`; also `xng create`/`upgrade --import-vl-keys`, comma-separated; a change is a rolling `upgrade` on a testnet). `nodeConfig` (also `xng
+`external` (false), `portOffset` (0), `displayName`, `displayShortName`, `nodeConfig`, `validatorConfig`, `relayConfig`, `importVlKeys` (a list of hex publisher keys for `[import_vl_keys]`; also `xng create`/`upgrade --import-vl-keys`, comma-separated; a change is a rolling `upgrade` on a testnet). `nodeConfig` (also `xng
 create --node-config <json>`) adds or overrides `xahaud.cfg` sections of the
 non-validating `node` only: a section xng already writes is replaced, any
 other is appended; on a testnet, changing it is a rolling `upgrade` (a
@@ -302,7 +332,9 @@ standalone, or a change to `node_db`, `database_path`, `relational_db`,
 instead). `node` also gets `[hook_validate_rpc] 1` by default (validators never
 do); `nodeConfig` can override it. `validatorConfig`
 (`--validator-config <json>`) does the same for the testnet validators
-v1..vN only, never `node`. Every testnet (external ones included, never a standalone) has pwa, which is not
+v1..vN only, never `node`. `relayConfig` (`--relay-config <json>`) is the
+same for the optional testnet `relay` (see featureExport above); absent means no
+relayer. Every testnet (external ones included, never a standalone) has pwa, which is not
 configurable: a xahaud `protocol = pwa`
 port on `node` whose zone is `pwa.<name>.<domain>` (`pwa.<domain>` for a root
 network): each account's loader is served at
@@ -338,7 +370,7 @@ xng apply [-f xng.yml] [-y] [--dry-run] [--timeout <sec>] [--network <name>]...
 | --- | --- | --- |
 | only in the file | `create` | `create`, then `start --wait` |
 | only in `workspace/` | `remove` | `remove` |
-| testnet, only `version`/`nodeConfig`/`validatorConfig`/`importVlKeys` differ (or an old network.json lacks pwa) (none of the sections above) | `upgrade` | (`start --wait` if stopped, then) `upgrade` with the changed `--node-config`/`--validator-config`/`--pwa` (migration only) |
+| testnet, only `version`/`nodeConfig`/`validatorConfig`/`relayConfig`/`importVlKeys` differ (or an old network.json lacks pwa) (none of the sections above) | `upgrade` | (`start --wait` if stopped, then) `upgrade` with the changed `--node-config`/`--validator-config`/`--relay-config`/`--pwa` (migration only) |
 | standalone `version`/config, any other key, or an unsafe config section differs (the plan warns) | `recreate` | `remove`, `create`, `start --wait` (ledger data and keys are wiped) |
 | identical but `displayName`/`displayShortName` | `relabel` | `label` (`start --wait` if stopped); no recreate |
 | identical, any container not running | `start` | `start --wait` |

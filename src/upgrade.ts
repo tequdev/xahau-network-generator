@@ -1,10 +1,18 @@
-import { chmod, copyFile, rename, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import {
+  chmod,
+  copyFile,
+  mkdir,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { buildVersionOf, fetchBinary } from './binary.ts';
 import { renderCompose } from './compose.ts';
-import { compose, composeOutput } from './docker.ts';
+import { compose, composeOutput, removeContainer } from './docker.ts';
 import { writeNodeConfig } from './network.ts';
-import { endpoints, nodeName } from './types.ts';
+import { RELAY, containerName, endpoints, nodeName } from './types.ts';
 import type { NetworkSpec } from './types.ts';
 import { rpc } from './wait.ts';
 
@@ -132,10 +140,10 @@ async function waitForNode(
 
 // Rolling, zero-downtime restart of a running testnet that swaps the xahaud
 // binary AND rewrites each node's xahaud.cfg from `spec` (nodeConfig /
-// validatorConfig); with the current version it only re-applies the config.
-// `node` goes first
+// validatorConfig / relayConfig); with the current version it only re-applies
+// the config. The caller picks the `services` to roll, in order: `node` first
 // (a canary — if the new binary can't even start/sync, nothing else is
-// touched), then v1..vN in order, one at a time. Each node's binary lives at
+// touched), then `relay`, then v1..vN, one at a time. Each node's binary lives at
 // its own workspace/<name>/bin/<service>/xahaud (see src/network.ts), so
 // swapping one node's file and recreating just that container never affects
 // the others; already-upgraded nodes are left running the new binary if a
@@ -144,11 +152,20 @@ export async function upgradeNetwork(
   spec: NetworkSpec,
   version: string,
   timeoutMs: number,
-  opts: { nodeOnly?: boolean } = {},
+  { services }: { services: string[] },
 ): Promise<void> {
   spec.version = version;
+  const wsDir = join('workspace', spec.name);
   // Fails fast if the version doesn't exist, before anything is touched.
   const { binaryPath } = await fetchBinary(version);
+  // relayConfig removed: the relayer goes away, by container name so that a
+  // compose.yml already without it (a failed earlier run) cannot break this.
+  // Its db is discarded; adding it back later syncs from genesis again.
+  if (!spec.relayConfig && existsSync(join(wsDir, 'nodes', RELAY))) {
+    removeContainer(containerName(spec, RELAY));
+    await rm(join(wsDir, 'bin', RELAY), { recursive: true, force: true });
+    await rm(join(wsDir, 'nodes', RELAY), { recursive: true, force: true });
+  }
   // `node`'s pwa Traefik labels live in compose.yml, and the `compose up
   // --force-recreate` below applies them; `xng start`/`reset` re-render it
   // the same way.
@@ -156,31 +173,44 @@ export async function upgradeNetwork(
     join('workspace', spec.name, 'compose.yml'),
     renderCompose(spec),
   );
-  // When neither the binary nor validatorConfig changes, only `node`'s cfg can
-  // differ (nodeConfig, pwa), so validators are left running instead of being
-  // rolled for nothing.
-  const services = opts.nodeOnly
-    ? [nodeName(spec, 0)]
-    : Array.from({ length: spec.validators + 1 }, (_, i) => nodeName(spec, i));
 
   const upgraded: string[] = [];
-  for (const [i, service] of services.entries()) {
+  for (const service of services) {
     const isPrimary = service === nodeName(spec, 0);
     const seqBefore = await currentSeq(spec, service, isPrimary);
 
-    const binDir = join('workspace', spec.name, 'bin', service);
+    const binDir = join(wsDir, 'bin', service);
     const finalPath = join(binDir, 'xahaud');
     const tmpPath = join(binDir, 'xahaud.tmp');
     // Never overwrite the mounted file in place (ETXTBSY / crash risk while
     // the old process still has it open); write alongside and atomically
     // rename over it. The running container keeps its old inode open until
     // it's recreated below.
+    // A relayer added to a running network has no directories yet; it starts
+    // from the same genesis.json as `node` and syncs to the current ledger.
+    const nodeDir = join(wsDir, 'nodes', service);
+    if (service === RELAY && !existsSync(nodeDir)) {
+      await mkdir(binDir, { recursive: true });
+      await mkdir(nodeDir, { recursive: true });
+      await copyFile(
+        join(wsDir, 'nodes', nodeName(spec, 0), 'genesis.json'),
+        join(nodeDir, 'genesis.json'),
+      );
+    }
     await copyFile(binaryPath, tmpPath);
     await chmod(tmpPath, 0o755);
     await rename(tmpPath, finalPath);
 
     // The cfg is a bind mount, so rewriting it on the host is enough.
-    await writeNodeConfig(spec, join('workspace', spec.name), i);
+    await writeNodeConfig(
+      spec,
+      wsDir,
+      service === RELAY
+        ? RELAY
+        : service === 'node'
+          ? 0
+          : Number(service.slice(1)),
+    );
 
     // --no-deps so `vl` (and any other dependency) is left alone.
     compose(spec.name, ['up', '-d', '--no-deps', '--force-recreate', service]);

@@ -41,13 +41,14 @@ import {
   DOMAIN_RE,
   IMPORT_VL_KEY_RE,
   NAME_RE,
+  RELAY,
   configSections,
   defaultQuorum,
   endpoints,
   nodeName,
   validateSpec,
 } from './types.ts';
-import type { NetworkSpec } from './types.ts';
+import type { ConfigKey, NetworkSpec } from './types.ts';
 import { upgradeNetwork } from './upgrade.ts';
 import { voteAmendment } from './vote.ts';
 import { waitForNetwork } from './wait.ts';
@@ -77,10 +78,14 @@ function parseName(value: string): string {
 
 // --node-config / --validator-config: JSON -> section -> lines.
 function parseConfigFlag(
-  key: 'nodeConfig' | 'validatorConfig',
+  key: ConfigKey,
   json: string,
 ): Record<string, string[]> {
-  const flag = key === 'nodeConfig' ? '--node-config' : '--validator-config';
+  const flag = {
+    nodeConfig: '--node-config',
+    validatorConfig: '--validator-config',
+    relayConfig: '--relay-config',
+  }[key];
   let raw: unknown;
   try {
     raw = JSON.parse(json);
@@ -237,6 +242,7 @@ program
         'portOffset',
         'nodeConfig',
         'validatorConfig',
+        'relayConfig',
         'importVlKeys',
       ]),
   )
@@ -261,6 +267,10 @@ program
   .option(
     '--validator-config <json>',
     'testnet validators only: extra/overriding xahaud.cfg sections as JSON, same shape as --node-config',
+  )
+  .option(
+    '--relay-config <json>',
+    'testnet only: run a non-validating `relay` xahaud (featureExport relayer) with these xahaud.cfg sections as JSON, same shape as --node-config (normally {"xrpl_relay": [...]})',
   )
   .option(
     '--import-vl-keys <keys>',
@@ -302,6 +312,9 @@ program
         'validatorConfig',
         opts.validatorConfig,
       );
+    }
+    if (opts.relayConfig !== undefined) {
+      spec.relayConfig = parseConfigFlag('relayConfig', opts.relayConfig);
     }
 
     // Fail before generating anything if the domain is outside the zone.
@@ -449,7 +462,7 @@ program
 program
   .command('upgrade')
   .description(
-    'rolling upgrade of a running testnet, one node at a time: swap the xahaud binary and/or rewrite xahaud.cfg (nodeConfig/validatorConfig; --pwa migrates a network created before pwa was always on); with the current binary and unchanged validatorConfig only `node` is restarted',
+    'rolling upgrade of a running testnet, one node at a time: swap the xahaud binary and/or rewrite xahaud.cfg (nodeConfig/validatorConfig/relayConfig; --pwa migrates a network created before pwa was always on); services whose binary and config are unchanged are not restarted (`node` always is)',
   )
   .requiredOption('--name <name>', 'network name', parseName)
   .option('--version <ver>', 'xahaud version to upgrade to (default: current)')
@@ -460,6 +473,10 @@ program
   .option(
     '--validator-config <json>',
     'replace validatorConfig (see create); {} removes it',
+  )
+  .option(
+    '--relay-config <json>',
+    'replace relayConfig (see create); {} removes the relayer',
   )
   .option(
     '--import-vl-keys <keys>',
@@ -486,6 +503,7 @@ program
     for (const [key, flag] of [
       ['nodeConfig', opts.nodeConfig],
       ['validatorConfig', opts.validatorConfig],
+      ['relayConfig', opts.relayConfig],
     ] as const) {
       if (flag === undefined) continue;
       const sections = parseConfigFlag(key, flag);
@@ -500,19 +518,31 @@ program
         `${unsafe.join(', ')} cannot change in place; use xng remove + create`,
       );
     }
-    const nodeOnly =
-      version === before.version &&
-      JSON.stringify(before.validatorConfig ?? {}) ===
-        JSON.stringify(spec.validatorConfig ?? {}) &&
-      JSON.stringify(before.importVlKeys) === JSON.stringify(spec.importVlKeys);
-    const services = Array.from(
-      { length: nodeOnly ? 1 : spec.validators + 1 },
-      (_, i) => nodeName(spec, i),
-    );
+    const changed = (key: 'validatorConfig' | 'relayConfig' | 'importVlKeys') =>
+      JSON.stringify(before[key] ?? {}) !== JSON.stringify(spec[key] ?? {});
+    const versionChanged = version !== before.version;
+    // `node` always; the others only when something they run on changed. The
+    // relay's validators.txt carries [import_vl_keys], which its work depends
+    // on. Both non-validating services go before any validator, so a bad
+    // binary aborts before a validator is touched.
+    const services = [
+      nodeName(spec, 0),
+      ...(spec.relayConfig &&
+      (versionChanged || changed('relayConfig') || changed('importVlKeys'))
+        ? [RELAY]
+        : []),
+      ...(versionChanged ||
+      changed('validatorConfig') ||
+      changed('importVlKeys')
+        ? Array.from({ length: spec.validators }, (_, i) =>
+            nodeName(spec, i + 1),
+          )
+        : []),
+    ];
     console.log(
       `upgrading ${spec.name}: ${services.join(', ')} -> ${version} (xahaud.cfg rewritten)`,
     );
-    await upgradeNetwork(spec, version, opts.timeout * 1000, { nodeOnly });
+    await upgradeNetwork(spec, version, opts.timeout * 1000, { services });
     await writeSiteIndex(); // the root's networks.json lists versions
     // A pwa network's Cloudflare pack also needs `*.pwa.<base>`;
     // ensureCertificate is idempotent otherwise.

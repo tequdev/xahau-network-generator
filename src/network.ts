@@ -11,6 +11,7 @@ import {
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { deriveAddress } from 'xahau-keypairs';
 import {
   amendmentHash,
   commitFromReleaseinfo,
@@ -35,6 +36,7 @@ import {
 } from './keys.ts';
 import type { NetworkSpec } from './types.ts';
 import {
+  RELAY,
   VL_HOST,
   containerName,
   displayNames,
@@ -98,9 +100,12 @@ async function populateNetwork(spec: NetworkSpec, dir: string): Promise<void> {
   const serviceNames =
     spec.type === 'standalone'
       ? [nodeName(spec, 0)]
-      : Array.from({ length: spec.validators + 1 }, (_, i) =>
-          nodeName(spec, i),
-        );
+      : [
+          ...Array.from({ length: spec.validators + 1 }, (_, i) =>
+            nodeName(spec, i),
+          ),
+          ...(spec.relayConfig ? [RELAY] : []),
+        ];
   const [primaryService, ...restServices] = serviceNames;
   if (!primaryService) throw new Error('no services to install a binary for');
   const primaryBinDir = join(dir, 'bin', primaryService);
@@ -133,11 +138,8 @@ async function populateNetwork(spec: NetworkSpec, dir: string): Promise<void> {
     JSON.stringify(amendmentsMap, null, 2),
   );
 
-  // 3. genesis
+  // 3. keys (testnet only), genesis, config + genesis per node
   const hashes = Object.values(amendmentsMap);
-  const genesis = buildGenesis(hashes);
-
-  // 4. keys (testnet only) + config + genesis per node
   await mkdir(join(dir, 'nodes'), { recursive: true });
 
   if (spec.type === 'testnet') {
@@ -155,6 +157,20 @@ async function populateNetwork(spec: NetworkSpec, dir: string): Promise<void> {
         JSON.stringify(v, null, 2),
       );
     }
+
+    // featureExport records a validator's export key on its master account,
+    // which must exist. xahaud would only create it at the next GenesisMint,
+    // which never happens on a devnet until someone claims a reward, so fund
+    // them in genesis (100 XAH, xahaud's own Export::validatorFundingDrops).
+    const genesis = buildGenesis(
+      hashes,
+      amendmentsMap.Export
+        ? validatorKeysList.map((v) => ({
+            address: deriveAddress(v.master.publicKey),
+            drops: '100000000',
+          }))
+        : [],
+    );
 
     await writeFile(
       join(dir, 'keys', 'faucet.json'),
@@ -184,8 +200,16 @@ async function populateNetwork(spec: NetworkSpec, dir: string): Promise<void> {
     );
     await writeFile(join(dir, 'vl', 'vl.json'), JSON.stringify(vl, null, 2));
 
-    for (let i = 0; i <= spec.validators; i++) {
-      const nodeDir = join(dir, 'nodes', nodeName(spec, i));
+    const indices: (number | typeof RELAY)[] = [
+      ...Array.from({ length: spec.validators + 1 }, (_, i) => i),
+      ...(spec.relayConfig ? ([RELAY] as const) : []),
+    ];
+    for (const i of indices) {
+      const nodeDir = join(
+        dir,
+        'nodes',
+        i === RELAY ? RELAY : nodeName(spec, i),
+      );
       await mkdir(nodeDir, { recursive: true });
       await writeNodeConfig(spec, dir, i);
       await writeFile(
@@ -194,6 +218,7 @@ async function populateNetwork(spec: NetworkSpec, dir: string): Promise<void> {
       );
     }
   } else {
+    const genesis = buildGenesis(hashes);
     const nodeDir = join(dir, 'nodes', nodeName(spec, 0));
     await mkdir(nodeDir, { recursive: true });
     await writeNodeConfig(spec, dir, 0);
@@ -209,15 +234,20 @@ async function populateNetwork(spec: NetworkSpec, dir: string): Promise<void> {
 }
 
 // Renders nodes/<name>/xahaud.cfg and validators.txt for node `index` (0 =
-// `node` / the standalone node, 1.. = validators). Inputs come from disk
+// `node` / the standalone node, 1.. = validators, RELAY = the featureExport
+// relayer). Inputs come from disk
 // (keys/v<i>.json for the token, keys/vl.json for the VL publisher key), so
 // create and `xng upgrade` share one rendering path.
 export async function writeNodeConfig(
   spec: NetworkSpec,
   dir: string,
-  index: number,
+  index: number | typeof RELAY,
 ): Promise<void> {
-  const nodeDir = join(dir, 'nodes', nodeName(spec, index));
+  const nodeDir = join(
+    dir,
+    'nodes',
+    index === RELAY ? RELAY : nodeName(spec, index),
+  );
   let cfgOpts: XahaudCfgOptions;
   if (spec.type === 'standalone') {
     cfgOpts = {
@@ -235,10 +265,12 @@ export async function writeNodeConfig(
     const vlUrl = `http://${containerName(spec, VL_HOST)}/vl.json`;
     const peerOf = (j: number) =>
       `${containerName(spec, nodeName(spec, j))} ${ports(spec, j).peer}`;
-    if (index === 0) {
+    if (index === 0 || index === RELAY) {
       // Non-validating `node`: users, the faucet and the explorer talk to this
       // one, never to a validator. Same shape as a validator config, but no
       // token and peered to every validator (and they to it, see below).
+      // The relayer is the same minus pwa and nodeConfig; only it dials the
+      // validators (a non-validator need not be dialled back).
       cfgOpts = {
         type: 'testnet',
         networkId: spec.networkId,
@@ -246,11 +278,11 @@ export async function writeNodeConfig(
         peers: Array.from({ length: spec.validators }, (_, i) => peerOf(i + 1)),
         vlKeyHex,
         vlUrl,
-        ...(spec.pwa
+        ...(spec.pwa && index === 0
           ? { pwa: { domain: pwaZone(spec), secureGateway: proxySubnets() } }
           : {}),
         importVlKeys: spec.importVlKeys,
-        overrides: spec.nodeConfig,
+        overrides: index === 0 ? spec.nodeConfig : spec.relayConfig,
       };
     } else {
       // Every other node, `node` included: xahaud retries a failed fixed
@@ -279,7 +311,9 @@ export async function writeNodeConfig(
   await writeFile(
     join(nodeDir, 'xahaud.cfg'),
     renderXahaudCfg(cfgOpts),
-    spec.type === 'testnet' && index > 0 ? { mode: 0o600 } : undefined,
+    spec.type === 'testnet' && index !== 0 && index !== RELAY
+      ? { mode: 0o600 }
+      : undefined,
   );
   await writeFile(
     join(nodeDir, 'validators.txt'),

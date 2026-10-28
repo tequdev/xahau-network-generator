@@ -265,3 +265,23 @@ test('sourceHash: content changes the hash, node_modules does not', () => {
   writeFileSync(join(dir, 'server.ts'), 'b');
   assert.notEqual(sourceHash(dir), before);
 });
+
+test('compose: relay service exists only with relayConfig, on the default network, no labels or ports', () => {
+  // biome-ignore lint/suspicious/noExplicitAny: compose.yml service shape has no fixed schema here
+  const parsed = (spec: NetworkSpec) => parse(renderCompose(spec)) as any;
+  assert.equal(parsed(testnetSpec).services.relay, undefined);
+  const { relay, v1 } = parsed({
+    ...testnetSpec,
+    relayConfig: { xrpl_relay: ['x 51235'] },
+  }).services;
+  assert.equal(relay.container_name, 'testnet-3-relay');
+  assert.equal(relay.networks, undefined);
+  assert.equal(relay.labels, undefined);
+  assert.equal(relay.ports, undefined);
+  assert.deepEqual(relay.depends_on, v1.depends_on);
+  assert.equal(relay.command[2], v1.command[2]);
+  assert.deepEqual(relay.volumes, [
+    './bin/relay/xahaud:/usr/local/bin/xahaud:ro',
+    './nodes/relay:/node',
+  ]);
+});
