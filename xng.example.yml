@@ -44,6 +44,9 @@ networks:
                                      # or XNG_CF_ZONE (Cloudflare) for real certificates (default: the
                                      # top-level tls, else false); same as the top-level one here
     root: false                      # true | false, testnet only     (default false)
+    # importVlKeys: [ED264807102805220DA0F312E71FC2C69E1552C9C5790F6C25E3729DEB573D5860]
+                                     # [import_vl_keys] of validators.txt: hex publisher keys trusted for Import
+                                     # (default: the XRPL Testnet UNL publisher); changing it is a rolling upgrade
     displayName: JS Hooks            # 1-64 chars; landing page heading (default: the name, `main` for root)
     displayShortName: jshooks               # 1-24 chars; nav link and faucet pill (default: displayName)
                                      # both are cosmetic: changing them never recreates the network
@@ -94,7 +97,7 @@ networks:
     # a rolling upgrade (a recreate if it touches node_db, database_path,
     # relational_db, network_id, validator_token or validation_seed).
     nodeConfig:
-      ledger_history: 50000          # one line (xng writes 10000)
+      ledger_history: 50000          # one line (xng writes 1000000, 3000000 for root)
       node_db:                       # a mapping: "key = value" lines
         type: NuDB
         path: db/nudb

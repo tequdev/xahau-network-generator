@@ -63,13 +63,16 @@ test('xahaud.cfg sets amendment_majority_time to the 1 minute floor', () => {
   );
 });
 
-test('validators keep 256 ledgers, node keeps 10000', () => {
+test('validators keep 256 ledgers, node keeps 1M, a root network node 3M', () => {
   const validator = renderXahaudCfg({ ...cfgOpts, token: 'T' });
   assert.ok(validator.includes('online_delete=256\n'));
   assert.ok(validator.includes('[ledger_history]\n256\n'));
   const node = renderXahaudCfg(cfgOpts);
-  assert.ok(node.includes('online_delete=10000\n'));
-  assert.ok(node.includes('[ledger_history]\n10000\n'));
+  assert.ok(node.includes('online_delete=1000000\n'));
+  assert.ok(node.includes('[ledger_history]\n1000000\n'));
+  const root = renderXahaudCfg({ ...cfgOpts, root: true });
+  assert.ok(root.includes('online_delete=3000000\n'));
+  assert.ok(root.includes('[ledger_history]\n3000000\n'));
 });
 
 test('admin ports bind 127.0.0.1 on testnet, 0.0.0.0 on standalone; public stays open', () => {

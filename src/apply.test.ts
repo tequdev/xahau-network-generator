@@ -187,7 +187,7 @@ test('plan: create, remove, unchanged', () => {
   const create = actions.find((a) => a.name === 'new');
   assert.equal(
     argv(create?.steps ?? [])[0],
-    `create --name new --type testnet --version ${V1} --validators 3 --quorum 2 --network-id 21339 --domain 127.0.0.1.nip.io --port-offset 0`,
+    `create --name new --type testnet --version ${V1} --validators 3 --quorum 2 --network-id 21339 --domain 127.0.0.1.nip.io --port-offset 0 --import-vl-keys ${DEFAULT_IMPORT_VL_KEYS.join(',')}`,
   );
   assert.equal(
     argv(create?.steps ?? [])[1],
@@ -961,4 +961,59 @@ test('formatPlan: a config-only upgrade of a stopped network says it starts firs
     new Set(),
   );
   assert.match(formatPlan(actions), /starts it first/);
+});
+
+const OLD_KEY =
+  'ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC1';
+
+test('plan: a differing importVlKeys in network.json is an upgrade carrying --import-vl-keys', () => {
+  const actions = plan(
+    desiredOf(`  t1:\n    version: ${V1}`),
+    [created({ name: 't1', importVlKeys: [OLD_KEY] })],
+    new Set(['t1']),
+  );
+  assert.equal(actions[0]?.kind, 'upgrade');
+  assert.equal(actions[0]?.diff[0]?.key, 'importVlKeys');
+  assert.deepEqual(argv(actions[0]?.steps ?? []), [
+    `upgrade --name t1 --version ${V1} --timeout 300 --import-vl-keys ${DEFAULT_IMPORT_VL_KEYS.join(',')}`,
+  ]);
+});
+
+test('parseXngYml: importVlKeys is parsed, passed to create, and validated', () => {
+  const [spec] = desiredOf(
+    `  t1:\n    version: ${V1}\n    importVlKeys:\n      - ${OLD_KEY}`,
+  );
+  assert.deepEqual(spec?.importVlKeys, [OLD_KEY]);
+  const actions = plan([spec as NetworkSpec], [], new Set());
+  assert.ok(
+    argv(actions[0]?.steps ?? [])[0]?.includes(`--import-vl-keys ${OLD_KEY}`),
+  );
+  assert.throws(
+    () => desiredOf(`  t1:\n    version: ${V1}\n    importVlKeys: abc`),
+    /importVlKeys must be a list/,
+  );
+  assert.throws(
+    () => desiredOf(`  t1:\n    version: ${V1}\n    importVlKeys: [abc]`),
+    /33-byte hex/,
+  );
+  assert.throws(
+    () => desiredOf(`  e:\n    external: true\n    importVlKeys: [${OLD_KEY}]`),
+    /do not apply to an external network/,
+  );
+});
+
+test('plan: an external stub with an old importVlKeys stays unchanged (the yml cannot set it)', () => {
+  const actions = plan(
+    desiredOf('  x:\n    external: true'),
+    [
+      created({
+        name: 'x',
+        external: true,
+        version: '',
+        importVlKeys: [OLD_KEY],
+      }),
+    ],
+    new Set(),
+  );
+  assert.equal(actions[0]?.kind, 'unchanged');
 });
