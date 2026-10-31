@@ -13,7 +13,13 @@ import { compose, composeOutput } from './docker.ts';
 import { createValidatorKeys, signVl } from './keys.ts';
 import type { PublisherKeys } from './keys.ts';
 import { vlEntries, writeNodeConfig } from './network.ts';
-import { defaultQuorum, endpoints, nodeName, validateSpec } from './types.ts';
+import {
+  RELAY,
+  defaultQuorum,
+  endpoints,
+  nodeName,
+  validateSpec,
+} from './types.ts';
 import type { NetworkSpec } from './types.ts';
 import { parseServerInfoOutput, upgradeNetwork } from './upgrade.ts';
 import { rpc } from './wait.ts';
@@ -274,12 +280,17 @@ export async function rotateValidators(
   log('new validators are trusted and proposing');
 
   if (final.quorum !== spec.quorum) {
-    // node and the kept validators still run the old absolute --quorum; roll
-    // them onto the new one while every old and new validator is validating.
+    // node, the relay and the kept validators still run the old absolute
+    // --quorum; roll them onto the new one while every old and new validator
+    // is validating.
     const kept = Array.from({ length: interim.validators }, (_, i) =>
       nodeName(interim, i + 1),
     ).filter((n) => !added.includes(n) && !removed.includes(n));
-    const services = [nodeName(interim, 0), ...kept];
+    const services = [
+      nodeName(interim, 0),
+      ...(interim.relayConfig ? [RELAY] : []),
+      ...kept,
+    ];
     log(
       `quorum ${spec.quorum} -> ${final.quorum}: recreating ${services.join(', ')}`,
     );
@@ -315,6 +326,7 @@ export async function rotateValidators(
   // restart (e.g. `xng upgrade`).
   for (let i = 0; i <= final.validators; i++)
     await writeNodeConfig(final, dir, i);
+  if (final.relayConfig) await writeNodeConfig(final, dir, RELAY);
   await writeFile(join(dir, 'network.json'), JSON.stringify(final, null, 2));
   log(
     'rewrote xahaud.cfg of every node; they apply it on their next restart (xng upgrade)',

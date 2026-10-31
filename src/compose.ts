@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { stringify } from 'yaml';
 import {
+  RELAY,
   VL_HOST,
   containerName,
   endpoints,
@@ -91,8 +92,13 @@ export function renderCompose(spec: NetworkSpec): string {
       ? [0]
       : [0, ...Array.from({ length: spec.validators }, (_, i) => i + 1)];
 
-  for (const i of nodeIndices) {
-    const serviceName = nodeName(spec, i);
+  // The relayer is a validator-shaped service (same command, volumes and
+  // logging) that only joins the default network.
+  const serviceNames = [
+    ...nodeIndices.map((i) => nodeName(spec, i)),
+    ...(spec.type === 'testnet' && spec.relayConfig ? [RELAY] : []),
+  ];
+  for (const serviceName of serviceNames) {
     const nodeDir = serviceName;
 
     // First boot (no db/ yet) seeds the chain from genesis.json; any later
@@ -140,7 +146,7 @@ export function renderCompose(spec: NetworkSpec): string {
     // Validators are always container-to-container only. On testnet the
     // peer port is never routed (xahaud peer TLS sends no SNI, so Traefik
     // can't dispatch it).
-    if (i === 0) {
+    if (serviceName === nodeName(spec, 0)) {
       if (spec.type === 'testnet') {
         services[serviceName].networks = ['default', 'proxy'];
         services[serviceName].labels = [

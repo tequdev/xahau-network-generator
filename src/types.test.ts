@@ -179,6 +179,33 @@ test('validateSpec: validatorConfig is testnet only and checked like nodeConfig'
   );
 });
 
+test('validateSpec: relayConfig is testnet only', () => {
+  const spec: NetworkSpec = {
+    name: 'a',
+    type: 'testnet',
+    version: 'x',
+    validators: 3,
+    quorum: 2,
+    networkId: 1,
+    domain: 'a.b',
+    tls: false,
+    portOffset: 0,
+    importVlKeys: [],
+  };
+  validateSpec({ ...spec, relayConfig: { xrpl_relay: ['l'] } });
+  assert.throws(
+    () =>
+      validateSpec({
+        ...spec,
+        type: 'standalone',
+        validators: 1,
+        quorum: 1,
+        relayConfig: { xrpl_relay: ['l'] },
+      }),
+    /relayConfig is testnet only/,
+  );
+});
+
 test('endpoints: pwa only when set; validateSpec rejects bad pwa', () => {
   const spec: NetworkSpec = {
     name: 'dev',
@@ -340,6 +367,26 @@ test('validateSpec: importVlKeys must be 33-byte hex keys ([] is fine)', () => {
     () => validateSpec({ ...base, importVlKeys: ['xyz'] }),
     /importVlKeys must be a list of 33-byte hex public keys/,
   );
+});
+
+test('validateSpec: an empty relayConfig is rejected (omit it for no relayer)', () => {
+  const base: NetworkSpec = {
+    name: 't1',
+    type: 'testnet',
+    version: 'v',
+    validators: 3,
+    quorum: 2,
+    networkId: 21339,
+    domain: 'a.b',
+    tls: false,
+    portOffset: 0,
+    importVlKeys: [],
+  };
+  assert.throws(
+    () => validateSpec({ ...base, relayConfig: {} }),
+    /relayConfig must not be empty/,
+  );
+  validateSpec({ ...base, relayConfig: { xrpl_relay: ['h 51235'] } });
 });
 
 test('nodeName: validatorIds renames validators, absent means 1..N', () => {

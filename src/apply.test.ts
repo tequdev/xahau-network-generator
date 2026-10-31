@@ -744,6 +744,64 @@ test('plan: a validatorConfig change is an upgrade carrying --validator-config',
   ]);
 });
 
+test('plan: relayConfig added, changed and removed are upgrades carrying --relay-config', () => {
+  const yml = `  t1:\n    version: ${V1}\n    relayConfig:\n      xrpl_relay: ['a 1']`;
+  const added = plan(
+    desiredOf(yml),
+    [created({ name: 't1' })],
+    new Set(['t1']),
+  );
+  assert.equal(added[0]?.kind, 'upgrade');
+  assert.deepEqual(argv(added[0]?.steps ?? []), [
+    `upgrade --name t1 --version ${V1} --timeout 300 --relay-config {"xrpl_relay":["a 1"]}`,
+  ]);
+  const removed = plan(
+    desiredOf(`  t1:\n    version: ${V1}`),
+    [created({ name: 't1', relayConfig: { xrpl_relay: ['a 1'] } })],
+    new Set(['t1']),
+  );
+  assert.deepEqual(argv(removed[0]?.steps ?? []), [
+    `upgrade --name t1 --version ${V1} --timeout 300 --relay-config {}`,
+  ]);
+  const same = plan(
+    desiredOf(yml),
+    [created({ name: 't1', relayConfig: { xrpl_relay: ['a 1'] } })],
+    new Set(['t1']),
+  );
+  assert.equal(same[0]?.kind, 'unchanged');
+  const neither = plan(
+    desiredOf(`  t1:\n    version: ${V1}`),
+    [created({ name: 't1' })],
+    new Set(['t1']),
+  );
+  assert.equal(neither[0]?.kind, 'unchanged');
+});
+
+test('plan: relayConfig is rejected on a standalone and create argv carries it only when set', () => {
+  assert.throws(
+    () =>
+      desiredOf(
+        `  s1:\n    type: standalone\n    version: ${V1}\n    relayConfig:\n      xrpl_relay: ['a 1']`,
+      ),
+    /relayConfig is testnet only/,
+  );
+  // A changed network id is not upgradable, so it recreates via create argv.
+  const create = (relay: string) =>
+    argv(
+      plan(
+        desiredOf(`  t1:\n    version: ${V1}\n    networkId: 1\n${relay}`),
+        [created({ name: 't1' })],
+        new Set(['t1']),
+      )[0]?.steps ?? [],
+    )[1] ?? '';
+  assert.ok(
+    create(`    relayConfig:\n      xrpl_relay: ['a 1']`).includes(
+      '--relay-config {"xrpl_relay":["a 1"]}',
+    ),
+  );
+  assert.ok(!create('').includes('--relay-config'));
+});
+
 test('plan: an old network.json without pwa is an upgrade carrying --pwa', () => {
   const on = plan(
     desiredOf(`  t1:\n    version: ${V1}`),

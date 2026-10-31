@@ -36,6 +36,7 @@ const COMPARED = [
   'portOffset',
   'nodeConfig',
   'validatorConfig',
+  'relayConfig',
   'importVlKeys',
 ] as const;
 // Cosmetic landing-page labels: accepted in yml but not in COMPARED, so changing
@@ -168,6 +169,9 @@ function toSpec(
       entry.validatorConfig,
     );
   }
+  if (entry.relayConfig !== undefined) {
+    spec.relayConfig = configSections('relayConfig', entry.relayConfig);
+  }
   validateSpec(spec);
   return spec;
 }
@@ -228,6 +232,7 @@ const UPGRADABLE = new Set([
   'version',
   'nodeConfig',
   'validatorConfig',
+  'relayConfig',
   'importVlKeys',
   'pwa',
 ]);
@@ -248,20 +253,25 @@ export function unsafeConfigChanges(
   from: NetworkSpec,
   to: NetworkSpec,
 ): string[] {
-  return (['nodeConfig', 'validatorConfig'] as const).flatMap((key) =>
-    UNSAFE_IN_PLACE.filter(
-      (section) =>
-        JSON.stringify(from[key]?.[section]) !==
-        JSON.stringify(to[key]?.[section]),
-    ).map((section) => `${key} [${section}]`),
+  return (['nodeConfig', 'validatorConfig', 'relayConfig'] as const).flatMap(
+    (key) =>
+      UNSAFE_IN_PLACE.filter(
+        (section) =>
+          JSON.stringify(from[key]?.[section]) !==
+          JSON.stringify(to[key]?.[section]),
+      ).map((section) => `${key} [${section}]`),
   );
 }
 
-// Older network.json files have no `root`, `pwa`, `nodeConfig` or `validatorConfig`;
+// Older network.json files have no `root`, `pwa`, `nodeConfig`, `validatorConfig` or `relayConfig`;
 // treat a missing one as false / {} (the configs as JSON so `===` compares
 // them by value).
 function comparable(spec: NetworkSpec, key: (typeof COMPARED)[number]) {
-  if (key === 'nodeConfig' || key === 'validatorConfig') {
+  if (
+    key === 'nodeConfig' ||
+    key === 'validatorConfig' ||
+    key === 'relayConfig'
+  ) {
     return JSON.stringify(spec[key] ?? {});
   }
   // An external stub's keys reach no node; ignore them so an old stub never
@@ -322,6 +332,9 @@ function createArgv(spec: NetworkSpec): string[] {
       : []),
     ...(spec.validatorConfig
       ? ['--validator-config', JSON.stringify(spec.validatorConfig)]
+      : []),
+    ...(spec.relayConfig
+      ? ['--relay-config', JSON.stringify(spec.relayConfig)]
       : []),
     ...labels,
   ];
@@ -460,6 +473,9 @@ export function plan(
         : []),
       ...(has('validatorConfig')
         ? ['--validator-config', JSON.stringify(d.validatorConfig ?? {})]
+        : []),
+      ...(has('relayConfig')
+        ? ['--relay-config', JSON.stringify(d.relayConfig ?? {})]
         : []),
       ...(has('importVlKeys')
         ? ['--import-vl-keys', d.importVlKeys.join(',')]

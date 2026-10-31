@@ -121,3 +121,41 @@ test('writeNodeConfig: renders node and validator cfgs from keys on disk', async
     (await readdir(join(dir, 'nodes', 'v1'))).includes('validators.txt'),
   );
 });
+
+test('writeNodeConfig: the relay peers with every validator, takes relayConfig only and is not dialled back', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'xng-relay-'));
+  const s = spec({
+    name: 't',
+    validators: 2,
+    relayConfig: { xrpl_relay: ['relay.example 51235', 'network_id=1'] },
+    nodeConfig: { node_size: ['huge'] },
+  });
+  await mkdir(join(dir, 'keys'));
+  await writeFile(
+    join(dir, 'keys', 'vl.json'),
+    JSON.stringify({ master: { publicKey: 'EDVL' } }),
+  );
+  await writeFile(
+    join(dir, 'keys', 'v1.json'),
+    JSON.stringify({ token: 'TOKEN1' }),
+  );
+  for (const service of ['relay', 'v1']) {
+    await mkdir(join(dir, 'nodes', service), { recursive: true });
+  }
+  await writeNodeConfig(s, dir, 'relay');
+  await writeNodeConfig(s, dir, 1);
+  const cfg = (service: string) =>
+    readFile(join(dir, 'nodes', service, 'xahaud.cfg'), 'utf8');
+  const relay = await cfg('relay');
+  assert.ok(
+    relay.includes('[xrpl_relay]\nrelay.example 51235\nnetwork_id=1\n'),
+  );
+  assert.ok(relay.includes('[ips_fixed]\nt-v1 51235\nt-v2 51235\n'));
+  assert.ok(!relay.includes('[port_pwa]'));
+  assert.ok(!relay.includes('huge'));
+  assert.ok(!relay.includes('validator_token'));
+  assert.ok(!(await cfg('v1')).includes('t-relay'));
+  assert.ok(
+    (await readdir(join(dir, 'nodes', 'relay'))).includes('validators.txt'),
+  );
+});
