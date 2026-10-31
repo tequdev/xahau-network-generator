@@ -117,8 +117,8 @@ export function renderXahaudCfg(o: XahaudCfgOptions): string {
   sections.push(['amendment_majority_time', ['1 minutes']]);
 
   if (o.type === 'testnet') {
-    // Default minimum is 1 peer; a single-validator network has none and would
-    // stay DISCONNECTED (consensus never runs) without this.
+    // Default minimum is 1 peer; without this a node that has not yet found
+    // a peer stays DISCONNECTED (consensus never runs).
     sections.push(['network_quorum', ['0']]);
   }
 

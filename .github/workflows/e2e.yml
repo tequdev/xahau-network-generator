@@ -23,15 +23,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # reset / restart / upgrade are independent, so each gets its own
-        # job: on a lone validator every transaction-bearing ledger costs
-        # ~15s (xahaud's ledgerMAX_CONSENSUS), which makes each testnet-1
-        # `pnpm e2e` run 2+ minutes.
+        # reset / restart / upgrade are independent, so each gets its own job.
+        # testnet-4 covers an even validator count and --root.
         network:
           - name: testnet-3
             args: "--type testnet --validators 3 --domain localhost"
-          - name: testnet-1
-            args: "--type testnet --validators 1 --domain localhost --root"
+          - name: testnet-4
+            args: "--type testnet --validators 4 --domain localhost --root"
         scenario: [reset, restart, upgrade]
         include:
           - network: { name: standalone, args: "--type standalone" }

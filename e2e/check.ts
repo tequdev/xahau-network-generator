@@ -313,8 +313,7 @@ async function checkTestnet(
   );
 
   // These two chains are independent (different accounts, and the faucet queue
-  // is only touched by one of them), so they share ledgers. On a lone
-  // validator each tx-bearing ledger costs ~15s.
+  // is only touched by one of them), so they share ledgers.
   await Promise.all([
     (async () => {
       const nc1 = await fetch(`${faucetBase}/newcreds`, {
