@@ -118,16 +118,18 @@ xng runs it as a separate `relay` service (container `<name>-relay`) beside
 
 ```yaml
 relayConfig:
-  xrpl_relay: ["s.altnet.rippletest.net 51235", "network_id=1"]
+  xrpl_relay: ["xrpl-hub.example.com 51235", "network_id=1"]
 ```
 
-The default `importVlKeys` is the XRPL Testnet publisher key, so relaying to
-the XRPL Testnet needs nothing else. For mainnet set `importVlKeys` to the
-mainnet publisher key and drop `network_id`. `vl_url` must be https and may be
-omitted (the validator list arrives from the peer). When the build has
-featureExport, every validator's master account is pre-funded in genesis (100
-XAH), since its export key is recorded there. `export_setup` is reachable on
-`rpc.<name>.<domain>`.
+The peer should be an XRPL node you run (or have an arrangement with), not a
+public server: the relayer fetches every XRPL ledger's full transaction tree
+to find the exporters' transactions. The default `importVlKeys` is the XRPL
+Testnet publisher key, so relaying to the XRPL Testnet needs nothing else. For
+mainnet set `importVlKeys` to the mainnet publisher key and drop `network_id`.
+`vl_url` must be https and may be omitted (the validator list arrives from the
+peer). When the build has featureExport, every validator's master account is
+pre-funded in genesis (100 XAH), since its export key is recorded there.
+`export_setup` is reachable on `rpc.<name>.<domain>`.
 
 For a local XRPL stand-in (a second xng network) the relay must peer with one
 of ITS validators, not its `node`, which may not yet hold the ledger when

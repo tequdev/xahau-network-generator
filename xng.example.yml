@@ -68,7 +68,7 @@ networks:
     # relayer; changing it recreates only `relay`, and removing it discards its db.
     # relayConfig:
     #   xrpl_relay:
-    #     - s.altnet.rippletest.net 51235
+    #     - xrpl-hub.example.com 51235   # an XRPL node you run, not a public server
     #     - network_id=1
 
   # The root network of the same domain, served on the bare domain:
