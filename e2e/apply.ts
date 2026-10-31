@@ -164,6 +164,20 @@ async function main(): Promise<void> {
     'nodeConfig leaked to a validator',
   );
 
+  // 6a: only the validator count changes: a rotation, not a recreate.
+  await writeYml({
+    ...apply1(upgradeTo, upgraded),
+    [NAME]: { ...apply1(upgradeTo, upgraded)[NAME], validators: 3 },
+  });
+  r = apply(['--dry-run']);
+  assert.match(r.out, /^> apply1 +rotate/m);
+  assert.ok(
+    !r.out.includes('recreate'),
+    'a validators change planned a recreate',
+  );
+  assert.equal(apply(['-y', '--timeout', timeout]).status, 0);
+  e2e('--expect-version', upgradeTo);
+
   // 7: a stopped network is started again.
   assert.equal(run('pnpm', ['xng', 'stop', '--name', NAME]).status, 0);
   r = apply(['--dry-run']);

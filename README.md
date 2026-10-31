@@ -86,9 +86,11 @@ validators continue after the highest number ever used. The other nodes'
 its next restart (`xng upgrade`). When the count changes, `quorum` is reset to
 its default and `node` plus the kept validators are recreated one at a time
 (like `xng upgrade`) during the interim phase, before the final list is
-published, so the new quorum is always satisfiable. `xng
-apply` still treats a changed `validators` count as a recreate; rotation is
-imperative only.
+published, so the new quorum is always satisfiable. `xng apply` plans a rotation
+when only `validators` changes in the yml (`--add` for more, `--remove` of the
+highest-numbered ones for fewer); its `--timeout` bounds the rotation, so raise
+it when the count changes (a quorum roll adds about a minute per node). A yml
+`quorum` that is not the default for the new count still recreates.
 
 `vote` (testnet only) runs `feature <amendment> accept|reject` on each
 validator. Every generated node sets `[amendment_majority_time]` to
@@ -370,6 +372,7 @@ xng apply [-f xng.yml] [-y] [--dry-run] [--timeout <sec>] [--network <name>]...
 | only in the file | `create` | `create`, then `start --wait` |
 | only in `workspace/` | `remove` | `remove` |
 | testnet, only `version`/`nodeConfig`/`validatorConfig`/`importVlKeys` differ (or an old network.json lacks pwa) (none of the sections above) | `upgrade` | (`start --wait` if stopped, then) `upgrade` with the changed `--node-config`/`--validator-config`/`--pwa` (migration only) |
+| testnet, `validators` differs (other differences only upgradable ones; `quorum` default for the new count) | `rotate` | (`start --wait` if stopped, then) `upgrade` if anything else changed, then `rotate --add n` / `--remove` of the last validators |
 | standalone `version`/config, any other key, or an unsafe config section differs (the plan warns) | `recreate` | `remove`, `create`, `start --wait` (ledger data and keys are wiped) |
 | identical but `displayName`/`displayShortName` | `relabel` | `label` (`start --wait` if stopped); no recreate |
 | identical, any container not running | `start` | `start --wait` |
@@ -391,6 +394,8 @@ will be ordered or deleted.
 
 Things to know:
 
+- Changing only `validators` of a running testnet is a rotation (`>`), not a
+  recreate; any other change that `xng upgrade` cannot apply still recreates.
 - `unchanged` means every container is running, not that the network is ready: a
   network whose `start --wait` timed out is `unchanged` on the next run.
 - `docker pull <image>` (e.g. the explorer's `xahau-devnet` tag) followed by

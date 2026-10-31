@@ -261,8 +261,8 @@ test('plan: standalone version change is a recreate (xng upgrade is testnet only
 test('plan: any other change is a recreate, even together with a version change', () => {
   const actions = plan(
     desiredOf(
-      `  a:\n    version: ${V1}\n    validators: 4`,
-      `  b:\n    version: ${V2}\n    validators: 4`,
+      `  a:\n    version: ${V1}\n    networkId: 5`,
+      `  b:\n    version: ${V2}\n    networkId: 5`,
     ),
     [created({ name: 'a' }), created({ name: 'b' })],
     new Set(['a', 'b']),
@@ -271,7 +271,7 @@ test('plan: any other change is a recreate, even together with a version change'
   assert.equal(actions[1]?.warning, undefined);
   assert.deepEqual(
     actions[1]?.diff.map((c) => c.key),
-    ['version', 'validators', 'quorum'],
+    ['version', 'networkId'],
   );
 });
 
@@ -367,7 +367,7 @@ test('executionSteps: removes, then creates, then upgrades, then starts', () => 
   const desired = desiredOf(
     `  a:\n    version: ${V1}`, // create
     `  b:\n    version: ${V2}`, // upgrade
-    `  c:\n    version: ${V1}\n    validators: 4`, // recreate
+    `  c:\n    version: ${V1}\n    networkId: 5`, // recreate
     `  e:\n    version: ${V1}`, // start
   );
   const actual = [
@@ -903,7 +903,7 @@ test('plan: relabel of a stopped local network also starts it; a COMPARED diff s
   );
   assert.equal(plan([d], [a], new Set(['x']))[0]?.steps.length, 1);
   const [e] = desiredOf(
-    `  x:\n    version: ${V2}\n    validators: 4\n    displayName: X`,
+    `  x:\n    version: ${V2}\n    networkId: 5\n    displayName: X`,
   );
   assert.ok(e);
   assert.equal(plan([e], [a], new Set(['x']))[0]?.kind, 'recreate');
@@ -1016,4 +1016,106 @@ test('plan: an external stub with an old importVlKeys stays unchanged (the yml c
     new Set(),
   );
   assert.equal(actions[0]?.kind, 'unchanged');
+});
+
+test('plan: a validators count increase is a rotation with --add', () => {
+  const [a] = plan(
+    desiredOf(`  t1:\n    version: ${V1}\n    validators: 4`),
+    [created({ name: 't1' })],
+    new Set(['t1']),
+  );
+  assert.equal(a?.kind, 'rotate');
+  assert.deepEqual(argv(a?.steps ?? []), [
+    'rotate --name t1 --add 1 --timeout 300',
+  ]);
+  assert.deepEqual(a?.diff.map((c) => c.key).sort(), ['quorum', 'validators']);
+});
+
+test('plan: 1 -> 3 validators is a rotation with --add 2', () => {
+  const [a] = plan(
+    desiredOf(`  t1:\n    version: ${V1}\n    validators: 3`),
+    [created({ name: 't1', validators: 1, quorum: 1 })],
+    new Set(['t1']),
+  );
+  assert.deepEqual(argv(a?.steps ?? []), [
+    'rotate --name t1 --add 2 --timeout 300',
+  ]);
+});
+
+test('plan: a validators count decrease removes the highest-numbered validators', () => {
+  const [a] = plan(
+    desiredOf(`  t1:\n    version: ${V1}\n    validators: 3`),
+    [created({ name: 't1', validators: 4, quorum: 3 })],
+    new Set(['t1']),
+  );
+  assert.equal(a?.kind, 'rotate');
+  assert.deepEqual(argv(a?.steps ?? []), [
+    'rotate --name t1 --remove v4 --timeout 300',
+  ]);
+  const [b] = plan(
+    desiredOf(`  t1:\n    version: ${V1}\n    validators: 1`),
+    [created({ name: 't1', validatorIds: [7, 8, 9] })],
+    new Set(['t1']),
+  );
+  assert.deepEqual(argv(b?.steps ?? []), [
+    'rotate --name t1 --remove v8,v9 --timeout 300',
+  ]);
+});
+
+test('plan: version + validators is an upgrade step, then the rotate step', () => {
+  const [a] = plan(
+    desiredOf(`  t1:\n    version: ${V2}\n    validators: 4`),
+    [created({ name: 't1' })],
+    new Set(['t1']),
+  );
+  assert.equal(a?.kind, 'rotate');
+  assert.deepEqual(argv(a?.steps ?? []), [
+    `upgrade --name t1 --version ${V2} --timeout 300`,
+    'rotate --name t1 --add 1 --timeout 300',
+  ]);
+});
+
+test('plan: a stopped network is started before the rotation', () => {
+  const [a] = plan(
+    desiredOf(`  t1:\n    version: ${V1}\n    validators: 4`),
+    [created({ name: 't1' })],
+    new Set(),
+  );
+  assert.deepEqual(argv(a?.steps ?? []), [
+    'start --name t1 --wait --timeout 300',
+    'rotate --name t1 --add 1 --timeout 300',
+  ]);
+});
+
+test('plan: a non-default quorum with a count change recreates with a warning', () => {
+  const [a] = plan(
+    desiredOf(`  t1:\n    version: ${V1}\n    validators: 4\n    quorum: 4`),
+    [created({ name: 't1' })],
+    new Set(['t1']),
+  );
+  assert.equal(a?.kind, 'recreate');
+  assert.match(
+    a?.warning ?? '',
+    /quorum 4 cannot be set by a rotation \(it would be 3\)/,
+  );
+});
+
+test('executionSteps and formatPlan: rotate ranks with upgrade and shows ">"', () => {
+  const actions = plan(
+    desiredOf(
+      `  a:\n    version: ${V1}\n    validators: 4`,
+      `  b:\n    version: ${V2}`,
+    ),
+    [created({ name: 'a' }), created({ name: 'b' })],
+    new Set(['a', 'b']),
+  );
+  assert.deepEqual(argv(executionSteps(actions)), [
+    'rotate --name a --add 1 --timeout 300',
+    `upgrade --name b --version ${V2} --timeout 300`,
+  ]);
+  const out = formatPlan(actions);
+  assert.match(
+    out,
+    /^> a +rotate +validators 3 -> 4.*\(adds validators and publishes a new validator list, no downtime\)$/m,
+  );
 });

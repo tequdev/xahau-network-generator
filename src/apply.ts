@@ -5,12 +5,14 @@ import YAML from 'yaml';
 import { certHosts } from './cloudflare.ts';
 import { renderCompose } from './compose.ts';
 import { CLI_PATH, TSX_BIN } from './docker.ts';
+import { planRotation } from './rotate.ts';
 import {
   DEFAULT_IMPORT_VL_KEYS,
   configSections,
   defaultQuorum,
   explorerHostPort,
   hostPorts,
+  nodeName,
   validateSpec,
 } from './types.ts';
 import type { NetworkSpec } from './types.ts';
@@ -200,6 +202,7 @@ export type Action = {
     | 'create'
     | 'remove'
     | 'upgrade'
+    | 'rotate'
     | 'recreate'
     | 'relabel'
     | 'start'
@@ -421,6 +424,90 @@ export function plan(
     // upgrade) needs a new network.
     const has = (key: string) => diff.some((c) => c.key === key);
     const unsafe = unsafeConfigChanges(a, d);
+    const upgradeArgv = () => [
+      'upgrade',
+      '--name',
+      name,
+      '--version',
+      d.version,
+      '--timeout',
+      timeout,
+      ...(has('nodeConfig')
+        ? ['--node-config', JSON.stringify(d.nodeConfig ?? {})]
+        : []),
+      ...(has('validatorConfig')
+        ? ['--validator-config', JSON.stringify(d.validatorConfig ?? {})]
+        : []),
+      ...(has('importVlKeys')
+        ? ['--import-vl-keys', d.importVlKeys.join(',')]
+        : []),
+      ...(has('pwa') ? ['--pwa'] : []),
+    ];
+    // Only the validator count (and its default quorum) changing is a
+    // rotation, not a recreate.
+    if (
+      d.type === 'testnet' &&
+      !d.external &&
+      !a.external &&
+      has('validators') &&
+      diff.every(
+        (c) =>
+          c.key === 'validators' || c.key === 'quorum' || UPGRADABLE.has(c.key),
+      ) &&
+      unsafe.length === 0
+    ) {
+      const add = d.validators - a.validators;
+      const remove =
+        add < 0
+          ? Array.from({ length: -add }, (_, i) =>
+              nodeName(a, d.validators + 1 + i),
+            )
+          : [];
+      let warning: string | undefined;
+      try {
+        const { final } = planRotation(a, { add: Math.max(add, 0), remove });
+        if (d.quorum !== final.quorum) {
+          warning = `quorum ${d.quorum} cannot be set by a rotation (it would be ${final.quorum}); drop quorum from the yml or recreate`;
+        }
+      } catch (err) {
+        warning = (err as Error).message;
+      }
+      if (!warning) {
+        const upgrades = diff.some(
+          (c) => c.key !== 'validators' && c.key !== 'quorum',
+        );
+        return {
+          name,
+          kind: 'rotate',
+          ...both,
+          diff,
+          steps: [
+            ...(running.has(name) && !stale ? [] : [startArgv(name)]),
+            // Upgrade first: new validators copy node's binary, so they get
+            // the new version.
+            ...(upgrades ? [upgradeArgv()] : []),
+            [
+              'rotate',
+              '--name',
+              name,
+              ...(add > 0
+                ? ['--add', String(add)]
+                : ['--remove', remove.join(',')]),
+              '--timeout',
+              timeout,
+            ],
+          ],
+        };
+      }
+      return {
+        name,
+        kind: 'recreate',
+        ...both,
+        diff,
+        warning,
+        steps: [['remove', '--name', name], createArgv(d), startArgv(name)],
+      };
+    }
     if (
       d.type === 'testnet' &&
       !d.external &&
@@ -437,25 +524,7 @@ export function plan(
           // rewrites compose.yml but recreates only the xahaud services, which
           // would hide the drift from the next apply without rebuilding.
           ...(running.has(name) && !stale ? [] : [startArgv(name)]),
-          [
-            'upgrade',
-            '--name',
-            name,
-            '--version',
-            d.version,
-            '--timeout',
-            timeout,
-            ...(has('nodeConfig')
-              ? ['--node-config', JSON.stringify(d.nodeConfig ?? {})]
-              : []),
-            ...(has('validatorConfig')
-              ? ['--validator-config', JSON.stringify(d.validatorConfig ?? {})]
-              : []),
-            ...(has('importVlKeys')
-              ? ['--import-vl-keys', d.importVlKeys.join(',')]
-              : []),
-            ...(has('pwa') ? ['--pwa'] : []),
-          ],
+          upgradeArgv(),
         ],
       };
     }
@@ -487,6 +556,7 @@ export function executionSteps(actions: Action[]): string[][] {
     recreate: 1,
     create: 1,
     upgrade: 2,
+    rotate: 2,
     relabel: 3,
     start: 3,
     refresh: 3,
@@ -507,6 +577,7 @@ export function executionSteps(actions: Action[]): string[][] {
 const DISPLAY = [
   ['create', '+'],
   ['upgrade', '~'],
+  ['rotate', '>'],
   ['recreate', '!'],
   ['relabel', '#'],
   ['remove', '-'],
@@ -532,6 +603,14 @@ function describe(a: Action): { detail: string; note: string } {
               ? '(rolling restart with the new xahaud.cfg)'
               : '(rolling, no downtime)',
       };
+    case 'rotate': {
+      const prefix = `${a.steps.some((s) => s[0] === 'start') ? '(starts it first) ' : ''}${a.steps.some((s) => s[0] === 'upgrade') ? '(rolling upgrade first) ' : ''}`;
+      const grow = (a.to?.validators ?? 0) > (a.from?.validators ?? 0);
+      return {
+        detail: changes,
+        note: `${prefix}${grow ? '(adds validators and publishes a new validator list, no downtime)' : '(publishes a new validator list, then removes the last validators)'}`,
+      };
+    }
     case 'relabel':
       return { detail: changes, note: '(landing page only)' };
     case 'recreate':
