@@ -174,8 +174,14 @@ export async function upgradeNetwork(
     renderCompose(spec),
   );
 
+  // validatorIds: a validator's index is its position, not its name.
+  const all = Array.from({ length: spec.validators + 1 }, (_, i) =>
+    nodeName(spec, i),
+  );
+
   const upgraded: string[] = [];
   for (const service of services) {
+    const i = all.indexOf(service);
     const isPrimary = service === nodeName(spec, 0);
     const seqBefore = await currentSeq(spec, service, isPrimary);
 
@@ -202,15 +208,7 @@ export async function upgradeNetwork(
     await rename(tmpPath, finalPath);
 
     // The cfg is a bind mount, so rewriting it on the host is enough.
-    await writeNodeConfig(
-      spec,
-      wsDir,
-      service === RELAY
-        ? RELAY
-        : service === 'node'
-          ? 0
-          : Number(service.slice(1)),
-    );
+    await writeNodeConfig(spec, wsDir, service === RELAY ? RELAY : i);
 
     // --no-deps so `vl` (and any other dependency) is left alone.
     compose(spec.name, ['up', '-d', '--no-deps', '--force-recreate', service]);

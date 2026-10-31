@@ -126,6 +126,7 @@ test('parseXngYml: every validateSpec rule is enforced', () => {
     [`  Bad_Name:\n    version: ${V1}`, /name must match/],
     [`  rpc:\n    version: ${V1}`, /reserved/],
     [`  a:\n    version: ${V1}\n    domain: Example.COM`, /domain must match/],
+    [`  a:\n    version: ${V1}\n    validators: 1`, /validators must be/],
     [`  a:\n    version: ${V1}\n    validators: 2`, /validators must be/],
     [`  a:\n    version: ${V1}\n    quorum: 4`, /quorum must be/],
     [`  a:\n    version: ${V1}\n    portOffset: 14301`, /portOffset must be/],
@@ -261,8 +262,8 @@ test('plan: standalone version change is a recreate (xng upgrade is testnet only
 test('plan: any other change is a recreate, even together with a version change', () => {
   const actions = plan(
     desiredOf(
-      `  a:\n    version: ${V1}\n    validators: 4`,
-      `  b:\n    version: ${V2}\n    validators: 4`,
+      `  a:\n    version: ${V1}\n    networkId: 5`,
+      `  b:\n    version: ${V2}\n    networkId: 5`,
     ),
     [created({ name: 'a' }), created({ name: 'b' })],
     new Set(['a', 'b']),
@@ -271,7 +272,7 @@ test('plan: any other change is a recreate, even together with a version change'
   assert.equal(actions[1]?.warning, undefined);
   assert.deepEqual(
     actions[1]?.diff.map((c) => c.key),
-    ['version', 'validators', 'quorum'],
+    ['version', 'networkId'],
   );
 });
 
@@ -367,7 +368,7 @@ test('executionSteps: removes, then creates, then upgrades, then starts', () => 
   const desired = desiredOf(
     `  a:\n    version: ${V1}`, // create
     `  b:\n    version: ${V2}`, // upgrade
-    `  c:\n    version: ${V1}\n    validators: 4`, // recreate
+    `  c:\n    version: ${V1}\n    networkId: 5`, // recreate
     `  e:\n    version: ${V1}`, // start
   );
   const actual = [
@@ -784,11 +785,11 @@ test('plan: relayConfig is rejected on a standalone and create argv carries it o
       ),
     /relayConfig is testnet only/,
   );
-  // A changed validator count is not upgradable, so it recreates via create argv.
+  // A changed network id is not upgradable, so it recreates via create argv.
   const create = (relay: string) =>
     argv(
       plan(
-        desiredOf(`  t1:\n    version: ${V1}\n    validators: 4\n${relay}`),
+        desiredOf(`  t1:\n    version: ${V1}\n    networkId: 1\n${relay}`),
         [created({ name: 't1' })],
         new Set(['t1']),
       )[0]?.steps ?? [],
@@ -961,7 +962,7 @@ test('plan: relabel of a stopped local network also starts it; a COMPARED diff s
   );
   assert.equal(plan([d], [a], new Set(['x']))[0]?.steps.length, 1);
   const [e] = desiredOf(
-    `  x:\n    version: ${V2}\n    validators: 4\n    displayName: X`,
+    `  x:\n    version: ${V2}\n    networkId: 5\n    displayName: X`,
   );
   assert.ok(e);
   assert.equal(plan([e], [a], new Set(['x']))[0]?.kind, 'recreate');
@@ -1074,4 +1075,162 @@ test('plan: an external stub with an old importVlKeys stays unchanged (the yml c
     new Set(),
   );
   assert.equal(actions[0]?.kind, 'unchanged');
+});
+
+test('plan: a validators count increase is a rotation with --add', () => {
+  const [a] = plan(
+    desiredOf(`  t1:\n    version: ${V1}\n    validators: 4`),
+    [created({ name: 't1' })],
+    new Set(['t1']),
+  );
+  assert.equal(a?.kind, 'rotate');
+  assert.deepEqual(argv(a?.steps ?? []), [
+    'rotate --name t1 --add 1 --timeout 300',
+  ]);
+  assert.deepEqual(a?.diff.map((c) => c.key).sort(), ['quorum', 'validators']);
+});
+
+test('plan: 3 -> 5 validators is a rotation with --add 2', () => {
+  const [a] = plan(
+    desiredOf(`  t1:\n    version: ${V1}\n    validators: 5`),
+    [created({ name: 't1', validators: 3, quorum: 2 })],
+    new Set(['t1']),
+  );
+  assert.deepEqual(argv(a?.steps ?? []), [
+    'rotate --name t1 --add 2 --timeout 300',
+  ]);
+});
+
+test('plan: a validators count decrease removes the highest-numbered validators', () => {
+  const [a] = plan(
+    desiredOf(`  t1:\n    version: ${V1}\n    validators: 3`),
+    [created({ name: 't1', validators: 4, quorum: 3 })],
+    new Set(['t1']),
+  );
+  assert.equal(a?.kind, 'rotate');
+  assert.deepEqual(argv(a?.steps ?? []), [
+    'rotate --name t1 --remove v4 --timeout 300',
+  ]);
+  const [b] = plan(
+    desiredOf(`  t1:\n    version: ${V1}\n    validators: 3`),
+    [created({ name: 't1', validators: 5, validatorIds: [7, 8, 9, 10, 11] })],
+    new Set(['t1']),
+  );
+  assert.deepEqual(argv(b?.steps ?? []), [
+    'rotate --name t1 --remove v10,v11 --timeout 300',
+  ]);
+});
+
+test('plan: version + validators is an upgrade step, then the rotate step', () => {
+  const [a] = plan(
+    desiredOf(`  t1:\n    version: ${V2}\n    validators: 4`),
+    [created({ name: 't1' })],
+    new Set(['t1']),
+  );
+  assert.equal(a?.kind, 'rotate');
+  assert.deepEqual(argv(a?.steps ?? []), [
+    `upgrade --name t1 --version ${V2} --timeout 300`,
+    'rotate --name t1 --add 1 --timeout 300',
+  ]);
+});
+
+test('plan: a stopped network is started before the rotation', () => {
+  const [a] = plan(
+    desiredOf(`  t1:\n    version: ${V1}\n    validators: 4`),
+    [created({ name: 't1' })],
+    new Set(),
+  );
+  assert.deepEqual(argv(a?.steps ?? []), [
+    'start --name t1 --wait --timeout 300',
+    'rotate --name t1 --add 1 --timeout 300',
+  ]);
+});
+
+test('plan: a non-default quorum with a count change recreates with a warning', () => {
+  const [a] = plan(
+    desiredOf(`  t1:\n    version: ${V1}\n    validators: 4\n    quorum: 4`),
+    [created({ name: 't1' })],
+    new Set(['t1']),
+  );
+  assert.equal(a?.kind, 'recreate');
+  assert.match(
+    a?.warning ?? '',
+    /quorum 4 cannot be set by a rotation \(it would be 3\)/,
+  );
+});
+
+test('executionSteps and formatPlan: rotate ranks with upgrade and shows ">"', () => {
+  const actions = plan(
+    desiredOf(
+      `  a:\n    version: ${V1}\n    validators: 4`,
+      `  b:\n    version: ${V2}`,
+    ),
+    [created({ name: 'a' }), created({ name: 'b' })],
+    new Set(['a', 'b']),
+  );
+  assert.deepEqual(argv(executionSteps(actions)), [
+    'rotate --name a --add 1 --timeout 300',
+    `upgrade --name b --version ${V2} --timeout 300`,
+  ]);
+  const out = formatPlan(actions);
+  assert.match(
+    out,
+    /^> a +rotate +validators 3 -> 4.*\(adds validators, publishes a new validator list, no downtime\)$/m,
+  );
+});
+
+const planIds = (yml: string, on: Partial<NetworkSpec> = {}) =>
+  plan(
+    desiredOf(`  t1:\n    version: ${V1}\n${yml}`),
+    [created({ name: 't1', ...on })],
+    new Set(['t1']),
+  )[0];
+
+test('plan: validatorIds with the same count but another set rotates by ids', () => {
+  const a = planIds('    validatorIds: [1, 2, 4]');
+  assert.equal(a?.kind, 'rotate');
+  assert.deepEqual(argv(a?.steps ?? []), [
+    'rotate --name t1 --add-ids 4 --remove v3 --timeout 300',
+  ]);
+  assert.ok(a?.diff.some((c) => c.key === 'validatorIds'));
+});
+
+test('plan: the same ids in another order, or no ids on a rotated network, is unchanged', () => {
+  assert.equal(planIds('    validatorIds: [3, 1, 2]')?.kind, 'unchanged');
+  assert.equal(planIds('', { validatorIds: [7, 8, 9] })?.kind, 'unchanged');
+  // Round trip of a network.json written by rotate.
+  assert.equal(
+    planIds('    validatorIds: [8, 9, 7]', { validatorIds: [7, 8, 9] })?.kind,
+    'unchanged',
+  );
+});
+
+test('plan: validatorIds with a larger set adds exactly the missing ids', () => {
+  const a = planIds('    validatorIds: [1, 2, 3, 4, 5]');
+  assert.deepEqual(argv(a?.steps ?? []), [
+    'rotate --name t1 --add-ids 4,5 --timeout 300',
+  ]);
+});
+
+test('create with validatorIds: createArgv has --validator-ids, not --validators', () => {
+  const [a] = plan(
+    desiredOf(`  n:\n    version: ${V1}\n    validatorIds: [1, 2, 5]`),
+    [],
+    new Set(),
+  );
+  const create = (a?.steps[0] ?? []).join(' ');
+  assert.match(create, /--validator-ids 1,2,5 /);
+  assert.doesNotMatch(create, /--validators /);
+});
+
+test('parseXngYml: validators derive from validatorIds; external rejects them', () => {
+  const [spec] = desiredOf(
+    `  n:\n    version: ${V1}\n    validatorIds: [1, 2, 5]`,
+  );
+  assert.equal(spec?.validators, 3);
+  assert.deepEqual(spec?.validatorIds, [1, 2, 5]);
+  assert.throws(
+    () => desiredOf('  x:\n    external: true\n    validatorIds: [1, 2, 3]'),
+    /validatorIds/,
+  );
 });

@@ -19,21 +19,26 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    name: ${{ matrix.network.name }} ${{ matrix.scenario }}
     strategy:
       fail-fast: false
       matrix:
-        include:
+        # reset / restart / upgrade are independent, so each gets its own job.
+        # testnet-4 covers an even validator count and --root.
+        network:
           - name: testnet-3
             args: "--type testnet --validators 3 --domain localhost"
-            upgrade: true
-          - name: testnet-1
-            args: "--type testnet --validators 1 --domain localhost --root"
-            upgrade: true
-          - name: standalone
-            args: "--type standalone"
-          - name: standalone-dev
-            args: "--type standalone"
-            dev: true
+            rotate: "--add 2 --remove v1"
+          - name: testnet-4
+            args: "--type testnet --validators 4 --domain localhost --root"
+            rotate: ""
+        # rotate: testnet-3 adds two and drops one, testnet-4 replaces all.
+        scenario: [reset, restart, upgrade, rotate]
+        include:
+          - network: { name: standalone, args: "--type standalone" }
+            scenario: reset restart
+          - network: { name: standalone-dev, args: "--type standalone", dev: true }
+            scenario: reset restart
     steps:
       - uses: actions/checkout@v7
 
@@ -57,10 +62,10 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: ~/.cache/xahau-network-generator
-          key: xahaud-${{ matrix.dev && env.UPGRADE_TO || env.XAHAUD_VERSION }}
+          key: xahaud-${{ matrix.network.dev && env.UPGRADE_TO || env.XAHAUD_VERSION }}
 
       - uses: actions/cache@v6
-        if: matrix.upgrade
+        if: matrix.scenario == 'upgrade'
         with:
           path: ~/.cache/xahau-network-generator
           key: xahaud-${{ env.UPGRADE_TO }}
@@ -69,30 +74,44 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
 
-      - run: pnpm xng create --name ${{ matrix.name }} --version "${{ matrix.dev && env.UPGRADE_TO || env.XAHAUD_VERSION }}" ${{ matrix.args }}
-      - run: pnpm xng start --name ${{ matrix.name }} --wait --timeout 600
-      - run: pnpm e2e --name ${{ matrix.name }}
-      - run: pnpm xng reset --name ${{ matrix.name }} --wait --timeout 600
-      - run: pnpm e2e --name ${{ matrix.name }}
+      - run: pnpm xng create --name ${{ matrix.network.name }} --version "${{ matrix.network.dev && env.UPGRADE_TO || env.XAHAUD_VERSION }}" ${{ matrix.network.args }}
+      - run: pnpm xng start --name ${{ matrix.network.name }} --wait --timeout 600
+      - run: pnpm e2e --name ${{ matrix.network.name }}
+      - name: xng reset
+        if: contains(matrix.scenario, 'reset')
+        run: pnpm xng reset --name ${{ matrix.network.name }} --wait --timeout 600
+      - name: e2e after reset
+        if: contains(matrix.scenario, 'reset')
+        run: pnpm e2e --name ${{ matrix.network.name }}
 
       - name: simulate host reboot (restart the Docker daemon; containers must come back on their own)
-        run: pnpm e2e:restart --name ${{ matrix.name }} --timeout 600 -- sudo systemctl restart docker
-      - run: pnpm e2e --name ${{ matrix.name }}
+        if: contains(matrix.scenario, 'restart')
+        run: pnpm e2e:restart --name ${{ matrix.network.name }} --timeout 600 -- sudo systemctl restart docker
+      - name: e2e after restart
+        if: contains(matrix.scenario, 'restart')
+        run: pnpm e2e --name ${{ matrix.network.name }}
 
       - name: xng upgrade
-        if: matrix.upgrade
-        run: pnpm xng upgrade --name ${{ matrix.name }} --version "${{ env.UPGRADE_TO }}" --timeout 600
+        if: matrix.scenario == 'upgrade'
+        run: pnpm xng upgrade --name ${{ matrix.network.name }} --version "${{ env.UPGRADE_TO }}" --timeout 600
       - name: e2e after upgrade
-        if: matrix.upgrade
-        run: pnpm e2e --name ${{ matrix.name }} --expect-version "${{ env.UPGRADE_TO }}"
+        if: matrix.scenario == 'upgrade'
+        run: pnpm e2e --name ${{ matrix.network.name }} --expect-version "${{ env.UPGRADE_TO }}"
+
+      - name: xng rotate
+        if: matrix.scenario == 'rotate'
+        run: pnpm xng rotate --name ${{ matrix.network.name }} --timeout 600 ${{ matrix.network.rotate }}
+      - name: e2e after rotate
+        if: matrix.scenario == 'rotate'
+        run: pnpm e2e --name ${{ matrix.network.name }} --expect-version "${{ env.XAHAUD_VERSION }}"
 
       - name: docker compose logs
         if: failure()
-        run: docker compose -f workspace/${{ matrix.name }}/compose.yml logs --tail 200
+        run: docker compose -f workspace/${{ matrix.network.name }}/compose.yml logs --tail 200
 
       - name: stop network
         if: always()
-        run: pnpm xng stop --name ${{ matrix.name }}
+        run: pnpm xng stop --name ${{ matrix.network.name }}
 
   # `xng apply` owns all of workspace/, so it gets its own job on a clean
   # checkout rather than a matrix entry next to hand-made networks.

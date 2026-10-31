@@ -106,9 +106,9 @@ export function renderCompose(spec: NetworkSpec): string {
     // a daemon/host restart, or a container recreated by `xng upgrade`) must
     // continue from the ledger already in db/ via --load. Restarting from
     // genesis.json with an existing network would start a validator at seq
-    // 1, and a lone validator then forks a fresh chain instead of rejoining
-    // the real one (standalone: `-a --load` resumes xahaud stand-alone mode
-    // from the last ledger saved in db/).
+    // 1, forking a fresh chain instead of rejoining the real one
+    // (standalone: `-a --load` resumes xahaud stand-alone mode from the last
+    // ledger saved in db/).
     const xahaud = `xahaud --conf xahaud.cfg${spec.type === 'standalone' ? ' -a' : ` --quorum=${spec.quorum}`}`;
     const command = [
       'sh',

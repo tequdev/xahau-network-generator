@@ -6,12 +6,13 @@ import {
   defaultQuorum,
   displayNames,
   endpoints,
+  nodeName,
   pwaZone,
   validateSpec,
 } from './types.ts';
 import type { NetworkSpec } from './types.ts';
 
-test('defaultQuorum: single validator stays 1', () => {
+test('defaultQuorum: single validator (standalone) stays 1', () => {
   assert.equal(defaultQuorum(1), 1);
 });
 
@@ -96,8 +97,8 @@ test('validateSpec: nodeConfig must map sections to string lists', () => {
     name: 'a',
     type: 'testnet',
     version: 'x',
-    validators: 1,
-    quorum: 1,
+    validators: 3,
+    quorum: 2,
     networkId: 1,
     domain: 'a.b',
     tls: false,
@@ -127,13 +128,33 @@ test('configSections: errors name the key they were called with', () => {
   );
 });
 
+test('validateSpec: a testnet needs at least 3 validators', () => {
+  const spec: NetworkSpec = {
+    name: 'a',
+    type: 'testnet',
+    version: 'x',
+    validators: 3,
+    quorum: 2,
+    networkId: 1,
+    domain: 'a.b',
+    tls: false,
+    portOffset: 0,
+    importVlKeys: [],
+  };
+  for (const validators of [1, 2])
+    assert.throws(
+      () => validateSpec({ ...spec, validators, quorum: 1 }),
+      /validators must be an integer >= 3/,
+    );
+});
+
 test('validateSpec: validatorConfig is testnet only and checked like nodeConfig', () => {
   const spec: NetworkSpec = {
     name: 'a',
     type: 'testnet',
     version: 'x',
-    validators: 1,
-    quorum: 1,
+    validators: 3,
+    quorum: 2,
     networkId: 1,
     domain: 'a.b',
     tls: false,
@@ -150,6 +171,8 @@ test('validateSpec: validatorConfig is testnet only and checked like nodeConfig'
       validateSpec({
         ...spec,
         type: 'standalone',
+        validators: 1,
+        quorum: 1,
         validatorConfig: { s: ['l'] },
       }),
     /validatorConfig is testnet only/,
@@ -161,8 +184,8 @@ test('validateSpec: relayConfig is testnet only', () => {
     name: 'a',
     type: 'testnet',
     version: 'x',
-    validators: 1,
-    quorum: 1,
+    validators: 3,
+    quorum: 2,
     networkId: 1,
     domain: 'a.b',
     tls: false,
@@ -175,6 +198,8 @@ test('validateSpec: relayConfig is testnet only', () => {
       validateSpec({
         ...spec,
         type: 'standalone',
+        validators: 1,
+        quorum: 1,
         relayConfig: { xrpl_relay: ['l'] },
       }),
     /relayConfig is testnet only/,
@@ -362,4 +387,57 @@ test('validateSpec: an empty relayConfig is rejected (omit it for no relayer)', 
     /relayConfig must not be empty/,
   );
   validateSpec({ ...base, relayConfig: { xrpl_relay: ['h 51235'] } });
+});
+
+test('nodeName: validatorIds renames validators, absent means 1..N', () => {
+  const spec = { validators: 3 } as NetworkSpec;
+  assert.deepEqual(
+    [0, 1, 2, 3].map((i) => nodeName(spec, i)),
+    ['node', 'v1', 'v2', 'v3'],
+  );
+  const ids = { validators: 3, validatorIds: [2, 5, 6] } as NetworkSpec;
+  assert.deepEqual(
+    [0, 1, 2, 3].map((i) => nodeName(ids, i)),
+    ['node', 'v2', 'v5', 'v6'],
+  );
+});
+
+test('validateSpec: validatorIds must be distinct, one per validator, testnet only', () => {
+  const base: NetworkSpec = {
+    name: 't',
+    type: 'testnet',
+    version: 'x',
+    validators: 3,
+    quorum: 2,
+    networkId: 21339,
+    domain: 'localhost',
+    tls: false,
+    portOffset: 0,
+    importVlKeys: [],
+    validatorIds: [2, 4, 5],
+  };
+  validateSpec(base);
+  assert.throws(
+    () => validateSpec({ ...base, validatorIds: [1, 2] }),
+    /one entry per validator/,
+  );
+  assert.throws(
+    () => validateSpec({ ...base, validatorIds: [1, 1, 2] }),
+    /distinct/,
+  );
+  assert.throws(
+    () => validateSpec({ ...base, validatorIds: [0, 1, 2] }),
+    />= 1/,
+  );
+  assert.throws(
+    () =>
+      validateSpec({
+        ...base,
+        type: 'standalone',
+        validators: 1,
+        quorum: 1,
+        validatorIds: [1],
+      }),
+    /testnet only/,
+  );
 });

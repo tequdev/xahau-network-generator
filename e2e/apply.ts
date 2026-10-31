@@ -73,7 +73,7 @@ async function main(): Promise<void> {
     [NAME]: {
       type: 'testnet',
       version: v,
-      validators: 1,
+      validators: 3,
       domain: values.domain,
       root: true, // serves the landing page, whose networks.json lists ext1
       ...labels,
@@ -164,6 +164,32 @@ async function main(): Promise<void> {
     'nodeConfig leaked to a validator',
   );
 
+  // 6a: only the validator count changes (3 -> 4): a rotation, not a recreate.
+  await writeYml(apply1(upgradeTo, { ...upgraded, validators: 4 }));
+  r = apply(['--dry-run']);
+  assert.match(r.out, /^> apply1 +rotate/m);
+  assert.ok(
+    !r.out.includes('recreate'),
+    'a validators change planned a recreate',
+  );
+  assert.equal(apply(['-y', '--timeout', timeout]).status, 0);
+  e2e('--expect-version', upgradeTo);
+
+  // 6b: validatorIds with the same count but another set: add v5, remove v4.
+  const rotated = { ...upgraded, validators: 4, validatorIds: [1, 2, 3, 5] };
+  await writeYml(apply1(upgradeTo, rotated));
+  r = apply(['--dry-run']);
+  assert.match(r.out, /^> apply1 +rotate/m);
+  assert.ok(!r.out.includes('recreate'), 'validatorIds planned a recreate');
+  assert.equal(apply(['-y', '--timeout', timeout]).status, 0);
+  e2e('--expect-version', upgradeTo);
+  assert.ok(existsSync(`workspace/${NAME}/keys/v5.json`), 'v5 not created');
+  assert.ok(!existsSync(`workspace/${NAME}/keys/v4.json`), 'v4 not removed');
+  // The same set in another order is no change.
+  await writeYml(apply1(upgradeTo, { ...rotated, validatorIds: [5, 3, 2, 1] }));
+  r = apply(['--dry-run']);
+  assert.match(r.out, /^= apply1 /m);
+
   // 7: a stopped network is started again.
   assert.equal(run('pnpm', ['xng', 'stop', '--name', NAME]).status, 0);
   r = apply(['--dry-run']);
@@ -173,7 +199,7 @@ async function main(): Promise<void> {
 
   // 8: --network leaves the others alone (apply2 is only ever planned, never created).
   await writeYml({
-    ...apply1(upgradeTo, upgraded),
+    ...apply1(upgradeTo, rotated),
     apply2: { type: 'standalone', version },
   });
   r = apply(['--dry-run', '--network', NAME]);

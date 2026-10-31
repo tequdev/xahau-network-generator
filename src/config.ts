@@ -5,6 +5,7 @@ export type XahaudCfgOptions = {
   networkId: number;
   ports: Ports; // container ports
   token?: string; // testnet validators only
+  root?: boolean; // testnet node only; a root network's node keeps more history
   peers: string[]; // testnet only; "hostname 51235" lines, excluding self
   vlKeyHex?: string; // testnet only
   vlUrl?: string; // testnet only
@@ -91,8 +92,8 @@ export function renderXahaudCfg(o: XahaudCfgOptions): string {
   sections.push(['node_size', ['small']]);
 
   // Validators only need enough history to serve peers; `node` keeps more
-  // for users and the explorer.
-  const history = o.token ? 256 : 10000;
+  // for users and the explorer (~6 weeks, ~4 months for a root network).
+  const history = o.token ? 256 : o.root ? 3_000_000 : 1_000_000;
   sections.push([
     'node_db',
     [
@@ -116,8 +117,8 @@ export function renderXahaudCfg(o: XahaudCfgOptions): string {
   sections.push(['amendment_majority_time', ['1 minutes']]);
 
   if (o.type === 'testnet') {
-    // Default minimum is 1 peer; a single-validator network has none and would
-    // stay DISCONNECTED (consensus never runs) without this.
+    // Default minimum is 1 peer; without this a node that has not yet found
+    // a peer stays DISCONNECTED (consensus never runs).
     sections.push(['network_quorum', ['0']]);
   }
 

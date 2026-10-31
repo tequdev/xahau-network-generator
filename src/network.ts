@@ -34,6 +34,7 @@ import {
   createValidatorKeys,
   signVl,
 } from './keys.ts';
+import type { VlValidatorEntry } from './keys.ts';
 import type { NetworkSpec } from './types.ts';
 import {
   RELAY,
@@ -153,7 +154,7 @@ async function populateNetwork(spec: NetworkSpec, dir: string): Promise<void> {
       const v = createValidatorKeys();
       validatorKeysList.push(v);
       await writeFile(
-        join(dir, 'keys', `v${i}.json`),
+        join(dir, 'keys', `${nodeName(spec, i)}.json`),
         JSON.stringify(v, null, 2),
       );
     }
@@ -233,6 +234,24 @@ async function populateNetwork(spec: NetworkSpec, dir: string): Promise<void> {
   await writeFile(join(dir, 'compose.yml'), renderCompose(spec));
 }
 
+// The VL entries of spec's validators, read from keys/<nodeName>.json.
+export async function vlEntries(
+  dir: string,
+  spec: NetworkSpec,
+): Promise<VlValidatorEntry[]> {
+  const entries: VlValidatorEntry[] = [];
+  for (let i = 1; i <= spec.validators; i++) {
+    const k = JSON.parse(
+      await readFile(join(dir, 'keys', `${nodeName(spec, i)}.json`), 'utf8'),
+    );
+    entries.push({
+      publicKeyHex: k.publicKeyHex,
+      manifestBase64: k.manifest.base64,
+    });
+  }
+  return entries;
+}
+
 // Renders nodes/<name>/xahaud.cfg and validators.txt for node `index` (0 =
 // `node` / the standalone node, 1.. = validators, RELAY = the featureExport
 // relayer). Inputs come from disk
@@ -275,6 +294,7 @@ export async function writeNodeConfig(
         type: 'testnet',
         networkId: spec.networkId,
         ports: ports(spec, 0),
+        root: spec.root,
         peers: Array.from({ length: spec.validators }, (_, i) => peerOf(i + 1)),
         vlKeyHex,
         vlUrl,
@@ -298,7 +318,7 @@ export async function writeNodeConfig(
         type: 'testnet',
         networkId: spec.networkId,
         ports: ports(spec, index),
-        token: (await readKeys(`v${index}.json`)).token,
+        token: (await readKeys(`${nodeName(spec, index)}.json`)).token,
         peers,
         vlKeyHex,
         vlUrl,

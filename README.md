@@ -31,6 +31,11 @@ pnpm xng upgrade --name t1 --node-config '{"ledger_history":["5000"]}'
 # make every validator vote for (or, with --reject, veto) an amendment
 pnpm xng vote --name t1 --amendment fixSomething
 
+# rotate the UNL of a running testnet: add validators, publish the new list,
+# then stop and delete the ones that left it (default: replace every validator)
+pnpm xng rotate --name t1                    # v1,v2,v3 -> v4,v5,v6
+pnpm xng rotate --name t1 --add 1 --remove v2
+
 # declare all networks in xng.yml and let xng work out the difference
 pnpm xng apply --dry-run
 pnpm xng apply
@@ -58,6 +63,34 @@ below), so one validator can be mid-restart and consensus still keeps going;
 pass `--quorum` yourself to raise it if you want stricter safety instead.
 With the current binary and an unchanged `validatorConfig` and `importVlKeys` (e.g. `--node-config`
 only) just `node` is restarted; `--relay-config` restarts only `relay` (and `node`).
+
+`rotate` (testnet only) replaces validators of a running network without
+stopping consensus. It starts the `--add` new validators (default: as many as
+there are), publishes an interim validator list (VL) holding old and new, and
+waits until every node trusts exactly that set and the new validators report
+`proposing`. It then publishes the final list (kept plus new), waits until every
+remaining node trusts exactly it, and stops the validators in `--remove`
+(default: all the old ones), removes their containers and deletes their
+`nodes/`, `bin/` and `keys/` entries. `--remove` alone shrinks, `--add` alone
+grows; the result must still be >= 3 validators. `vl.json` sets
+`refresh_interval` 1, so each node re-fetches the list within a minute; a
+network created before that existed still runs on the 5-minute default, so
+its first rotation can spend ~5 minutes per phase waiting (pass a larger
+`--timeout`), later ones a minute.
+`validatorIds` in network.json records which `v<n>` exist (absent = 1..N); new
+validators continue after the highest number ever used. The other nodes'
+`[ips_fixed]` on disk are rewritten, but a running process applies them only on
+its next restart (`xng upgrade`). When the count changes, `quorum` is reset to
+its default and `node` plus the kept validators are recreated one at a time
+(like `xng upgrade`) during the interim phase, before the final list is
+published, so the new quorum is always satisfiable. `xng apply` plans a rotation
+when only `validators` changes in the yml (`--add` for more, `--remove` of the
+highest-numbered ones for fewer); its `--timeout` bounds the rotation, so raise
+it when the count changes (a quorum roll adds about a minute per node). A yml
+`quorum` that is not the default for the new count still recreates. The yml can
+pin the set with `validatorIds` (`xng create --validator-ids 1,2,5`, `xng rotate
+--add-ids 4,5`); a set that differs from the one on disk, even with the same
+count, is a rotation that adds the missing ids and removes the extra ones.
 
 `vote` (testnet only) runs `feature <amendment> accept|reject` on each
 validator. Every generated node sets `[amendment_majority_time]` to
@@ -373,6 +406,7 @@ xng apply [-f xng.yml] [-y] [--dry-run] [--timeout <sec>] [--network <name>]...
 | only in the file | `create` | `create`, then `start --wait` |
 | only in `workspace/` | `remove` | `remove` |
 | testnet, only `version`/`nodeConfig`/`validatorConfig`/`relayConfig`/`importVlKeys` differ (or an old network.json lacks pwa) (none of the sections above) | `upgrade` | (`start --wait` if stopped, then) `upgrade` with the changed `--node-config`/`--validator-config`/`--relay-config`/`--pwa` (migration only) |
+| testnet, `validators` or `validatorIds` differs (other differences only upgradable ones; `quorum` default for the new count) | `rotate` | (`start --wait` if stopped, then) `upgrade` if anything else changed, then `rotate --add n` / `--add-ids` / `--remove` (the last validators for a smaller count, or exactly the ids missing/extra for `validatorIds`) |
 | standalone `version`/config, any other key, or an unsafe config section differs (the plan warns) | `recreate` | `remove`, `create`, `start --wait` (ledger data and keys are wiped) |
 | identical but `displayName`/`displayShortName` | `relabel` | `label` (`start --wait` if stopped); no recreate |
 | identical, any container not running | `start` | `start --wait` |
@@ -394,6 +428,8 @@ will be ordered or deleted.
 
 Things to know:
 
+- Changing only `validators` or `validatorIds` of a running testnet is a rotation (`>`), not a
+  recreate; any other change that `xng upgrade` cannot apply still recreates.
 - `unchanged` means every container is running, not that the network is ready: a
   network whose `start --wait` timed out is `unchanged` on the next run.
 - `docker pull <image>` (e.g. the explorer's `xahau-devnet` tag) followed by

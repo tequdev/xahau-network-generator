@@ -36,6 +36,7 @@ import {
   resetNetworkData,
   writeSiteIndex,
 } from './network.ts';
+import { rotateValidators } from './rotate.ts';
 import {
   DEFAULT_IMPORT_VL_KEYS,
   DOMAIN_RE,
@@ -131,6 +132,16 @@ function intArg(min: number, max = Number.POSITIVE_INFINITY) {
   };
 }
 
+function idsArg(value: string): number[] {
+  const ids = value.split(',').map((n) => Number(n.trim()));
+  if (!ids.every((n) => Number.isInteger(n) && n >= 1)) {
+    throw new InvalidArgumentError(
+      `must be comma-separated integers >= 1, got "${value}"`,
+    );
+  }
+  return ids;
+}
+
 async function loadSpec(name: string): Promise<NetworkSpec> {
   const path = `workspace/${name}/network.json`;
   let spec: NetworkSpec;
@@ -198,11 +209,19 @@ program
       .default('testnet'),
   )
   .option('--version <ver>', 'xahaud version (default: latest release)')
+  .addOption(
+    new Option(
+      '--validators <n>',
+      'validator count (testnet only; standalone is always 1)',
+    )
+      .argParser(intArg(1))
+      .default(3)
+      .conflicts(['validatorIds']),
+  )
   .option(
-    '--validators <n>',
-    'validator count (testnet only; standalone is always 1)',
-    intArg(1),
-    3,
+    '--validator-ids <ids>',
+    'testnet only: comma-separated validator numbers, e.g. 1,2,5 creates v1,v2,v5 (instead of --validators)',
+    idsArg,
   )
   .option(
     '--quorum <n>',
@@ -237,6 +256,7 @@ program
       .conflicts([
         'version',
         'validators',
+        'validatorIds',
         'quorum',
         'networkId',
         'portOffset',
@@ -281,7 +301,10 @@ program
   .action(async (opts) => {
     // A standalone is always one validator; validateSpec (below) covers the
     // rest, so `create` and `apply` accept exactly the same specs.
-    const validators = opts.type === 'standalone' ? 1 : opts.validators;
+    const validators =
+      opts.type === 'standalone'
+        ? 1
+        : (opts.validatorIds?.length ?? opts.validators);
     const quorum = opts.quorum ?? defaultQuorum(validators);
     const version = opts.external
       ? ''
@@ -292,6 +315,7 @@ program
       type: opts.type,
       version,
       validators,
+      ...(opts.validatorIds ? { validatorIds: opts.validatorIds } : {}),
       quorum,
       networkId: opts.networkId,
       domain: opts.domain,
@@ -548,6 +572,66 @@ program
     // ensureCertificate is idempotent otherwise.
     await syncCertificate(spec, { fatal: false });
     console.log(`upgraded network "${spec.name}" to ${version}`);
+  });
+
+program
+  .command('rotate')
+  .description(
+    'replace validators of a running testnet: start new ones, publish a VL with old + new, wait until the new ones are trusted and proposing, publish the final VL, then stop and delete the removed ones (default: rotate every validator)',
+  )
+  .requiredOption('--name <name>', 'network name', parseName)
+  .option('--add <n>', 'number of new validators to add', intArg(0))
+  .addOption(
+    new Option(
+      '--add-ids <ids>',
+      'comma-separated numbers of the new validators, e.g. 4,5 adds v4,v5',
+    )
+      .argParser(idsArg)
+      .conflicts(['add']),
+  )
+  .option(
+    '--remove <names>',
+    'comma-separated validators to remove, e.g. v1,v2',
+    (value: string) => {
+      const names = value
+        .split(',')
+        .map((n) => n.trim())
+        .filter(Boolean);
+      for (const n of names) {
+        if (!/^v[0-9]+$/.test(n)) {
+          throw new InvalidArgumentError(
+            `must be validator names like v1, got "${n}"`,
+          );
+        }
+      }
+      return names;
+    },
+  )
+  .option('--timeout <sec>', 'overall timeout in seconds', intArg(1), 600)
+  .action(async (opts) => {
+    const spec = await loadSpec(opts.name);
+    assertLocal(spec);
+    if (spec.type !== 'testnet') {
+      throw program.error('xng rotate is testnet only');
+    }
+    const full =
+      opts.add === undefined &&
+      opts.addIds === undefined &&
+      opts.remove === undefined;
+    const add: number | number[] = full
+      ? spec.validators
+      : (opts.addIds ?? opts.add ?? 0);
+    const remove: string[] = full
+      ? Array.from({ length: spec.validators }, (_, i) => nodeName(spec, i + 1))
+      : (opts.remove ?? []);
+    const final = await rotateValidators(
+      spec,
+      { add, remove },
+      opts.timeout * 1000,
+    );
+    console.log(
+      `rotated network "${spec.name}": validators ${Array.from({ length: final.validators }, (_, i) => nodeName(final, i + 1)).join(', ')}`,
+    );
   });
 
 program

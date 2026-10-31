@@ -20,6 +20,7 @@ export type NetworkSpec = {
   type: 'testnet' | 'standalone';
   version: string;
   validators: number; // standalone: 1
+  validatorIds?: number[]; // testnet only; the live validators' numbers (service/dir `v<id>`, keys/v<id>.json), length === validators; absent = 1..validators; only `xng rotate` writes it
   quorum: number; // testnet only; default defaultQuorum(validators) (see below)
   networkId: number; // default 21339
   domain: string; // testnet only; default '127.0.0.1.nip.io'; hostnames are `<sub>.<name>.<domain>`
@@ -130,13 +131,33 @@ export function validateSpec(spec: NetworkSpec): void {
       `domain must match ${DOMAIN_RE} (lowercase letters, digits, dots, hyphens), got "${spec.domain}"`,
     );
   }
-  if (!isInt(spec.validators) || spec.validators < 1 || spec.validators === 2) {
+  if (spec.type === 'standalone') {
+    if (spec.validators !== 1) {
+      throw new Error('validators must be 1 for a standalone network');
+    }
+  } else if (!isInt(spec.validators) || spec.validators < 3) {
     throw new Error(
-      `validators must be 1 or an integer >= 3 (a 2-validator network cannot tolerate a rolling restart), got "${spec.validators}"`,
+      `validators must be an integer >= 3 (a 2-validator network cannot tolerate a rolling restart), got "${spec.validators}"`,
     );
   }
-  if (spec.type === 'standalone' && spec.validators !== 1) {
-    throw new Error('validators must be 1 for a standalone network');
+  if (spec.validatorIds !== undefined) {
+    const ids = spec.validatorIds as unknown;
+    if (spec.type !== 'testnet' || spec.external)
+      throw new Error('validatorIds is testnet only (not external)');
+    if (
+      !Array.isArray(ids) ||
+      !ids.every((n) => isInt(n) && n >= 1) ||
+      new Set(ids).size !== ids.length
+    ) {
+      throw new Error(
+        `validatorIds must be a list of distinct integers >= 1, got "${JSON.stringify(ids)}"`,
+      );
+    }
+    if (ids.length !== spec.validators) {
+      throw new Error(
+        `validatorIds must have one entry per validator (${spec.validators}), got ${ids.length}`,
+      );
+    }
   }
   if (!isInt(spec.quorum) || spec.quorum < 1 || spec.quorum > spec.validators) {
     throw new Error(
@@ -247,7 +268,7 @@ export const VL_HOST = 'vl';
 // range, it sits beside `node` and the validators.
 export const RELAY = 'relay';
 export function nodeName(spec: NetworkSpec, i: number): string {
-  return i === 0 ? 'node' : `v${i}`;
+  return i === 0 ? 'node' : `v${spec.validatorIds?.[i - 1] ?? i}`;
 }
 
 // The bare compose service name (e.g. "node", "vl") is only unique within
@@ -263,13 +284,12 @@ export function containerName(spec: NetworkSpec, service: string): string {
   return `${spec.name}-${service}`;
 }
 
-// Default consensus quorum. Capped at validators-1 (for validators >= 3) so
-// a rolling upgrade (`xng upgrade`) can restart one validator at a time
-// without ever dropping below quorum, i.e. without pausing consensus.
-// --quorum can still override this.
+// Default consensus quorum. Capped at validators-1 so a rolling upgrade
+// (`xng upgrade`) can restart one validator at a time without ever dropping
+// below quorum, i.e. without pausing consensus. --quorum can still override
+// this. The floor of 1 is for standalone (a single validator).
 export function defaultQuorum(validators: number): number {
-  if (validators === 1) return 1;
-  return Math.min(Math.ceil(0.8 * validators), validators - 1);
+  return Math.max(1, Math.min(Math.ceil(0.8 * validators), validators - 1));
 }
 
 export const IMPORT_VL_KEY_RE = /^[0-9A-Fa-f]{66}$/;
