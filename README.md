@@ -76,7 +76,10 @@ grows; the result must still be 1 or >= 3 validators, and so must the interim
 set: two validators never reach consensus (each flips its vote to the other's
 every round), so a 1-validator network can only grow (`--add 2`), not swap its
 validator in place. `vl.json` sets
-`refresh_interval` 1, so each node re-fetches the list within a minute.
+`refresh_interval` 1, so each node re-fetches the list within a minute; a
+network created before that existed still runs on the 5-minute default, so
+its first rotation can spend ~5 minutes per phase waiting (pass a larger
+`--timeout`), later ones a minute.
 `validatorIds` in network.json records which `v<n>` exist (absent = 1..N); new
 validators continue after the highest number ever used. The other nodes'
 `[ips_fixed]` on disk are rewritten, but a running process applies them only on
