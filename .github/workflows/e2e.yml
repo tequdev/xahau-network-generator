@@ -26,9 +26,11 @@ jobs:
           - name: testnet-3
             args: "--type testnet --validators 3 --domain localhost"
             upgrade: true
+            rotate: "--add 2 --remove v1"
           - name: testnet-1
             args: "--type testnet --validators 1 --domain localhost --root"
             upgrade: true
+            rotate: "--add 2"
           - name: standalone
             args: "--type standalone"
           - name: standalone-dev
@@ -83,6 +85,13 @@ jobs:
         if: matrix.upgrade
         run: pnpm xng upgrade --name ${{ matrix.name }} --version "${{ env.UPGRADE_TO }}" --timeout 600
       - name: e2e after upgrade
+        if: matrix.upgrade
+        run: pnpm e2e --name ${{ matrix.name }} --expect-version "${{ env.UPGRADE_TO }}"
+
+      - name: xng rotate
+        if: matrix.upgrade
+        run: pnpm xng rotate --name ${{ matrix.name }} --timeout 600 ${{ matrix.rotate }}
+      - name: e2e after rotate
         if: matrix.upgrade
         run: pnpm e2e --name ${{ matrix.name }} --expect-version "${{ env.UPGRADE_TO }}"
 

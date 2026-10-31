@@ -36,6 +36,7 @@ import {
   resetNetworkData,
   writeSiteIndex,
 } from './network.ts';
+import { rotateValidators } from './rotate.ts';
 import {
   DEFAULT_IMPORT_VL_KEYS,
   DOMAIN_RE,
@@ -518,6 +519,53 @@ program
     // ensureCertificate is idempotent otherwise.
     await syncCertificate(spec, { fatal: false });
     console.log(`upgraded network "${spec.name}" to ${version}`);
+  });
+
+program
+  .command('rotate')
+  .description(
+    'replace validators of a running testnet: start new ones, publish a VL with old + new, wait until the new ones are trusted and proposing, publish the final VL, then stop and delete the removed ones (default: rotate every validator)',
+  )
+  .requiredOption('--name <name>', 'network name', parseName)
+  .option('--add <n>', 'number of new validators to add', intArg(0))
+  .option(
+    '--remove <names>',
+    'comma-separated validators to remove, e.g. v1,v2',
+    (value: string) => {
+      const names = value
+        .split(',')
+        .map((n) => n.trim())
+        .filter(Boolean);
+      for (const n of names) {
+        if (!/^v[0-9]+$/.test(n)) {
+          throw new InvalidArgumentError(
+            `must be validator names like v1, got "${n}"`,
+          );
+        }
+      }
+      return names;
+    },
+  )
+  .option('--timeout <sec>', 'overall timeout in seconds', intArg(1), 600)
+  .action(async (opts) => {
+    const spec = await loadSpec(opts.name);
+    assertLocal(spec);
+    if (spec.type !== 'testnet') {
+      throw program.error('xng rotate is testnet only');
+    }
+    const full = opts.add === undefined && opts.remove === undefined;
+    const add: number = full ? spec.validators : (opts.add ?? 0);
+    const remove: string[] = full
+      ? Array.from({ length: spec.validators }, (_, i) => nodeName(spec, i + 1))
+      : (opts.remove ?? []);
+    const final = await rotateValidators(
+      spec,
+      { add, remove },
+      opts.timeout * 1000,
+    );
+    console.log(
+      `rotated network "${spec.name}": validators ${Array.from({ length: final.validators }, (_, i) => nodeName(final, i + 1)).join(', ')}`,
+    );
   });
 
 program

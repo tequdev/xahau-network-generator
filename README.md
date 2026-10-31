@@ -31,6 +31,11 @@ pnpm xng upgrade --name t1 --node-config '{"ledger_history":["5000"]}'
 # make every validator vote for (or, with --reject, veto) an amendment
 pnpm xng vote --name t1 --amendment fixSomething
 
+# rotate the UNL of a running testnet: add validators, publish the new list,
+# then stop and delete the ones that left it (default: replace every validator)
+pnpm xng rotate --name t1                    # v1,v2,v3 -> v4,v5,v6
+pnpm xng rotate --name t1 --add 1 --remove v2
+
 # declare all networks in xng.yml and let xng work out the difference
 pnpm xng apply --dry-run
 pnpm xng apply
@@ -58,6 +63,29 @@ below), so one validator can be mid-restart and consensus still keeps going;
 pass `--quorum` yourself to raise it if you want stricter safety instead.
 With the current binary and an unchanged `validatorConfig` and `importVlKeys` (e.g. `--node-config`
 only) just `node` is restarted.
+
+`rotate` (testnet only) replaces validators of a running network without
+stopping consensus. It starts the `--add` new validators (default: as many as
+there are), publishes an interim validator list (VL) holding old and new, and
+waits until every node trusts exactly that set and the new validators report
+`proposing`. It then publishes the final list (kept plus new), waits until every
+remaining node trusts exactly it, and stops the validators in `--remove`
+(default: all the old ones), removes their containers and deletes their
+`nodes/`, `bin/` and `keys/` entries. `--remove` alone shrinks, `--add` alone
+grows; the result must still be 1 or >= 3 validators, and so must the interim
+set: two validators never reach consensus (each flips its vote to the other's
+every round), so a 1-validator network can only grow (`--add 2`), not swap its
+validator in place. `vl.json` sets
+`refresh_interval` 1, so each node re-fetches the list within a minute.
+`validatorIds` in network.json records which `v<n>` exist (absent = 1..N); new
+validators continue after the highest number ever used. The other nodes'
+`[ips_fixed]` on disk are rewritten, but a running process applies them only on
+its next restart (`xng upgrade`). When the count changes, `quorum` is reset to
+its default and `node` plus the kept validators are recreated one at a time
+(like `xng upgrade`) during the interim phase, before the final list is
+published, so the new quorum is always satisfiable. `xng
+apply` still treats a changed `validators` count as a recreate; rotation is
+imperative only.
 
 `vote` (testnet only) runs `feature <amendment> accept|reject` on each
 validator. Every generated node sets `[amendment_majority_time]` to

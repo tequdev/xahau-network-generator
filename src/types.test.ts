@@ -6,6 +6,7 @@ import {
   defaultQuorum,
   displayNames,
   endpoints,
+  nodeName,
   pwaZone,
   validateSpec,
 } from './types.ts';
@@ -316,5 +317,58 @@ test('validateSpec: importVlKeys must be 33-byte hex keys ([] is fine)', () => {
   assert.throws(
     () => validateSpec({ ...base, importVlKeys: ['xyz'] }),
     /importVlKeys must be a list of 33-byte hex public keys/,
+  );
+});
+
+test('nodeName: validatorIds renames validators, absent means 1..N', () => {
+  const spec = { validators: 3 } as NetworkSpec;
+  assert.deepEqual(
+    [0, 1, 2, 3].map((i) => nodeName(spec, i)),
+    ['node', 'v1', 'v2', 'v3'],
+  );
+  const ids = { validators: 3, validatorIds: [2, 5, 6] } as NetworkSpec;
+  assert.deepEqual(
+    [0, 1, 2, 3].map((i) => nodeName(ids, i)),
+    ['node', 'v2', 'v5', 'v6'],
+  );
+});
+
+test('validateSpec: validatorIds must be distinct, one per validator, testnet only', () => {
+  const base: NetworkSpec = {
+    name: 't',
+    type: 'testnet',
+    version: 'x',
+    validators: 3,
+    quorum: 2,
+    networkId: 21339,
+    domain: 'localhost',
+    tls: false,
+    portOffset: 0,
+    importVlKeys: [],
+    validatorIds: [2, 4, 5],
+  };
+  validateSpec(base);
+  assert.throws(
+    () => validateSpec({ ...base, validatorIds: [1, 2] }),
+    /one entry per validator/,
+  );
+  assert.throws(
+    () => validateSpec({ ...base, validatorIds: [1, 1, 2] }),
+    /distinct/,
+  );
+  assert.throws(
+    () => validateSpec({ ...base, validatorIds: [0, 1, 2] }),
+    />= 1/,
+  );
+  assert.throws(
+    () =>
+      validateSpec({
+        ...base,
+        type: 'standalone',
+        validators: 1,
+        quorum: 1,
+        validatorIds: [1],
+      }),
+    /testnet only/,
   );
 });

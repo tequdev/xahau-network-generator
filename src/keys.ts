@@ -108,7 +108,7 @@ export type VlValidatorEntry = { publicKeyHex: string; manifestBase64: string };
 export function signVl(
   publisher: PublisherKeys,
   validators: VlValidatorEntry[],
-  opts: { expiration?: number } = {},
+  opts: { expiration?: number; sequence?: number } = {},
 ) {
   const nowRipple = Math.floor(Date.now() / 1000) - RIPPLE_EPOCH_OFFSET;
   // No `effective`: xahaud only activates a list once its validFrom <= the last
@@ -116,7 +116,7 @@ export function signVl(
   const expiration = opts.expiration ?? nowRipple + YEAR_SECONDS;
 
   const blobJson = {
-    sequence: 1,
+    sequence: opts.sequence ?? 1,
     expiration,
     validators: validators.map((v) => ({
       validation_public_key: v.publicKeyHex,
@@ -142,6 +142,9 @@ export function signVl(
 
   return {
     version: 1,
+    // xahaud re-fetches a list site every refresh_interval minutes (min 1,
+    // default 5); `xng rotate` waits on that.
+    refresh_interval: 1,
     public_key: publisher.master.publicKey,
     manifest: publisher.manifest.base64,
     blob,

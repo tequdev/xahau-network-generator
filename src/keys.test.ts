@@ -56,3 +56,17 @@ test('vl.json signature verifies and blob decodes with validators', () => {
     validator.publicKeyHex,
   );
 });
+
+test('vl.json: sequence goes into the blob and refresh_interval is 1', () => {
+  const vl = signVl(createPublisherKeys(), [], { sequence: 7 });
+  assert.equal(
+    JSON.parse(Buffer.from(vl.blob, 'base64').toString()).sequence,
+    7,
+  );
+  assert.equal(vl.refresh_interval, 1);
+  const dflt = signVl(createPublisherKeys(), []);
+  assert.equal(
+    JSON.parse(Buffer.from(dflt.blob, 'base64').toString()).sequence,
+    1,
+  );
+});

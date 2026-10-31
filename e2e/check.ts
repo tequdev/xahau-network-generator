@@ -4,7 +4,8 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { deriveAddress, deriveKeypair, generateSeed } from 'xahau-keypairs';
-import { composeOutput } from '../src/docker.ts';
+import { composeOutput, listContainers } from '../src/docker.ts';
+import { parseValidatorsOutput } from '../src/rotate.ts';
 import { endpoints, nodeName } from '../src/types.ts';
 import type { NetworkSpec } from '../src/types.ts';
 import { parseServerInfoOutput } from '../src/upgrade.ts';
@@ -355,6 +356,53 @@ async function checkTestnet(
     info1.info.peers >= spec.validators,
     `node has ${info1.info.peers} peers, expected >= ${spec.validators}`,
   );
+
+  // `node` must trust exactly the validators in keys/ (after a rotation the
+  // names are not 1..N), and exactly those containers must be running.
+  const want: string[] = [];
+  for (let i = 1; i <= spec.validators; i++) {
+    const keys = JSON.parse(
+      await readFile(
+        path.join('workspace', spec.name, 'keys', `${nodeName(spec, i)}.json`),
+        'utf8',
+      ),
+    );
+    want.push(keys.nodePublic);
+  }
+  const trusted = parseValidatorsOutput(
+    composeOutput(spec.name, [
+      'exec',
+      '-T',
+      'node',
+      'xahaud',
+      '--conf',
+      'xahaud.cfg',
+      'validators',
+    ]),
+  ).trusted;
+  assert.deepEqual(
+    [...trusted].sort(),
+    want.sort(),
+    'node trusts a different validator set than keys/',
+  );
+  console.log(
+    `[e2e] node trusts exactly the ${want.length} validators in keys/`,
+  );
+
+  const running = (await listContainers()).get(spec.name) ?? [];
+  const names = running
+    .map((c) => c.service)
+    .filter((s) => /^v[0-9]+$/.test(s))
+    .sort();
+  const expected = Array.from({ length: spec.validators }, (_, i) =>
+    nodeName(spec, i + 1),
+  ).sort();
+  assert.deepEqual(
+    names,
+    expected,
+    'validator containers differ from the spec',
+  );
+  console.log(`[e2e] validator containers: ${names.join(', ')}`);
 
   // With a single validator there are no other proposers, so an idle ledger
   // only closes on xahaud's idle interval (~15s); poll well past that rather
