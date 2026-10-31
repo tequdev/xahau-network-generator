@@ -73,7 +73,7 @@ async function main(): Promise<void> {
     [NAME]: {
       type: 'testnet',
       version: v,
-      validators: 1,
+      validators: 3,
       domain: values.domain,
       root: true, // serves the landing page, whose networks.json lists ext1
       ...labels,

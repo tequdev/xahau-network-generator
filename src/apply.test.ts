@@ -126,6 +126,7 @@ test('parseXngYml: every validateSpec rule is enforced', () => {
     [`  Bad_Name:\n    version: ${V1}`, /name must match/],
     [`  rpc:\n    version: ${V1}`, /reserved/],
     [`  a:\n    version: ${V1}\n    domain: Example.COM`, /domain must match/],
+    [`  a:\n    version: ${V1}\n    validators: 1`, /validators must be/],
     [`  a:\n    version: ${V1}\n    validators: 2`, /validators must be/],
     [`  a:\n    version: ${V1}\n    quorum: 4`, /quorum must be/],
     [`  a:\n    version: ${V1}\n    portOffset: 14301`, /portOffset must be/],

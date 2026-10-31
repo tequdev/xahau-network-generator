@@ -11,7 +11,7 @@ import {
 } from './types.ts';
 import type { NetworkSpec } from './types.ts';
 
-test('defaultQuorum: single validator stays 1', () => {
+test('defaultQuorum: single validator (standalone) stays 1', () => {
   assert.equal(defaultQuorum(1), 1);
 });
 
@@ -96,8 +96,8 @@ test('validateSpec: nodeConfig must map sections to string lists', () => {
     name: 'a',
     type: 'testnet',
     version: 'x',
-    validators: 1,
-    quorum: 1,
+    validators: 3,
+    quorum: 2,
     networkId: 1,
     domain: 'a.b',
     tls: false,
@@ -127,13 +127,33 @@ test('configSections: errors name the key they were called with', () => {
   );
 });
 
+test('validateSpec: a testnet needs at least 3 validators', () => {
+  const spec: NetworkSpec = {
+    name: 'a',
+    type: 'testnet',
+    version: 'x',
+    validators: 3,
+    quorum: 2,
+    networkId: 1,
+    domain: 'a.b',
+    tls: false,
+    portOffset: 0,
+    importVlKeys: [],
+  };
+  for (const validators of [1, 2])
+    assert.throws(
+      () => validateSpec({ ...spec, validators, quorum: 1 }),
+      /validators must be an integer >= 3/,
+    );
+});
+
 test('validateSpec: validatorConfig is testnet only and checked like nodeConfig', () => {
   const spec: NetworkSpec = {
     name: 'a',
     type: 'testnet',
     version: 'x',
-    validators: 1,
-    quorum: 1,
+    validators: 3,
+    quorum: 2,
     networkId: 1,
     domain: 'a.b',
     tls: false,
@@ -150,6 +170,8 @@ test('validateSpec: validatorConfig is testnet only and checked like nodeConfig'
       validateSpec({
         ...spec,
         type: 'standalone',
+        validators: 1,
+        quorum: 1,
         validatorConfig: { s: ['l'] },
       }),
     /validatorConfig is testnet only/,

@@ -35,8 +35,8 @@ networks:
   jshooks:
     type: testnet                    # testnet | standalone            (default testnet)
     version: 2026.9.8-jshooks+3640   # REQUIRED; e.g. 2026.6.21-release+3350, 2026.9.9-dev+3667
-    validators: 3                    # 1, or >= 3 (2 cannot survive a rolling restart; default 3)
-    quorum: 2                        # 1..validators (default min(ceil(0.8*n), n-1): 3->2, 5->4, 1->1)
+    validators: 3                    # >= 3 (2 cannot survive a rolling restart; default 3)
+    quorum: 2                        # 1..validators (default min(ceil(0.8*n), n-1): 3->2, 4->3, 5->4)
     networkId: 21339                 # integer >= 0                    (default 21339)
     domain: xahau-dev.net            # lowercase letters, digits, ".", "-" (default: the top-level domain,
                                      # else 127.0.0.1.nip.io); same as the top-level one here
@@ -84,8 +84,8 @@ networks:
   local:
     type: testnet
     version: 2026.6.21-release+3350
-    validators: 1                    # smallest testnet; quorum is then 1
-    quorum: 1
+    validators: 3                    # smallest testnet
+    quorum: 2
     networkId: 21339
     domain: 127.0.0.1.nip.io         # overrides the top-level domain
     tls: false                       # overrides the top-level tls
