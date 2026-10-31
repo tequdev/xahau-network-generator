@@ -81,7 +81,7 @@ its first rotation can spend ~5 minutes per phase waiting (pass a larger
 validators continue after the highest number ever used. The other nodes'
 `[ips_fixed]` on disk are rewritten, but a running process applies them only on
 its next restart (`xng upgrade`). When the count changes, `quorum` is reset to
-its default and `node` plus the kept validators are recreated one at a time
+its default and `node` (plus `relay`, if any) and the kept validators are recreated one at a time
 (like `xng upgrade`) during the interim phase, before the final list is
 published, so the new quorum is always satisfiable. `xng apply` plans a rotation
 when only `validators` changes in the yml (`--add` for more, `--remove` of the
@@ -172,6 +172,8 @@ container recreation).
 
 Changing `relayConfig` (or the version / `importVlKeys`) on a running network
 recreates only `relay`; `--relay-config {}` removes it and discards its db.
+`xng rotate` rolls `relay` with `node` when the quorum changes, since it runs
+the same `--quorum`.
 
 ### Faucet API
 
