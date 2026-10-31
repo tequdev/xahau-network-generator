@@ -94,14 +94,8 @@ export function planRotation(
     validators: count,
     quorum,
   };
-  // Two validators never converge (each flips its vote to the other's every
-  // round), so the interim set must not be 2 either: a 1-validator network
-  // can only grow (--add 2 or more), never swap its validator in place.
-  if (interim.validators === 2) {
-    throw new Error(
-      'a 1-validator network cannot swap its validator (the interim 2-validator set never reaches consensus); grow it instead: --add 2',
-    );
-  }
+  // Only `final` is validated: nothing is rolled while the interim set is
+  // trusted unless the quorum changes, and it is never smaller than `spec`.
   validateSpec(final);
   return {
     interim,

@@ -73,7 +73,7 @@ async function main(): Promise<void> {
     [NAME]: {
       type: 'testnet',
       version: v,
-      validators: 1,
+      validators: 3,
       domain: values.domain,
       root: true, // serves the landing page, whose networks.json lists ext1
       ...labels,
@@ -164,8 +164,8 @@ async function main(): Promise<void> {
     'nodeConfig leaked to a validator',
   );
 
-  // 6a: only the validator count changes: a rotation, not a recreate.
-  await writeYml(apply1(upgradeTo, { ...upgraded, validators: 3 }));
+  // 6a: only the validator count changes (3 -> 4): a rotation, not a recreate.
+  await writeYml(apply1(upgradeTo, { ...upgraded, validators: 4 }));
   r = apply(['--dry-run']);
   assert.match(r.out, /^> apply1 +rotate/m);
   assert.ok(
@@ -175,18 +175,18 @@ async function main(): Promise<void> {
   assert.equal(apply(['-y', '--timeout', timeout]).status, 0);
   e2e('--expect-version', upgradeTo);
 
-  // 6b: validatorIds with the same count but another set: add v4, remove v3.
-  const rotated = { ...upgraded, validators: 3, validatorIds: [1, 2, 4] };
+  // 6b: validatorIds with the same count but another set: add v5, remove v4.
+  const rotated = { ...upgraded, validators: 4, validatorIds: [1, 2, 3, 5] };
   await writeYml(apply1(upgradeTo, rotated));
   r = apply(['--dry-run']);
   assert.match(r.out, /^> apply1 +rotate/m);
   assert.ok(!r.out.includes('recreate'), 'validatorIds planned a recreate');
   assert.equal(apply(['-y', '--timeout', timeout]).status, 0);
   e2e('--expect-version', upgradeTo);
-  assert.ok(existsSync(`workspace/${NAME}/keys/v4.json`), 'v4 not created');
-  assert.ok(!existsSync(`workspace/${NAME}/keys/v3.json`), 'v3 not removed');
+  assert.ok(existsSync(`workspace/${NAME}/keys/v5.json`), 'v5 not created');
+  assert.ok(!existsSync(`workspace/${NAME}/keys/v4.json`), 'v4 not removed');
   // The same set in another order is no change.
-  await writeYml(apply1(upgradeTo, { ...rotated, validatorIds: [4, 2, 1] }));
+  await writeYml(apply1(upgradeTo, { ...rotated, validatorIds: [5, 3, 2, 1] }));
   r = apply(['--dry-run']);
   assert.match(r.out, /^= apply1 /m);
 

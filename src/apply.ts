@@ -689,7 +689,7 @@ function describeSpec(spec: NetworkSpec): string {
   if (spec.external) {
     return `testnet on another host, ${spec.domain} (${flags.join(', ')})`;
   }
-  return `testnet ${spec.version}, ${spec.validators} validator${spec.validators === 1 ? '' : 's'}, ${spec.domain}${flags.length ? ` (${flags.join(', ')})` : ''}`;
+  return `testnet ${spec.version}, ${spec.validators} validators, ${spec.domain}${flags.length ? ` (${flags.join(', ')})` : ''}`;
 }
 
 // With XNG_CF_ZONE (`cf`), create/recreate (and an upgrade that migrates an old

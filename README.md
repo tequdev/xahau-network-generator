@@ -72,10 +72,7 @@ waits until every node trusts exactly that set and the new validators report
 remaining node trusts exactly it, and stops the validators in `--remove`
 (default: all the old ones), removes their containers and deletes their
 `nodes/`, `bin/` and `keys/` entries. `--remove` alone shrinks, `--add` alone
-grows; the result must still be 1 or >= 3 validators, and so must the interim
-set: two validators never reach consensus (each flips its vote to the other's
-every round), so a 1-validator network can only grow (`--add 2`), not swap its
-validator in place. `vl.json` sets
+grows; the result must still be >= 3 validators. `vl.json` sets
 `refresh_interval` 1, so each node re-fetches the list within a minute; a
 network created before that existed still runs on the 5-minute default, so
 its first rotation can spend ~5 minutes per phase waiting (pass a larger

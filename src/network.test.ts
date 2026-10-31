@@ -96,7 +96,7 @@ test('writeSiteIndex: entries carry resolved displayName/displayShortName (main 
 
 test('writeNodeConfig: renders node and validator cfgs from keys on disk', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'xng-cfg-'));
-  const s = spec({ name: 't', validators: 1, quorum: 1 });
+  const s = spec({ name: 't', validators: 3, quorum: 2 });
   await mkdir(join(dir, 'keys'));
   await writeFile(
     join(dir, 'keys', 'vl.json'),

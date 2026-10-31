@@ -74,16 +74,6 @@ test('parseValidatorsOutput: trusted keys; bad output throws', () => {
   assert.throws(() => parseValidatorsOutput('{"result":{}}'), /unexpected/);
 });
 
-test('planRotation: a 1-validator network can only grow', () => {
-  const one = { ...spec, validators: 1, quorum: 1 };
-  assert.throws(() => planRotation(one, { add: 1, remove: ['v1'] }), /--add 2/);
-  const { interim, final } = planRotation(one, { add: 2, remove: [] });
-  assert.deepEqual(interim.validatorIds, [1, 2, 3]);
-  assert.equal(interim.quorum, 2);
-  assert.deepEqual(final.validatorIds, [1, 2, 3]);
-  assert.equal(final.quorum, 2);
-});
-
 test('planRotation: explicit add ids', () => {
   const p = planRotation(spec, { add: [5, 4], remove: ['v3'] });
   assert.deepEqual(p.interim.validatorIds, [1, 2, 3, 5, 4]);

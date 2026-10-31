@@ -126,6 +126,7 @@ test('parseXngYml: every validateSpec rule is enforced', () => {
     [`  Bad_Name:\n    version: ${V1}`, /name must match/],
     [`  rpc:\n    version: ${V1}`, /reserved/],
     [`  a:\n    version: ${V1}\n    domain: Example.COM`, /domain must match/],
+    [`  a:\n    version: ${V1}\n    validators: 1`, /validators must be/],
     [`  a:\n    version: ${V1}\n    validators: 2`, /validators must be/],
     [`  a:\n    version: ${V1}\n    quorum: 4`, /quorum must be/],
     [`  a:\n    version: ${V1}\n    portOffset: 14301`, /portOffset must be/],
@@ -1031,10 +1032,10 @@ test('plan: a validators count increase is a rotation with --add', () => {
   assert.deepEqual(a?.diff.map((c) => c.key).sort(), ['quorum', 'validators']);
 });
 
-test('plan: 1 -> 3 validators is a rotation with --add 2', () => {
+test('plan: 3 -> 5 validators is a rotation with --add 2', () => {
   const [a] = plan(
-    desiredOf(`  t1:\n    version: ${V1}\n    validators: 3`),
-    [created({ name: 't1', validators: 1, quorum: 1 })],
+    desiredOf(`  t1:\n    version: ${V1}\n    validators: 5`),
+    [created({ name: 't1', validators: 3, quorum: 2 })],
     new Set(['t1']),
   );
   assert.deepEqual(argv(a?.steps ?? []), [
@@ -1053,12 +1054,12 @@ test('plan: a validators count decrease removes the highest-numbered validators'
     'rotate --name t1 --remove v4 --timeout 300',
   ]);
   const [b] = plan(
-    desiredOf(`  t1:\n    version: ${V1}\n    validators: 1`),
-    [created({ name: 't1', validatorIds: [7, 8, 9] })],
+    desiredOf(`  t1:\n    version: ${V1}\n    validators: 3`),
+    [created({ name: 't1', validators: 5, validatorIds: [7, 8, 9, 10, 11] })],
     new Set(['t1']),
   );
   assert.deepEqual(argv(b?.steps ?? []), [
-    'rotate --name t1 --remove v8,v9 --timeout 300',
+    'rotate --name t1 --remove v10,v11 --timeout 300',
   ]);
 });
 
