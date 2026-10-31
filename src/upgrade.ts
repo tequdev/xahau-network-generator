@@ -144,7 +144,7 @@ export async function upgradeNetwork(
   spec: NetworkSpec,
   version: string,
   timeoutMs: number,
-  opts: { nodeOnly?: boolean } = {},
+  opts: { nodeOnly?: boolean; services?: string[] } = {},
 ): Promise<void> {
   spec.version = version;
   // Fails fast if the version doesn't exist, before anything is touched.
@@ -159,12 +159,14 @@ export async function upgradeNetwork(
   // When neither the binary nor validatorConfig changes, only `node`'s cfg can
   // differ (nodeConfig, pwa), so validators are left running instead of being
   // rolled for nothing.
-  const services = opts.nodeOnly
-    ? [nodeName(spec, 0)]
-    : Array.from({ length: spec.validators + 1 }, (_, i) => nodeName(spec, i));
+  const all = Array.from({ length: spec.validators + 1 }, (_, i) =>
+    nodeName(spec, i),
+  );
+  const services = opts.services ?? (opts.nodeOnly ? [nodeName(spec, 0)] : all);
 
   const upgraded: string[] = [];
-  for (const [i, service] of services.entries()) {
+  for (const service of services) {
+    const i = all.indexOf(service);
     const isPrimary = service === nodeName(spec, 0);
     const seqBefore = await currentSeq(spec, service, isPrimary);
 

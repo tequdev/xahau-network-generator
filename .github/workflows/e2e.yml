@@ -28,9 +28,12 @@ jobs:
         network:
           - name: testnet-3
             args: "--type testnet --validators 3 --domain localhost"
+            rotate: "--add 2 --remove v1"
           - name: testnet-4
             args: "--type testnet --validators 4 --domain localhost --root"
-        scenario: [reset, restart, upgrade]
+            rotate: ""
+        # rotate: testnet-3 adds two and drops one, testnet-4 replaces all.
+        scenario: [reset, restart, upgrade, rotate]
         include:
           - network: { name: standalone, args: "--type standalone" }
             scenario: reset restart
@@ -94,6 +97,13 @@ jobs:
       - name: e2e after upgrade
         if: matrix.scenario == 'upgrade'
         run: pnpm e2e --name ${{ matrix.network.name }} --expect-version "${{ env.UPGRADE_TO }}"
+
+      - name: xng rotate
+        if: matrix.scenario == 'rotate'
+        run: pnpm xng rotate --name ${{ matrix.network.name }} --timeout 600 ${{ matrix.network.rotate }}
+      - name: e2e after rotate
+        if: matrix.scenario == 'rotate'
+        run: pnpm e2e --name ${{ matrix.network.name }} --expect-version "${{ env.XAHAUD_VERSION }}"
 
       - name: docker compose logs
         if: failure()
