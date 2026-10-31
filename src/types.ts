@@ -133,8 +133,8 @@ export function validateSpec(spec: NetworkSpec): void {
   }
   if (spec.validatorIds !== undefined) {
     const ids = spec.validatorIds as unknown;
-    if (spec.type !== 'testnet')
-      throw new Error('validatorIds is testnet only');
+    if (spec.type !== 'testnet' || spec.external)
+      throw new Error('validatorIds is testnet only (not external)');
     if (
       !Array.isArray(ids) ||
       !ids.every((n) => isInt(n) && n >= 1) ||

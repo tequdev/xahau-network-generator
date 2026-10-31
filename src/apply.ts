@@ -44,6 +44,7 @@ const LABELS = ['displayName', 'displayShortName'] as const;
 // pwa is compared (old network.json files lack it) but not configurable.
 const YML_KEYS: readonly string[] = [
   ...COMPARED.filter((k) => k !== 'pwa'),
+  'validatorIds',
   ...LABELS,
 ];
 // Top-level `domain` and `tls` are the defaults of every testnet below.
@@ -117,8 +118,13 @@ function toSpec(
 
   // Defaults mirror `xng create`; a standalone is always one validator.
   const type = (entry.type ?? 'testnet') as NetworkSpec['type'];
+  const validatorIds = entry.validatorIds as number[] | undefined;
   const validators = (entry.validators ??
-    (type === 'standalone' ? 1 : 3)) as number;
+    (Array.isArray(validatorIds)
+      ? validatorIds.length
+      : type === 'standalone'
+        ? 1
+        : 3)) as number;
   const spec: NetworkSpec = {
     name,
     type,
@@ -140,6 +146,7 @@ function toSpec(
     portOffset: (entry.portOffset ?? 0) as number,
     importVlKeys: (entry.importVlKeys ?? DEFAULT_IMPORT_VL_KEYS) as string[],
   };
+  if (validatorIds !== undefined) spec.validatorIds = validatorIds;
   if (
     entry.importVlKeys !== undefined &&
     !(
@@ -295,8 +302,9 @@ function createArgv(spec: NetworkSpec): string[] {
     spec.type,
     '--version',
     spec.version,
-    '--validators',
-    String(spec.validators),
+    ...(spec.validatorIds
+      ? ['--validator-ids', spec.validatorIds.join(',')]
+      : ['--validators', String(spec.validators)]),
     '--quorum',
     String(spec.quorum),
     '--network-id',
@@ -382,11 +390,26 @@ export function plan(
     if (!d || !a) throw new Error('unreachable');
 
     const both = { from: a, to: d };
-    const diff = COMPARED.flatMap((key) => {
+    const diff: Action['diff'] = COMPARED.flatMap((key) => {
       const from = comparable(a, key);
       const to = comparable(d, key);
       return from === to ? [] : [{ key, from, to }];
     });
+    // Absent ids in the yml mean "whatever is on disk".
+    const actualIds =
+      a.validatorIds ?? Array.from({ length: a.validators }, (_, i) => i + 1);
+    const desiredIds = d.validatorIds;
+    if (
+      desiredIds &&
+      [...desiredIds].sort((x, y) => x - y).join() !==
+        [...actualIds].sort((x, y) => x - y).join()
+    ) {
+      diff.push({
+        key: 'validatorIds',
+        from: actualIds.join(','),
+        to: desiredIds.join(','),
+      });
+    }
     const stopped = !running.has(name) && !d.external;
     const stale = !d.external && !!opts.stale?.has(name);
     if (diff.length === 0) {
@@ -449,23 +472,32 @@ export function plan(
       d.type === 'testnet' &&
       !d.external &&
       !a.external &&
-      has('validators') &&
+      (has('validators') || has('validatorIds')) &&
       diff.every(
         (c) =>
-          c.key === 'validators' || c.key === 'quorum' || UPGRADABLE.has(c.key),
+          c.key === 'validators' ||
+          c.key === 'validatorIds' ||
+          c.key === 'quorum' ||
+          UPGRADABLE.has(c.key),
       ) &&
       unsafe.length === 0
     ) {
-      const add = d.validators - a.validators;
-      const remove =
-        add < 0
-          ? Array.from({ length: -add }, (_, i) =>
+      const count = d.validators - a.validators;
+      const add: number | number[] = desiredIds
+        ? desiredIds.filter((id) => !actualIds.includes(id))
+        : Math.max(count, 0);
+      const remove = desiredIds
+        ? actualIds
+            .filter((id) => !desiredIds.includes(id))
+            .map((id) => `v${id}`)
+        : count < 0
+          ? Array.from({ length: -count }, (_, i) =>
               nodeName(a, d.validators + 1 + i),
             )
           : [];
       let warning: string | undefined;
       try {
-        const { final } = planRotation(a, { add: Math.max(add, 0), remove });
+        const { final } = planRotation(a, { add, remove });
         if (d.quorum !== final.quorum) {
           warning = `quorum ${d.quorum} cannot be set by a rotation (it would be ${final.quorum}); drop quorum from the yml or recreate`;
         }
@@ -474,7 +506,10 @@ export function plan(
       }
       if (!warning) {
         const upgrades = diff.some(
-          (c) => c.key !== 'validators' && c.key !== 'quorum',
+          (c) =>
+            c.key !== 'validators' &&
+            c.key !== 'validatorIds' &&
+            c.key !== 'quorum',
         );
         return {
           name,
@@ -490,9 +525,14 @@ export function plan(
               'rotate',
               '--name',
               name,
-              ...(add > 0
-                ? ['--add', String(add)]
-                : ['--remove', remove.join(',')]),
+              ...(Array.isArray(add)
+                ? add.length > 0
+                  ? ['--add-ids', add.join(',')]
+                  : []
+                : add > 0
+                  ? ['--add', String(add)]
+                  : []),
+              ...(remove.length > 0 ? ['--remove', remove.join(',')] : []),
               '--timeout',
               timeout,
             ],
@@ -605,10 +645,12 @@ function describe(a: Action): { detail: string; note: string } {
       };
     case 'rotate': {
       const prefix = `${a.steps.some((s) => s[0] === 'start') ? '(starts it first) ' : ''}${a.steps.some((s) => s[0] === 'upgrade') ? '(rolling upgrade first) ' : ''}`;
-      const grow = (a.to?.validators ?? 0) > (a.from?.validators ?? 0);
+      const rotate = a.steps.find((s) => s[0] === 'rotate') ?? [];
+      const adds = rotate.includes('--add') || rotate.includes('--add-ids');
+      const removes = rotate.includes('--remove');
       return {
         detail: changes,
-        note: `${prefix}${grow ? '(adds validators and publishes a new validator list, no downtime)' : '(publishes a new validator list, then removes the last validators)'}`,
+        note: `${prefix}(${adds ? 'adds validators, ' : ''}publishes a new validator list${removes ? ', then removes the others' : ''}, no downtime)`,
       };
     }
     case 'relabel':

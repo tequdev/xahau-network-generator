@@ -1116,6 +1116,62 @@ test('executionSteps and formatPlan: rotate ranks with upgrade and shows ">"', (
   const out = formatPlan(actions);
   assert.match(
     out,
-    /^> a +rotate +validators 3 -> 4.*\(adds validators and publishes a new validator list, no downtime\)$/m,
+    /^> a +rotate +validators 3 -> 4.*\(adds validators, publishes a new validator list, no downtime\)$/m,
+  );
+});
+
+const planIds = (yml: string, on: Partial<NetworkSpec> = {}) =>
+  plan(
+    desiredOf(`  t1:\n    version: ${V1}\n${yml}`),
+    [created({ name: 't1', ...on })],
+    new Set(['t1']),
+  )[0];
+
+test('plan: validatorIds with the same count but another set rotates by ids', () => {
+  const a = planIds('    validatorIds: [1, 2, 4]');
+  assert.equal(a?.kind, 'rotate');
+  assert.deepEqual(argv(a?.steps ?? []), [
+    'rotate --name t1 --add-ids 4 --remove v3 --timeout 300',
+  ]);
+  assert.ok(a?.diff.some((c) => c.key === 'validatorIds'));
+});
+
+test('plan: the same ids in another order, or no ids on a rotated network, is unchanged', () => {
+  assert.equal(planIds('    validatorIds: [3, 1, 2]')?.kind, 'unchanged');
+  assert.equal(planIds('', { validatorIds: [7, 8, 9] })?.kind, 'unchanged');
+  // Round trip of a network.json written by rotate.
+  assert.equal(
+    planIds('    validatorIds: [8, 9, 7]', { validatorIds: [7, 8, 9] })?.kind,
+    'unchanged',
+  );
+});
+
+test('plan: validatorIds with a larger set adds exactly the missing ids', () => {
+  const a = planIds('    validatorIds: [1, 2, 3, 4, 5]');
+  assert.deepEqual(argv(a?.steps ?? []), [
+    'rotate --name t1 --add-ids 4,5 --timeout 300',
+  ]);
+});
+
+test('create with validatorIds: createArgv has --validator-ids, not --validators', () => {
+  const [a] = plan(
+    desiredOf(`  n:\n    version: ${V1}\n    validatorIds: [1, 2, 5]`),
+    [],
+    new Set(),
+  );
+  const create = (a?.steps[0] ?? []).join(' ');
+  assert.match(create, /--validator-ids 1,2,5 /);
+  assert.doesNotMatch(create, /--validators /);
+});
+
+test('parseXngYml: validators derive from validatorIds; external rejects them', () => {
+  const [spec] = desiredOf(
+    `  n:\n    version: ${V1}\n    validatorIds: [1, 2, 5]`,
+  );
+  assert.equal(spec?.validators, 3);
+  assert.deepEqual(spec?.validatorIds, [1, 2, 5]);
+  assert.throws(
+    () => desiredOf('  x:\n    external: true\n    validatorIds: [1, 2, 3]'),
+    /validatorIds/,
   );
 });

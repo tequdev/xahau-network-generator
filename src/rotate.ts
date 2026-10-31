@@ -22,7 +22,8 @@ async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export type RotateOpts = { add: number; remove: string[] };
+// `add`: a count (ids max+1..) or the explicit new ids.
+export type RotateOpts = { add: number | number[]; remove: string[] };
 
 // Pure part: the spec while old and new validators are all trusted (interim)
 // and the one after the removed ones left (final).
@@ -50,25 +51,41 @@ export function planRotation(
       );
     }
   }
-  if (!Number.isInteger(add) || add < 0) {
+  const explicit = Array.isArray(add);
+  const addCount = explicit ? add.length : add;
+  if (explicit) {
+    if (
+      !add.every((n) => Number.isInteger(n) && n >= 1) ||
+      new Set(add).size !== add.length
+    ) {
+      throw new Error(
+        `add ids must be distinct integers >= 1, got "${add.join(',')}"`,
+      );
+    }
+    const clash = add.filter((n) => ids.includes(n));
+    if (clash.length > 0) {
+      throw new Error(
+        `cannot add ${clash.map((n) => `v${n}`).join(', ')}: already a validator of ${spec.name}`,
+      );
+    }
+  } else if (!Number.isInteger(add) || add < 0) {
     throw new Error(`add must be an integer >= 0, got "${add}"`);
   }
-  if (add === 0 && remove.length === 0) {
+  if (addCount === 0 && remove.length === 0) {
     throw new Error('nothing to rotate: add and/or remove validators');
   }
-  const newIds = Array.from(
-    { length: add },
-    (_, i) => Math.max(...ids) + 1 + i,
-  );
+  const newIds = explicit
+    ? add
+    : Array.from({ length: add }, (_, i) => Math.max(...ids) + 1 + i);
   const keptIds = ids.filter((id) => !remove.includes(`v${id}`));
-  const count = keptIds.length + add;
+  const count = keptIds.length + addCount;
   // --quorum is absolute for xahaud, so the interim (and new) validators
   // already start with the final one.
   const quorum = count === spec.validators ? spec.quorum : defaultQuorum(count);
   const interim: NetworkSpec = {
     ...spec,
     validatorIds: [...ids, ...newIds],
-    validators: ids.length + add,
+    validators: ids.length + addCount,
     quorum,
   };
   const final: NetworkSpec = {

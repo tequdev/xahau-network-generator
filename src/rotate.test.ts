@@ -83,3 +83,26 @@ test('planRotation: a 1-validator network can only grow', () => {
   assert.deepEqual(final.validatorIds, [1, 2, 3]);
   assert.equal(final.quorum, 2);
 });
+
+test('planRotation: explicit add ids', () => {
+  const p = planRotation(spec, { add: [5, 4], remove: ['v3'] });
+  assert.deepEqual(p.interim.validatorIds, [1, 2, 3, 5, 4]);
+  assert.deepEqual(p.final.validatorIds, [1, 2, 5, 4]);
+  assert.deepEqual(p.added, ['v5', 'v4']);
+  assert.deepEqual(p.removed, ['v3']);
+});
+
+test('planRotation: explicit add ids must be new, distinct integers >= 1', () => {
+  assert.throws(
+    () => planRotation(spec, { add: [3, 4], remove: [] }),
+    /cannot add v3: already a validator/,
+  );
+  assert.throws(
+    () => planRotation(spec, { add: [4, 4], remove: [] }),
+    /distinct integers >= 1/,
+  );
+  assert.throws(
+    () => planRotation(spec, { add: [0], remove: [] }),
+    /distinct integers >= 1/,
+  );
+});

@@ -165,10 +165,7 @@ async function main(): Promise<void> {
   );
 
   // 6a: only the validator count changes: a rotation, not a recreate.
-  await writeYml({
-    ...apply1(upgradeTo, upgraded),
-    [NAME]: { ...apply1(upgradeTo, upgraded)[NAME], validators: 3 },
-  });
+  await writeYml(apply1(upgradeTo, { ...upgraded, validators: 3 }));
   r = apply(['--dry-run']);
   assert.match(r.out, /^> apply1 +rotate/m);
   assert.ok(
@@ -177,6 +174,21 @@ async function main(): Promise<void> {
   );
   assert.equal(apply(['-y', '--timeout', timeout]).status, 0);
   e2e('--expect-version', upgradeTo);
+
+  // 6b: validatorIds with the same count but another set: add v4, remove v3.
+  const rotated = { ...upgraded, validators: 3, validatorIds: [1, 2, 4] };
+  await writeYml(apply1(upgradeTo, rotated));
+  r = apply(['--dry-run']);
+  assert.match(r.out, /^> apply1 +rotate/m);
+  assert.ok(!r.out.includes('recreate'), 'validatorIds planned a recreate');
+  assert.equal(apply(['-y', '--timeout', timeout]).status, 0);
+  e2e('--expect-version', upgradeTo);
+  assert.ok(existsSync(`workspace/${NAME}/keys/v4.json`), 'v4 not created');
+  assert.ok(!existsSync(`workspace/${NAME}/keys/v3.json`), 'v3 not removed');
+  // The same set in another order is no change.
+  await writeYml(apply1(upgradeTo, { ...rotated, validatorIds: [4, 2, 1] }));
+  r = apply(['--dry-run']);
+  assert.match(r.out, /^= apply1 /m);
 
   // 7: a stopped network is started again.
   assert.equal(run('pnpm', ['xng', 'stop', '--name', NAME]).status, 0);
@@ -187,7 +199,7 @@ async function main(): Promise<void> {
 
   // 8: --network leaves the others alone (apply2 is only ever planned, never created).
   await writeYml({
-    ...apply1(upgradeTo, upgraded),
+    ...apply1(upgradeTo, rotated),
     apply2: { type: 'standalone', version },
   });
   r = apply(['--dry-run', '--network', NAME]);

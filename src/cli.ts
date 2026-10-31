@@ -127,6 +127,16 @@ function intArg(min: number, max = Number.POSITIVE_INFINITY) {
   };
 }
 
+function idsArg(value: string): number[] {
+  const ids = value.split(',').map((n) => Number(n.trim()));
+  if (!ids.every((n) => Number.isInteger(n) && n >= 1)) {
+    throw new InvalidArgumentError(
+      `must be comma-separated integers >= 1, got "${value}"`,
+    );
+  }
+  return ids;
+}
+
 async function loadSpec(name: string): Promise<NetworkSpec> {
   const path = `workspace/${name}/network.json`;
   let spec: NetworkSpec;
@@ -194,11 +204,19 @@ program
       .default('testnet'),
   )
   .option('--version <ver>', 'xahaud version (default: latest release)')
+  .addOption(
+    new Option(
+      '--validators <n>',
+      'validator count (testnet only; standalone is always 1)',
+    )
+      .argParser(intArg(1))
+      .default(3)
+      .conflicts(['validatorIds']),
+  )
   .option(
-    '--validators <n>',
-    'validator count (testnet only; standalone is always 1)',
-    intArg(1),
-    3,
+    '--validator-ids <ids>',
+    'testnet only: comma-separated validator numbers, e.g. 1,2,5 creates v1,v2,v5 (instead of --validators)',
+    idsArg,
   )
   .option(
     '--quorum <n>',
@@ -233,6 +251,7 @@ program
       .conflicts([
         'version',
         'validators',
+        'validatorIds',
         'quorum',
         'networkId',
         'portOffset',
@@ -272,7 +291,10 @@ program
   .action(async (opts) => {
     // A standalone is always one validator; validateSpec (below) covers the
     // rest, so `create` and `apply` accept exactly the same specs.
-    const validators = opts.type === 'standalone' ? 1 : opts.validators;
+    const validators =
+      opts.type === 'standalone'
+        ? 1
+        : (opts.validatorIds?.length ?? opts.validators);
     const quorum = opts.quorum ?? defaultQuorum(validators);
     const version = opts.external
       ? ''
@@ -283,6 +305,7 @@ program
       type: opts.type,
       version,
       validators,
+      ...(opts.validatorIds ? { validatorIds: opts.validatorIds } : {}),
       quorum,
       networkId: opts.networkId,
       domain: opts.domain,
@@ -528,6 +551,14 @@ program
   )
   .requiredOption('--name <name>', 'network name', parseName)
   .option('--add <n>', 'number of new validators to add', intArg(0))
+  .addOption(
+    new Option(
+      '--add-ids <ids>',
+      'comma-separated numbers of the new validators, e.g. 4,5 adds v4,v5',
+    )
+      .argParser(idsArg)
+      .conflicts(['add']),
+  )
   .option(
     '--remove <names>',
     'comma-separated validators to remove, e.g. v1,v2',
@@ -553,8 +584,13 @@ program
     if (spec.type !== 'testnet') {
       throw program.error('xng rotate is testnet only');
     }
-    const full = opts.add === undefined && opts.remove === undefined;
-    const add: number = full ? spec.validators : (opts.add ?? 0);
+    const full =
+      opts.add === undefined &&
+      opts.addIds === undefined &&
+      opts.remove === undefined;
+    const add: number | number[] = full
+      ? spec.validators
+      : (opts.addIds ?? opts.add ?? 0);
     const remove: string[] = full
       ? Array.from({ length: spec.validators }, (_, i) => nodeName(spec, i + 1))
       : (opts.remove ?? []);
