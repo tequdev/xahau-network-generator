@@ -75,8 +75,9 @@ remaining node trusts exactly it, and stops the validators in `--remove`
 grows; the result must still be >= 3 validators. `vl.json` sets
 `refresh_interval` 1, so each node re-fetches the list within a minute; a
 network created before that existed still runs on the 5-minute default, so
-its first rotation can spend ~5 minutes per phase waiting (pass a larger
-`--timeout`), later ones a minute.
+its first rotation can spend ~5 minutes per phase waiting (raise `--timeout`
+for it; like `upgrade`'s, it bounds each wait and each recreated node, not the
+whole rotation), later ones a minute.
 `validatorIds` in network.json records which `v<n>` exist (absent = 1..N); new
 validators continue after the highest number ever used. The other nodes'
 `[ips_fixed]` on disk are rewritten, but a running process applies them only on
@@ -85,8 +86,8 @@ its default and `node` plus the kept validators are recreated one at a time
 (like `xng upgrade`) during the interim phase, before the final list is
 published, so the new quorum is always satisfiable. `xng apply` plans a rotation
 when only `validators` changes in the yml (`--add` for more, `--remove` of the
-highest-numbered ones for fewer); its `--timeout` bounds the rotation, so raise
-it when the count changes (a quorum roll adds about a minute per node). A yml
+highest-numbered ones for fewer); its `--timeout` is passed through, so a large
+count only takes longer (a quorum roll adds about a minute per node). A yml
 `quorum` that is not the default for the new count still recreates. The yml can
 pin the set with `validatorIds` (`xng create --validator-ids 1,2,5`, `xng rotate
 --add-ids 4,5`); a set that differs from the one on disk, even with the same

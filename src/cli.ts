@@ -577,7 +577,12 @@ program
       return names;
     },
   )
-  .option('--timeout <sec>', 'overall timeout in seconds', intArg(1), 600)
+  .option(
+    '--timeout <sec>',
+    'timeout in seconds for each wait of the rotation (new validators trusted, each recreated node, final list trusted, consensus continuing)',
+    intArg(1),
+    600,
+  )
   .action(async (opts) => {
     const spec = await loadSpec(opts.name);
     assertLocal(spec);
