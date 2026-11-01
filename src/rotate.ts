@@ -137,14 +137,15 @@ async function readJson(path: string) {
   return JSON.parse(await readFile(path, 'utf8'));
 }
 
-// Polls every 2s until `done` returns true or the shared deadline passes;
-// a failing poll (container still booting) is logged and retried.
+// Polls every 2s until `done` returns true or `timeoutMs` passes; a failing
+// poll (container still booting) is logged and retried.
 async function waitUntil(
   spec: NetworkSpec,
   what: string,
-  deadline: number,
+  timeoutMs: number,
   done: () => Promise<boolean>,
 ): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
   for (;;) {
     if (Date.now() > deadline) {
       throw new Error(`[${spec.name}] timed out waiting for ${what}`);
@@ -163,7 +164,7 @@ async function waitUntil(
 async function waitTrusted(
   target: NetworkSpec,
   dir: string,
-  deadline: number,
+  timeoutMs: number,
   proposing: string[] = [],
 ): Promise<void> {
   const want: string[] = [];
@@ -177,7 +178,7 @@ async function waitTrusted(
   await waitUntil(
     target,
     'the validator list to propagate',
-    deadline,
+    timeoutMs,
     async () => {
       let ok = true;
       const report: string[] = [];
@@ -207,7 +208,9 @@ async function waitTrusted(
 // Replaces validators of a running testnet without stopping consensus: start
 // the new ones, publish old+new as an interim validator list, wait until the
 // new ones are trusted and proposing, publish the final list, wait until every
-// remaining node trusts exactly it, then delete the removed ones. Returns the
+// remaining node trusts exactly it, then delete the removed ones. Like
+// `xng upgrade`, `timeoutMs` bounds each wait (and each recreated node), not
+// the whole rotation, so it needs no raising for a larger count. Returns the
 // final spec (also written to network.json).
 export async function rotateValidators(
   spec: NetworkSpec,
@@ -218,7 +221,6 @@ export async function rotateValidators(
   const dir = join('workspace', spec.name);
   const log = (msg: string) => console.log(`[${spec.name}] ${msg}`);
   log(`rotating: +${added.join(',') || '-'} -${removed.join(',') || '-'}`);
-  const deadline = Date.now() + timeoutMs;
 
   const publisher: PublisherKeys = await readJson(join(dir, 'keys', 'vl.json'));
   const vlPath = join(dir, 'vl', 'vl.json');
@@ -270,7 +272,7 @@ export async function rotateValidators(
   // From here on disk matches what runs, so a failed rotation can still be
   // cleaned up (`xng remove`) or undone (`xng rotate --remove <added>`).
   await writeFile(join(dir, 'network.json'), JSON.stringify(interim, null, 2));
-  await waitTrusted(interim, dir, deadline, added);
+  await waitTrusted(interim, dir, timeoutMs, added);
   log('new validators are trusted and proposing');
 
   if (final.quorum !== spec.quorum) {
@@ -283,17 +285,12 @@ export async function rotateValidators(
     log(
       `quorum ${spec.quorum} -> ${final.quorum}: recreating ${services.join(', ')}`,
     );
-    await upgradeNetwork(
-      interim,
-      spec.version,
-      Math.max(deadline - Date.now(), 1000),
-      { services },
-    );
+    await upgradeNetwork(interim, spec.version, timeoutMs, { services });
   }
 
   await publish(final, seq + 2);
   log(`published final validator list (sequence ${seq + 2})`);
-  await waitTrusted(final, dir, deadline);
+  await waitTrusted(final, dir, timeoutMs);
   const seqBefore =
     (await rpc(endpoints(final).rpc, 'server_info', { api_version: 1 })).info
       .validated_ledger?.seq ?? 0;
@@ -322,8 +319,8 @@ export async function rotateValidators(
 
   await waitUntil(
     final,
-    'node to see consensus continue with the new set',
-    deadline,
+    'node to see consensus continue with the new set (the rotation itself is complete; check server_info)',
+    timeoutMs,
     async () => {
       const info = (
         await rpc(endpoints(final).rpc, 'server_info', { api_version: 1 })
