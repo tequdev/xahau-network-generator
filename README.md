@@ -75,9 +75,9 @@ remaining node trusts exactly it, and stops the validators in `--remove`
 grows; the result must still be >= 3 validators. `vl.json` sets
 `refresh_interval` 1, so each node re-fetches the list within a minute; a
 network created before that existed still runs on the 5-minute default, so
-its first rotation can spend ~5 minutes per phase waiting (`--timeout`, like
-`upgrade`'s, bounds each wait and each recreated node, not the whole
-rotation), later ones a minute.
+its first rotation can spend ~5 minutes per phase waiting (raise `--timeout`
+for it; like `upgrade`'s, it bounds each wait and each recreated node, not the
+whole rotation), later ones a minute.
 `validatorIds` in network.json records which `v<n>` exist (absent = 1..N); new
 validators continue after the highest number ever used. The other nodes'
 `[ips_fixed]` on disk are rewritten, but a running process applies them only on
