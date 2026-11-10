@@ -121,8 +121,12 @@ test('compose: standalone node command runs stand-alone mode, resuming from db/ 
   };
   const command: string = doc.services.node.command[2];
   assert.match(command, /-a\b/);
-  assert.match(command, /if \[ -d db \]; then exec [^;]*--load;/);
-  assert.match(command, /else exec [^;]*--ledgerfile genesis\.json;/);
+  assert.match(
+    command,
+    /^if \[ -d db \] && \[ ! -e db\/seeding \]; then exec [^;]*--load; fi\n/,
+  );
+  assert.match(command, /\nexec [^;\n]*--ledgerfile genesis\.json$/);
+  assert.match(command, /until xahaud --conf xahaud\.cfg -a -q server_info /);
   assert.doesNotMatch(command, /--quorum/);
 });
 
@@ -133,8 +137,11 @@ test('compose: testnet node command still sets quorum and resumes via --load, no
   };
   const command: string = doc.services.node.command[2];
   assert.match(command, /--quorum=3\b/);
-  assert.match(command, /if \[ -d db \]; then exec [^;]*--load;/);
-  assert.match(command, /else exec [^;]*--ledgerfile genesis\.json;/);
+  assert.match(
+    command,
+    /^if \[ -d db \] && \[ ! -e db\/seeding \]; then exec [^;]*--load; fi\n/,
+  );
+  assert.match(command, /\nexec [^;\n]*--ledgerfile genesis\.json$/);
   assert.doesNotMatch(command, / -a\b/);
 });
 

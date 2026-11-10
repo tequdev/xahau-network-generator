@@ -47,7 +47,9 @@ Every generated container is `restart: unless-stopped`, so after a host
 reboot the network (and the shared Traefik) comes back on its own and each
 node resumes from its last validated ledger (`--load`; standalone
 `-a --load`), never from genesis — `xng reset` is the only thing that goes
-back to genesis. `xng start`/`xng reset` re-render compose.yml, so networks
+back to genesis (a node whose very first boot died before its genesis ledger
+was on disk is the exception: it starts over from genesis by itself instead of
+restart-looping on `--load`). `xng start`/`xng reset` re-render compose.yml, so networks
 created before this existed pick it up on their next start. Keys are
 generated at create time only; xahaud.cfg is re-rendered by `xng upgrade`
 (even with no flags), which overwrites hand edits.
