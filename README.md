@@ -329,7 +329,7 @@ key (`cp xng.example.yml xng.yml`).
 The keys are those of `workspace/<name>/network.json`: `type` (default
 `testnet`), `version`, `validators` (3), `quorum`, `networkId` (21339),
 `domain` (`127.0.0.1.nip.io`), `tls` (false), `root` (false),
-`external` (false), `portOffset` (0), `displayName`, `displayShortName`, `nodeConfig`, `validatorConfig`, `importVlKeys` (a list of hex publisher keys for `[import_vl_keys]`; also `xng create`/`upgrade --import-vl-keys`, comma-separated; a change is a rolling `upgrade` on a testnet). `nodeConfig` (also `xng
+`external` (false), `portOffset` (0), `displayName`, `displayShortName`, `nodeConfig`, `validatorConfig`, `importVlKeys` (a list of hex publisher keys for `[import_vl_keys]`, each optionally followed by a network id as `"<key> <network id>"`, which only xahaud builds with featureExport read and older ones fail to start on; also `xng create`/`upgrade --import-vl-keys`, comma-separated; a change is a rolling `upgrade` on a testnet). `nodeConfig` (also `xng
 create --node-config <json>`) adds or overrides `xahaud.cfg` sections of the
 non-validating `node` only: a section xng already writes is replaced, any
 other is appended; on a testnet, changing it is a rolling `upgrade` (a
