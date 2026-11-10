@@ -221,7 +221,7 @@ export function validateSpec(spec: NetworkSpec): void {
     !spec.importVlKeys.every((k) => IMPORT_VL_KEY_RE.test(k))
   ) {
     throw new Error(
-      `importVlKeys must be a list of 33-byte hex public keys, got "${JSON.stringify(spec.importVlKeys)}"`,
+      `importVlKeys must be a list of 33-byte hex public keys (optionally "<key> <network id>"), got "${JSON.stringify(spec.importVlKeys)}"`,
     );
   }
   if (spec.validatorConfig !== undefined && spec.type !== 'testnet') {
@@ -277,7 +277,9 @@ export function defaultQuorum(validators: number): number {
   return Math.max(1, Math.min(Math.ceil(0.8 * validators), validators - 1));
 }
 
-export const IMPORT_VL_KEY_RE = /^[0-9A-Fa-f]{66}$/;
+// "<hex key>[ <network id>]": the id (the network whose lists the key signs)
+// is only read by xahaud builds with featureExport; older ones fail to start.
+export const IMPORT_VL_KEY_RE = /^[0-9A-Fa-f]{66}( \d{1,10})?$/;
 
 export const DEFAULT_IMPORT_VL_KEYS = [
   // https://vl.altnet.rippletest.net/

@@ -108,7 +108,7 @@ function keysArg(value: string): string[] {
   for (const k of keys) {
     if (!IMPORT_VL_KEY_RE.test(k)) {
       throw new InvalidArgumentError(
-        `must be comma-separated 33-byte hex public keys, got "${k}"`,
+        `must be comma-separated 33-byte hex public keys (optionally "<key> <network id>"), got "${k}"`,
       );
     }
   }
