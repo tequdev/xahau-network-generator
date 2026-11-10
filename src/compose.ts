@@ -78,9 +78,6 @@ function traefikRoute(
   ];
 }
 
-// Seconds a first boot runs with RPC up before its db/ counts as seeded.
-const SEED_SETTLE_SEC = 10;
-
 export function renderCompose(spec: NetworkSpec): string {
   // biome-ignore lint/suspicious/noExplicitAny: compose.yml service shape has no fixed schema here
   const services: Record<string, any> = {};
@@ -112,9 +109,10 @@ export function renderCompose(spec: NetworkSpec): string {
     // --load can never read: the container then restart-loops until db/ is
     // deleted by hand. db/seeding marks a first boot in progress, and a boot
     // that finds it starts over from genesis.json. A watcher left behind by
-    // the shell clears it once xahaud answers RPC and has had
-    // SEED_SETTLE_SEC to flush (xahaud stays PID 1 via exec, so `docker stop`
-    // still reaches it).
+    // the shell clears it as soon as xahaud answers RPC (xahaud stays PID 1
+    // via exec, so `docker stop` still reaches it). No settling delay after
+    // that: a stop while the marker stands throws the ledgers closed so far
+    // away, and a standalone is used the moment its RPC is up.
     const xahaud = `xahaud --conf xahaud.cfg${spec.type === 'standalone' ? ' -a' : ` --quorum=${spec.quorum}`}`;
     const command = [
       'sh',
@@ -123,7 +121,7 @@ export function renderCompose(spec: NetworkSpec): string {
         `if [ -d db ] && [ ! -e db/seeding ]; then exec ${xahaud} --load; fi`,
         'rm -rf db && mkdir db && touch db/seeding',
         // the RPC client needs -a too: a standalone validators.txt fails its config check
-        `(until ${xahaud} -q server_info >/dev/null 2>&1; do sleep 1; done; sleep ${SEED_SETTLE_SEC}; rm -f db/seeding) &`,
+        `(until ${xahaud} -q server_info >/dev/null 2>&1; do sleep 1; done; rm -f db/seeding) &`,
         `exec ${xahaud} --ledgerfile genesis.json`,
       ].join('\n'),
     ];
