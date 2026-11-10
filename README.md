@@ -374,8 +374,8 @@ xng apply [-f xng.yml] [-y] [--dry-run] [--timeout <sec>] [--network <name>]...
 | --- | --- | --- |
 | only in the file | `create` | `create`, then `start --wait` |
 | only in `workspace/` | `remove` | `remove` |
-| testnet, only `version`/`nodeConfig`/`validatorConfig`/`importVlKeys` differ (or an old network.json lacks pwa) (none of the sections above) | `upgrade` | (`start --wait` if stopped, then) `upgrade` with the changed `--node-config`/`--validator-config`/`--pwa` (migration only) |
-| testnet, `validators` or `validatorIds` differs (other differences only upgradable ones; `quorum` default for the new count) | `rotate` | (`start --wait` if stopped, then) `upgrade` if anything else changed, then `rotate --add n` / `--add-ids` / `--remove` (the last validators for a smaller count, or exactly the ids missing/extra for `validatorIds`) |
+| testnet, only `version`/`nodeConfig`/`validatorConfig`/`importVlKeys` differ (or an old network.json lacks pwa) (none of the sections above) | `upgrade` | (`start` if stopped, without waiting: a node crash-looping on a bad `nodeConfig` only recovers once `upgrade` rewrites it; then) `upgrade` with the changed `--node-config`/`--validator-config`/`--pwa` (migration only) |
+| testnet, `validators` or `validatorIds` differs (other differences only upgradable ones; `quorum` default for the new count) | `rotate` | (`start --wait` if stopped, plain `start` when an `upgrade` follows; then) `upgrade` if anything else changed, then `rotate --add n` / `--add-ids` / `--remove` (the last validators for a smaller count, or exactly the ids missing/extra for `validatorIds`) |
 | standalone `version`/config, any other key, or an unsafe config section differs (the plan warns) | `recreate` | `remove`, `create`, `start --wait` (ledger data and keys are wiped) |
 | identical but `displayName`/`displayShortName` | `relabel` | `label` (`start --wait` if stopped); no recreate |
 | identical, any container not running | `start` | `start --wait` |
