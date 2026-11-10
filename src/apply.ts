@@ -342,6 +342,11 @@ export function plan(
     '--timeout',
     timeout,
   ];
+  // Before an upgrade the start does not wait: "not running" also covers a
+  // container crash-looping on the very xahaud.cfg this upgrade replaces,
+  // which would never become ready, so the fix would never be written.
+  // `xng upgrade` waits for every node it rewrites anyway.
+  const startBeforeUpgrade = (name: string) => ['start', '--name', name];
 
   const want = new Map(desired.map((s) => [s.name, s]));
   const have = new Map(actual.map((s) => [s.name, s]));
@@ -517,7 +522,9 @@ export function plan(
           ...both,
           diff,
           steps: [
-            ...(running.has(name) && !stale ? [] : [startArgv(name)]),
+            ...(running.has(name) && !stale
+              ? []
+              : [upgrades ? startBeforeUpgrade(name) : startArgv(name)]),
             // Upgrade first: new validators copy node's binary, so they get
             // the new version.
             ...(upgrades ? [upgradeArgv()] : []),
@@ -563,7 +570,7 @@ export function plan(
           // A stale network (e.g. faucet/ changed) is started first: upgrade
           // rewrites compose.yml but recreates only the xahaud services, which
           // would hide the drift from the next apply without rebuilding.
-          ...(running.has(name) && !stale ? [] : [startArgv(name)]),
+          ...(running.has(name) && !stale ? [] : [startBeforeUpgrade(name)]),
           upgradeArgv(),
         ],
       };

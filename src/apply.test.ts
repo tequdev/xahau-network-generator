@@ -233,14 +233,16 @@ test('plan: testnet version change is a rolling upgrade', () => {
   assert.match(formatPlan(actions), /\(rolling, no downtime\)/);
 });
 
-test('plan: upgrading a stopped testnet starts it first', () => {
+// Not --wait: a node crash-looping on a bad nodeConfig never becomes ready,
+// and the upgrade that follows is what rewrites its xahaud.cfg.
+test('plan: upgrading a stopped testnet starts it first, without waiting for readiness', () => {
   const actions = plan(
     desiredOf(`  t1:\n    version: ${V2}`),
     [created({ name: 't1' })],
     new Set(),
   );
   assert.deepEqual(argv(actions[0]?.steps ?? []), [
-    'start --name t1 --wait --timeout 300',
+    'start --name t1',
     `upgrade --name t1 --version ${V2} --timeout 300`,
   ]);
 });
@@ -334,7 +336,7 @@ test('plan: a stale running upgrade starts first (upgrade alone would not rebuil
   );
   assert.equal(a?.kind, 'upgrade');
   assert.deepEqual(argv(a?.steps ?? []), [
-    'start --name t1 --wait --timeout 600',
+    'start --name t1',
     `upgrade --name t1 --version ${V2} --timeout 600`,
   ]);
 });
