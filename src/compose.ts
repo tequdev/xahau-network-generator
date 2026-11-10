@@ -103,11 +103,27 @@ export function renderCompose(spec: NetworkSpec): string {
     // 1, forking a fresh chain instead of rejoining the real one
     // (standalone: `-a --load` resumes xahaud stand-alone mode from the last
     // ledger saved in db/).
+    //
+    // A first boot that dies early (a xahaud.cfg section that throws, a
+    // kill) leaves a db/ whose genesis ledger is not fully on disk, which
+    // --load can never read: the container then restart-loops until db/ is
+    // deleted by hand. db/seeding marks a first boot in progress, and a boot
+    // that finds it starts over from genesis.json. A watcher left behind by
+    // the shell clears it as soon as xahaud answers RPC (xahaud stays PID 1
+    // via exec, so `docker stop` still reaches it). No settling delay after
+    // that: a stop while the marker stands throws the ledgers closed so far
+    // away, and a standalone is used the moment its RPC is up.
     const xahaud = `xahaud --conf xahaud.cfg${spec.type === 'standalone' ? ' -a' : ` --quorum=${spec.quorum}`}`;
     const command = [
       'sh',
       '-c',
-      `if [ -d db ]; then exec ${xahaud} --load; else exec ${xahaud} --ledgerfile genesis.json; fi`,
+      [
+        `if [ -d db ] && [ ! -e db/seeding ]; then exec ${xahaud} --load; fi`,
+        'rm -rf db && mkdir db && touch db/seeding',
+        // the RPC client needs -a too: a standalone validators.txt fails its config check
+        `(until ${xahaud} -q server_info >/dev/null 2>&1; do sleep 1; done; rm -f db/seeding) &`,
+        `exec ${xahaud} --ledgerfile genesis.json`,
+      ].join('\n'),
     ];
 
     services[serviceName] = {
