@@ -68,6 +68,15 @@ networks:
         owner_reserve: 200000
       rpc_startup:
         - '{ "command": "log_level", "severity": "info" }'
+    # A non-validating `relay` xahaud (the featureExport relayer, container
+    # <name>-relay) running beside `node`, with these extra/overriding
+    # xahaud.cfg sections. Testnet only; same shapes as nodeConfig. Absent = no
+    # relayer; changing it recreates only `relay`, and removing it discards its db.
+    # relayConfig:
+    #   export_relay:
+    #     - xrpl-hub.example.com 51235   # a node you run, not a public server; "host port <node pubkey>" pins it
+    #     - network_id=1                 # the default importVlKeys (XRPL Testnet) is written as "<key> 1" for it
+    #     - account=sEd...               # optional: an account here that proves the other network's ledgers (Ingest)
 
   # The root network of the same domain, served on the bare domain:
   #   wss://xahau-dev.net, https://explorer.xahau-dev.net, https://faucet.xahau-dev.net

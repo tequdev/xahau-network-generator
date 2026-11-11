@@ -6,6 +6,7 @@ import {
   defaultQuorum,
   displayNames,
   endpoints,
+  importVlKeyLines,
   nodeName,
   pwaZone,
   validateSpec,
@@ -179,6 +180,33 @@ test('validateSpec: validatorConfig is testnet only and checked like nodeConfig'
   );
 });
 
+test('validateSpec: relayConfig is testnet only', () => {
+  const spec: NetworkSpec = {
+    name: 'a',
+    type: 'testnet',
+    version: 'x',
+    validators: 3,
+    quorum: 2,
+    networkId: 1,
+    domain: 'a.b',
+    tls: false,
+    portOffset: 0,
+    importVlKeys: [],
+  };
+  validateSpec({ ...spec, relayConfig: { export_relay: ['l'] } });
+  assert.throws(
+    () =>
+      validateSpec({
+        ...spec,
+        type: 'standalone',
+        validators: 1,
+        quorum: 1,
+        relayConfig: { export_relay: ['l'] },
+      }),
+    /relayConfig is testnet only/,
+  );
+});
+
 test('endpoints: pwa only when set; validateSpec rejects bad pwa', () => {
   const spec: NetworkSpec = {
     name: 'dev',
@@ -346,6 +374,26 @@ test('validateSpec: importVlKeys must be 33-byte hex keys, optionally with a net
   }
 });
 
+test('validateSpec: an empty relayConfig is rejected (omit it for no relayer)', () => {
+  const base: NetworkSpec = {
+    name: 't1',
+    type: 'testnet',
+    version: 'v',
+    validators: 3,
+    quorum: 2,
+    networkId: 21339,
+    domain: 'a.b',
+    tls: false,
+    portOffset: 0,
+    importVlKeys: [],
+  };
+  assert.throws(
+    () => validateSpec({ ...base, relayConfig: {} }),
+    /relayConfig must not be empty/,
+  );
+  validateSpec({ ...base, relayConfig: { export_relay: ['h 51235'] } });
+});
+
 test('nodeName: validatorIds renames validators, absent means 1..N', () => {
   const spec = { validators: 3 } as NetworkSpec;
   assert.deepEqual(
@@ -397,4 +445,15 @@ test('validateSpec: validatorIds must be distinct, one per validator, testnet on
       }),
     /testnet only/,
   );
+});
+
+test('importVlKeyLines: the XRPL Testnet key gets its network id on a featureExport build only', () => {
+  const key = DEFAULT_IMPORT_VL_KEYS[0] as string;
+  const other = `ED${'0'.repeat(64)}`;
+  assert.deepEqual(importVlKeyLines([key, other], false), [key, other]);
+  assert.deepEqual(importVlKeyLines([key, other, `${key} 5`], true), [
+    `${key} 1`,
+    other,
+    `${key} 5`,
+  ]);
 });
