@@ -47,7 +47,9 @@ Every generated container is `restart: unless-stopped`, so after a host
 reboot the network (and the shared Traefik) comes back on its own and each
 node resumes from its last validated ledger (`--load`; standalone
 `-a --load`), never from genesis — `xng reset` is the only thing that goes
-back to genesis. `xng start`/`xng reset` re-render compose.yml, so networks
+back to genesis (a node whose very first boot died before its genesis ledger
+was on disk is the exception: it starts over from genesis by itself instead of
+restart-looping on `--load`). `xng start`/`xng reset` re-render compose.yml, so networks
 created before this existed pick it up on their next start. Keys are
 generated at create time only; xahaud.cfg is re-rendered by `xng upgrade`
 (even with no flags), which overwrites hand edits.
@@ -75,8 +77,9 @@ remaining node trusts exactly it, and stops the validators in `--remove`
 grows; the result must still be >= 3 validators. `vl.json` sets
 `refresh_interval` 1, so each node re-fetches the list within a minute; a
 network created before that existed still runs on the 5-minute default, so
-its first rotation can spend ~5 minutes per phase waiting (pass a larger
-`--timeout`), later ones a minute.
+its first rotation can spend ~5 minutes per phase waiting (raise `--timeout`
+for it; like `upgrade`'s, it bounds each wait and each recreated node, not the
+whole rotation), later ones a minute.
 `validatorIds` in network.json records which `v<n>` exist (absent = 1..N); new
 validators continue after the highest number ever used. The other nodes'
 `[ips_fixed]` on disk are rewritten, but a running process applies them only on
@@ -85,8 +88,8 @@ its default and `node` (plus `relay`, if any) and the kept validators are recrea
 (like `xng upgrade`) during the interim phase, before the final list is
 published, so the new quorum is always satisfiable. `xng apply` plans a rotation
 when only `validators` changes in the yml (`--add` for more, `--remove` of the
-highest-numbered ones for fewer); its `--timeout` bounds the rotation, so raise
-it when the count changes (a quorum roll adds about a minute per node). A yml
+highest-numbered ones for fewer); its `--timeout` is passed through, so a large
+count only takes longer (a quorum roll adds about a minute per node). A yml
 `quorum` that is not the default for the new count still recreates. The yml can
 pin the set with `validatorIds` (`xng create --validator-ids 1,2,5`, `xng rotate
 --add-ids 4,5`); a set that differs from the one on disk, even with the same
@@ -360,7 +363,7 @@ key (`cp xng.example.yml xng.yml`).
 The keys are those of `workspace/<name>/network.json`: `type` (default
 `testnet`), `version`, `validators` (3), `quorum`, `networkId` (21339),
 `domain` (`127.0.0.1.nip.io`), `tls` (false), `root` (false),
-`external` (false), `portOffset` (0), `displayName`, `displayShortName`, `nodeConfig`, `validatorConfig`, `relayConfig`, `importVlKeys` (a list of hex publisher keys for `[import_vl_keys]`; also `xng create`/`upgrade --import-vl-keys`, comma-separated; a change is a rolling `upgrade` on a testnet). `nodeConfig` (also `xng
+`external` (false), `portOffset` (0), `displayName`, `displayShortName`, `nodeConfig`, `validatorConfig`, `relayConfig`, `importVlKeys` (a list of hex publisher keys for `[import_vl_keys]`, each optionally followed by a network id as `"<key> <network id>"`, which only xahaud builds with featureExport read and older ones fail to start on; also `xng create`/`upgrade --import-vl-keys`, comma-separated; a change is a rolling `upgrade` on a testnet). `nodeConfig` (also `xng
 create --node-config <json>`) adds or overrides `xahaud.cfg` sections of the
 non-validating `node` only: a section xng already writes is replaced, any
 other is appended; on a testnet, changing it is a rolling `upgrade` (a
@@ -407,8 +410,8 @@ xng apply [-f xng.yml] [-y] [--dry-run] [--timeout <sec>] [--network <name>]...
 | --- | --- | --- |
 | only in the file | `create` | `create`, then `start --wait` |
 | only in `workspace/` | `remove` | `remove` |
-| testnet, only `version`/`nodeConfig`/`validatorConfig`/`relayConfig`/`importVlKeys` differ (or an old network.json lacks pwa) (none of the sections above) | `upgrade` | (`start --wait` if stopped, then) `upgrade` with the changed `--node-config`/`--validator-config`/`--relay-config`/`--pwa` (migration only) |
-| testnet, `validators` or `validatorIds` differs (other differences only upgradable ones; `quorum` default for the new count) | `rotate` | (`start --wait` if stopped, then) `upgrade` if anything else changed, then `rotate --add n` / `--add-ids` / `--remove` (the last validators for a smaller count, or exactly the ids missing/extra for `validatorIds`) |
+| testnet, only `version`/`nodeConfig`/`validatorConfig`/`relayConfig`/`importVlKeys` differ (or an old network.json lacks pwa) (none of the sections above) | `upgrade` | (`start` if stopped, without waiting: a node crash-looping on a bad `nodeConfig` only recovers once `upgrade` rewrites it; then) `upgrade` with the changed `--node-config`/`--validator-config`/`--relay-config`/`--pwa` (migration only) |
+| testnet, `validators` or `validatorIds` differs (other differences only upgradable ones; `quorum` default for the new count) | `rotate` | (`start --wait` if stopped, plain `start` when an `upgrade` follows; then) `upgrade` if anything else changed, then `rotate --add n` / `--add-ids` / `--remove` (the last validators for a smaller count, or exactly the ids missing/extra for `validatorIds`) |
 | standalone `version`/config, any other key, or an unsafe config section differs (the plan warns) | `recreate` | `remove`, `create`, `start --wait` (ledger data and keys are wiped) |
 | identical but `displayName`/`displayShortName` | `relabel` | `label` (`start --wait` if stopped); no recreate |
 | identical, any container not running | `start` | `start --wait` |

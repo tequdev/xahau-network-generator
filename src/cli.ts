@@ -113,7 +113,7 @@ function keysArg(value: string): string[] {
   for (const k of keys) {
     if (!IMPORT_VL_KEY_RE.test(k)) {
       throw new InvalidArgumentError(
-        `must be comma-separated 33-byte hex public keys, got "${k}"`,
+        `must be comma-separated 33-byte hex public keys (optionally "<key> <network id>"), got "${k}"`,
       );
     }
   }
@@ -607,7 +607,12 @@ program
       return names;
     },
   )
-  .option('--timeout <sec>', 'overall timeout in seconds', intArg(1), 600)
+  .option(
+    '--timeout <sec>',
+    'timeout in seconds for each wait of the rotation (new validators trusted, each recreated node, final list trusted, consensus continuing)',
+    intArg(1),
+    600,
+  )
   .action(async (opts) => {
     const spec = await loadSpec(opts.name);
     assertLocal(spec);

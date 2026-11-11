@@ -349,7 +349,7 @@ test('validateSpec: displayName 1-64 and displayShortName 1-24 chars, no control
   }
 });
 
-test('validateSpec: importVlKeys must be 33-byte hex keys ([] is fine)', () => {
+test('validateSpec: importVlKeys must be 33-byte hex keys, optionally with a network id ([] is fine)', () => {
   const base: NetworkSpec = {
     name: 't1',
     type: 'testnet',
@@ -363,10 +363,14 @@ test('validateSpec: importVlKeys must be 33-byte hex keys ([] is fine)', () => {
     importVlKeys: [],
   };
   validateSpec(base);
-  assert.throws(
-    () => validateSpec({ ...base, importVlKeys: ['xyz'] }),
-    /importVlKeys must be a list of 33-byte hex public keys/,
-  );
+  const key = DEFAULT_IMPORT_VL_KEYS[0];
+  validateSpec({ ...base, importVlKeys: [`${key} 1`] });
+  for (const bad of ['xyz', `${key} x`, `${key}  1`, `${key} `]) {
+    assert.throws(
+      () => validateSpec({ ...base, importVlKeys: [bad] }),
+      /importVlKeys must be a list of 33-byte hex public keys/,
+    );
+  }
 });
 
 test('validateSpec: an empty relayConfig is rejected (omit it for no relayer)', () => {
