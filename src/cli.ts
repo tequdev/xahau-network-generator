@@ -290,7 +290,7 @@ program
   )
   .option(
     '--relay-config <json>',
-    'testnet only: run a non-validating `relay` xahaud (featureExport relayer) with these xahaud.cfg sections as JSON, same shape as --node-config (normally {"xrpl_relay": [...]})',
+    'testnet only: run a non-validating `relay` xahaud (featureExport relayer) with these xahaud.cfg sections as JSON, same shape as --node-config (normally {"export_relay": [...]})',
   )
   .option(
     '--import-vl-keys <keys>',

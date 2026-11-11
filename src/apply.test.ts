@@ -747,7 +747,7 @@ test('plan: a validatorConfig change is an upgrade carrying --validator-config',
 });
 
 test('plan: relayConfig added, changed and removed are upgrades carrying --relay-config', () => {
-  const yml = `  t1:\n    version: ${V1}\n    relayConfig:\n      xrpl_relay: ['a 1']`;
+  const yml = `  t1:\n    version: ${V1}\n    relayConfig:\n      export_relay: ['a 1']`;
   const added = plan(
     desiredOf(yml),
     [created({ name: 't1' })],
@@ -755,11 +755,11 @@ test('plan: relayConfig added, changed and removed are upgrades carrying --relay
   );
   assert.equal(added[0]?.kind, 'upgrade');
   assert.deepEqual(argv(added[0]?.steps ?? []), [
-    `upgrade --name t1 --version ${V1} --timeout 300 --relay-config {"xrpl_relay":["a 1"]}`,
+    `upgrade --name t1 --version ${V1} --timeout 300 --relay-config {"export_relay":["a 1"]}`,
   ]);
   const removed = plan(
     desiredOf(`  t1:\n    version: ${V1}`),
-    [created({ name: 't1', relayConfig: { xrpl_relay: ['a 1'] } })],
+    [created({ name: 't1', relayConfig: { export_relay: ['a 1'] } })],
     new Set(['t1']),
   );
   assert.deepEqual(argv(removed[0]?.steps ?? []), [
@@ -767,7 +767,7 @@ test('plan: relayConfig added, changed and removed are upgrades carrying --relay
   ]);
   const same = plan(
     desiredOf(yml),
-    [created({ name: 't1', relayConfig: { xrpl_relay: ['a 1'] } })],
+    [created({ name: 't1', relayConfig: { export_relay: ['a 1'] } })],
     new Set(['t1']),
   );
   assert.equal(same[0]?.kind, 'unchanged');
@@ -783,7 +783,7 @@ test('plan: relayConfig is rejected on a standalone and create argv carries it o
   assert.throws(
     () =>
       desiredOf(
-        `  s1:\n    type: standalone\n    version: ${V1}\n    relayConfig:\n      xrpl_relay: ['a 1']`,
+        `  s1:\n    type: standalone\n    version: ${V1}\n    relayConfig:\n      export_relay: ['a 1']`,
       ),
     /relayConfig is testnet only/,
   );
@@ -797,8 +797,8 @@ test('plan: relayConfig is rejected on a standalone and create argv carries it o
       )[0]?.steps ?? [],
     )[1] ?? '';
   assert.ok(
-    create(`    relayConfig:\n      xrpl_relay: ['a 1']`).includes(
-      '--relay-config {"xrpl_relay":["a 1"]}',
+    create(`    relayConfig:\n      export_relay: ['a 1']`).includes(
+      '--relay-config {"export_relay":["a 1"]}',
     ),
   );
   assert.ok(!create('').includes('--relay-config'));

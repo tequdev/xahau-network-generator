@@ -73,9 +73,10 @@ networks:
     # xahaud.cfg sections. Testnet only; same shapes as nodeConfig. Absent = no
     # relayer; changing it recreates only `relay`, and removing it discards its db.
     # relayConfig:
-    #   xrpl_relay:
-    #     - xrpl-hub.example.com 51235   # an XRPL node you run, not a public server
-    #     - network_id=1
+    #   export_relay:
+    #     - xrpl-hub.example.com 51235   # a node you run, not a public server; "host port <node pubkey>" pins it
+    #     - network_id=1                 # importVlKeys must then be "<key> 1"
+    #     - account=sEd...               # optional: an account here that proves the other network's ledgers (Ingest)
 
   # The root network of the same domain, served on the bare domain:
   #   wss://xahau-dev.net, https://explorer.xahau-dev.net, https://faucet.xahau-dev.net

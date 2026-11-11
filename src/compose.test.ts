@@ -279,7 +279,7 @@ test('compose: relay service exists only with relayConfig, on the default networ
   assert.equal(parsed(testnetSpec).services.relay, undefined);
   const { relay, v1 } = parsed({
     ...testnetSpec,
-    relayConfig: { xrpl_relay: ['x 51235'] },
+    relayConfig: { export_relay: ['x 51235'] },
   }).services;
   assert.equal(relay.container_name, 'testnet-3-relay');
   assert.equal(relay.networks, undefined);

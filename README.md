@@ -147,25 +147,54 @@ recreated.
 ### featureExport (relayer)
 
 A xahaud build with featureExport needs a non-validating xahaud that peers
-with the other network (the "relayer"). Put its `[xrpl_relay]` section in
+with the other network (the "relayer"). Put its `[export_relay]` section in
 `relayConfig` (testnet only; `xng create`/`upgrade --relay-config <json>`) and
 xng runs it as a separate `relay` service (container `<name>-relay`) beside
 `node`, peered to every validator:
 
 ```yaml
+importVlKeys: ["ED264807102805220DA0F312E71FC2C69E1552C9C5790F6C25E3729DEB573D5860 1"]
 relayConfig:
-  xrpl_relay: ["xrpl-hub.example.com 51235", "network_id=1"]
+  export_relay:
+    - xrpl-hub.example.com 51235 n9KorY8QtTdRx7TVDpwnG9NvyxsDwHUKUEeDLY3AkiGncVaSXZi9
+    - network_id=1
+    - account=sEd...
 ```
 
-The peer should be an XRPL node you run (or have an arrangement with), not a
-public server: the relayer fetches every XRPL ledger's full transaction tree
-to find the exporters' transactions. The default `importVlKeys` is the XRPL
-Testnet publisher key, so relaying to the XRPL Testnet needs nothing else. For
-mainnet set `importVlKeys` to the mainnet publisher key and drop `network_id`.
-`vl_url` must be https and may be omitted (the validator list arrives from the
-peer). When the build has featureExport, every validator's master account is
-pre-funded in genesis (100 XAH), since its export key is recorded there.
-`export_setup` is reachable on `rpc.<name>.<domain>`.
+(Builds before 2026-11-10 named the section `[xrpl_relay]`; current ones
+ignore that name, so the relayer starts and relays nothing.)
+
+Each peer line is `host [port [node_public_key]]`; the key (the peer's
+`server_info` `pubkey_node`) pins the connection. The peer should be a node
+you run (or have an arrangement with), not a public server: the relayer
+fetches the full transaction tree of every ledger there (`max_ledgers=` /
+`max_ledger_bytes=` bound what it holds). One section relays one network:
+`network_id` (default 0, the XRPL mainnet), and further networks go in
+`export_relay_<name>` sections.
+
+The relayer only takes a network's validator list from an import VL key
+trusted for that same network, so `importVlKeys` must name it:
+`"<key> <network id>"`, a bare key meaning 0. The default `importVlKeys` is
+the bare XRPL Testnet publisher key, which does NOT match `network_id=1`; set
+it as above (or to the mainnet publisher key, bare, and drop `network_id`).
+When exactly one import VL key is trusted, its network is also the default
+destination of a hook's `xport()` and of `export_setup`. `vl_url` must be
+https and may be omitted (the validator list arrives from the peer).
+
+`account=<seed>` (`s...` or `sEd...`, of an account funded on THIS network,
+e.g. from the faucet) makes the relayer prove the other network's ledgers
+here every `ingest_every=` ledgers (default 64, `Ingest` transactions, free
+of charge). Export fees follow these proofs and an export that never comes
+back is only closed as failed once one passes its `LastLedgerSequence`, so a
+network that exports wants it. The relayer's `xahaud.cfg` is written 0600
+because of this seed.
+
+When the build has featureExport, every validator's master account is
+pre-funded in genesis (100 XAH), since its export key is recorded there; the
+validator keeps its export keys in `nodes/v<i>/export_keys.txt`.
+`export_setup` (the SignerListSet that makes an account an exporter, to be
+signed and submitted on the other network, then imported back as an XPOP) and
+`export_info` are reachable on `rpc.<name>.<domain>`.
 
 For a local XRPL stand-in (a second xng network) the relay must peer with one
 of ITS validators, not its `node`, which may not yet hold the ledger when

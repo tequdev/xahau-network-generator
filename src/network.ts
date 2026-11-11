@@ -328,13 +328,16 @@ export async function writeNodeConfig(
     }
   }
   // A validator's cfg holds its token.
+  // Validators hold their token, the relayer possibly an `account=` seed.
+  const secret = spec.type === 'testnet' && index !== 0;
+  const cfgPath = join(nodeDir, 'xahaud.cfg');
   await writeFile(
-    join(nodeDir, 'xahaud.cfg'),
+    cfgPath,
     renderXahaudCfg(cfgOpts),
-    spec.type === 'testnet' && index !== 0 && index !== RELAY
-      ? { mode: 0o600 }
-      : undefined,
+    secret ? { mode: 0o600 } : undefined,
   );
+  // writeFile's mode only applies to a new file (a relay cfg from before).
+  if (secret) await chmod(cfgPath, 0o600);
   await writeFile(
     join(nodeDir, 'validators.txt'),
     renderValidatorsTxt(cfgOpts),

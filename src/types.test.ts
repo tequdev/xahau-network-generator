@@ -192,7 +192,7 @@ test('validateSpec: relayConfig is testnet only', () => {
     portOffset: 0,
     importVlKeys: [],
   };
-  validateSpec({ ...spec, relayConfig: { xrpl_relay: ['l'] } });
+  validateSpec({ ...spec, relayConfig: { export_relay: ['l'] } });
   assert.throws(
     () =>
       validateSpec({
@@ -200,7 +200,7 @@ test('validateSpec: relayConfig is testnet only', () => {
         type: 'standalone',
         validators: 1,
         quorum: 1,
-        relayConfig: { xrpl_relay: ['l'] },
+        relayConfig: { export_relay: ['l'] },
       }),
     /relayConfig is testnet only/,
   );
@@ -390,7 +390,7 @@ test('validateSpec: an empty relayConfig is rejected (omit it for no relayer)', 
     () => validateSpec({ ...base, relayConfig: {} }),
     /relayConfig must not be empty/,
   );
-  validateSpec({ ...base, relayConfig: { xrpl_relay: ['h 51235'] } });
+  validateSpec({ ...base, relayConfig: { export_relay: ['h 51235'] } });
 });
 
 test('nodeName: validatorIds renames validators, absent means 1..N', () => {

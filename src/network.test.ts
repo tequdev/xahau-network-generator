@@ -1,5 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -127,7 +134,7 @@ test('writeNodeConfig: the relay peers with every validator, takes relayConfig o
   const s = spec({
     name: 't',
     validators: 2,
-    relayConfig: { xrpl_relay: ['relay.example 51235', 'network_id=1'] },
+    relayConfig: { export_relay: ['relay.example 51235', 'network_id=1'] },
     nodeConfig: { node_size: ['huge'] },
   });
   await mkdir(join(dir, 'keys'));
@@ -148,7 +155,12 @@ test('writeNodeConfig: the relay peers with every validator, takes relayConfig o
     readFile(join(dir, 'nodes', service, 'xahaud.cfg'), 'utf8');
   const relay = await cfg('relay');
   assert.ok(
-    relay.includes('[xrpl_relay]\nrelay.example 51235\nnetwork_id=1\n'),
+    relay.includes('[export_relay]\nrelay.example 51235\nnetwork_id=1\n'),
+  );
+  // it may carry an account= seed
+  assert.equal(
+    (await stat(join(dir, 'nodes', 'relay', 'xahaud.cfg'))).mode & 0o777,
+    0o600,
   );
   assert.ok(relay.includes('[ips_fixed]\nt-v1 51235\nt-v2 51235\n'));
   assert.ok(!relay.includes('[port_pwa]'));

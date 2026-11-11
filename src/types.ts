@@ -33,7 +33,7 @@ export type NetworkSpec = {
   portOffset: number; // standalone only; default 0; shifts every published host port
   nodeConfig?: Record<string, string[]>; // `node` (index 0) only: extra/overriding xahaud.cfg sections, section -> lines; validators never get it
   validatorConfig?: Record<string, string[]>; // testnet validators v1..vN only: same shape as nodeConfig; `node` never gets it
-  relayConfig?: Record<string, string[]>; // testnet only: when set, a non-validating `relay` xahaud (featureExport relayer, container `<name>-relay`) runs beside `node` with these extra/overriding xahaud.cfg sections (normally `xrpl_relay`); absent = no relayer
+  relayConfig?: Record<string, string[]>; // testnet only: when set, a non-validating `relay` xahaud (featureExport relayer, container `<name>-relay`) runs beside `node` with these extra/overriding xahaud.cfg sections (normally `export_relay`); absent = no relayer
   importVlKeys: string[]; // default DEFAULT_IMPORT_VL_KEYS (XRPL Testnet UNL publisher, https://vl.altnet.rippletest.net/)
 };
 
