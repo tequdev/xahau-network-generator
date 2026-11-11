@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { buildVersionOf, fetchBinary } from './binary.ts';
 import { renderCompose } from './compose.ts';
 import { compose, composeOutput, removeContainer } from './docker.ts';
-import { writeNodeConfig } from './network.ts';
+import { writeAmendments, writeNodeConfig } from './network.ts';
 import { RELAY, containerName, endpoints, nodeName } from './types.ts';
 import type { NetworkSpec } from './types.ts';
 import { rpc } from './wait.ts';
@@ -157,7 +157,9 @@ export async function upgradeNetwork(
   spec.version = version;
   const wsDir = join('workspace', spec.name);
   // Fails fast if the version doesn't exist, before anything is touched.
-  const { binaryPath } = await fetchBinary(version);
+  const { binaryPath, releaseinfo } = await fetchBinary(version);
+  // writeNodeConfig below tells a featureExport build by it.
+  await writeAmendments(version, releaseinfo, wsDir);
   // relayConfig removed: the relayer goes away, by container name so that a
   // compose.yml already without it (a failed earlier run) cannot break this.
   // Its db is discarded; adding it back later syncs from genesis again.

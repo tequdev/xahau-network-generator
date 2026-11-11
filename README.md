@@ -153,7 +153,6 @@ xng runs it as a separate `relay` service (container `<name>-relay`) beside
 `node`, peered to every validator:
 
 ```yaml
-importVlKeys: ["ED264807102805220DA0F312E71FC2C69E1552C9C5790F6C25E3729DEB573D5860 1"]
 relayConfig:
   export_relay:
     - xrpl-hub.example.com 51235 n9KorY8QtTdRx7TVDpwnG9NvyxsDwHUKUEeDLY3AkiGncVaSXZi9
@@ -173,10 +172,13 @@ fetches the full transaction tree of every ledger there (`max_ledgers=` /
 `export_relay_<name>` sections.
 
 The relayer only takes a network's validator list from an import VL key
-trusted for that same network, so `importVlKeys` must name it:
-`"<key> <network id>"`, a bare key meaning 0. The default `importVlKeys` is
-the bare XRPL Testnet publisher key, which does NOT match `network_id=1`; set
-it as above (or to the mainnet publisher key, bare, and drop `network_id`).
+trusted for that same network, so `[import_vl_keys]` must name it:
+`"<key> <network id>"`, a bare key meaning 0. xng writes the XRPL Testnet
+publisher key (the default `importVlKeys`) as `<key> 1` by itself whenever the
+build has featureExport (checked at `create` and at every `upgrade`; a build
+without it fails to start on an id, so network.json keeps the bare key). Any
+other key is written as given: bare for the mainnet publisher key (and drop
+`network_id`), `"<key> <id>"` for another network.
 When exactly one import VL key is trusted, its network is also the default
 destination of a hook's `xport()` and of `export_setup`. `vl_url` must be
 https and may be omitted (the validator list arrives from the peer).

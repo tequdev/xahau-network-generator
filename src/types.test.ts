@@ -6,6 +6,7 @@ import {
   defaultQuorum,
   displayNames,
   endpoints,
+  importVlKeyLines,
   nodeName,
   pwaZone,
   validateSpec,
@@ -444,4 +445,15 @@ test('validateSpec: validatorIds must be distinct, one per validator, testnet on
       }),
     /testnet only/,
   );
+});
+
+test('importVlKeyLines: the XRPL Testnet key gets its network id on a featureExport build only', () => {
+  const key = DEFAULT_IMPORT_VL_KEYS[0] as string;
+  const other = `ED${'0'.repeat(64)}`;
+  assert.deepEqual(importVlKeyLines([key, other], false), [key, other]);
+  assert.deepEqual(importVlKeyLines([key, other, `${key} 5`], true), [
+    `${key} 1`,
+    other,
+    `${key} 5`,
+  ]);
 });

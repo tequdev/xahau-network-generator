@@ -45,6 +45,7 @@ import {
   explorerHostPort,
   hostBase,
   hostPorts,
+  importVlKeyLines,
   nodeName,
   ports,
   pwaZone,
@@ -87,6 +88,27 @@ export async function createNetwork(
   return dir;
 }
 
+// amendments.json: the amendments of the build the network runs (genesis
+// enables them all at create). `xng upgrade` rewrites it for the new build,
+// and writeNodeConfig reads it to tell a featureExport build.
+export async function writeAmendments(
+  version: string,
+  releaseinfo: string,
+  dir: string,
+): Promise<Record<string, string>> {
+  const commit = commitFromReleaseinfo(releaseinfo);
+  const source = await fetchFeatureSource(commit, version);
+  const amendmentsMap: Record<string, string> = {};
+  for (const name of [...parseAmendments(source)].sort()) {
+    amendmentsMap[name] = amendmentHash(name);
+  }
+  await writeFile(
+    join(dir, 'amendments.json'),
+    JSON.stringify(amendmentsMap, null, 2),
+  );
+  return amendmentsMap;
+}
+
 async function populateNetwork(spec: NetworkSpec, dir: string): Promise<void> {
   await writeFile(join(dir, 'network.json'), JSON.stringify(spec, null, 2));
   if (spec.external) return; // a stub: the network runs on another host
@@ -127,17 +149,7 @@ async function populateNetwork(spec: NetworkSpec, dir: string): Promise<void> {
   }
 
   // 2. amendments
-  const commit = commitFromReleaseinfo(releaseinfo);
-  const source = await fetchFeatureSource(commit, spec.version);
-  const names = parseAmendments(source);
-  const amendmentsMap: Record<string, string> = {};
-  for (const name of [...names].sort()) {
-    amendmentsMap[name] = amendmentHash(name);
-  }
-  await writeFile(
-    join(dir, 'amendments.json'),
-    JSON.stringify(amendmentsMap, null, 2),
-  );
+  const amendmentsMap = await writeAmendments(spec.version, releaseinfo, dir);
 
   // 3. keys (testnet only), genesis, config + genesis per node
   const hashes = Object.values(amendmentsMap);
@@ -267,6 +279,11 @@ export async function writeNodeConfig(
     'nodes',
     index === RELAY ? RELAY : nodeName(spec, index),
   );
+  const hasExport = await readFile(join(dir, 'amendments.json'), 'utf8').then(
+    (t) => 'Export' in JSON.parse(t),
+    () => false,
+  );
+  const importVlKeys = importVlKeyLines(spec.importVlKeys, hasExport);
   let cfgOpts: XahaudCfgOptions;
   if (spec.type === 'standalone') {
     cfgOpts = {
@@ -274,7 +291,7 @@ export async function writeNodeConfig(
       networkId: spec.networkId,
       ports: ports(spec, 0),
       peers: [],
-      importVlKeys: spec.importVlKeys,
+      importVlKeys,
       overrides: spec.nodeConfig,
     };
   } else {
@@ -301,7 +318,7 @@ export async function writeNodeConfig(
         ...(spec.pwa && index === 0
           ? { pwa: { domain: pwaZone(spec), secureGateway: proxySubnets() } }
           : {}),
-        importVlKeys: spec.importVlKeys,
+        importVlKeys,
         overrides: index === 0 ? spec.nodeConfig : spec.relayConfig,
       };
     } else {
@@ -322,12 +339,11 @@ export async function writeNodeConfig(
         peers,
         vlKeyHex,
         vlUrl,
-        importVlKeys: spec.importVlKeys,
+        importVlKeys,
         overrides: spec.validatorConfig,
       };
     }
   }
-  // A validator's cfg holds its token.
   // Validators hold their token, the relayer possibly an `account=` seed.
   const secret = spec.type === 'testnet' && index !== 0;
   const cfgPath = join(nodeDir, 'xahaud.cfg');

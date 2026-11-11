@@ -301,6 +301,17 @@ export const DEFAULT_IMPORT_VL_KEYS = [
   'ED264807102805220DA0F312E71FC2C69E1552C9C5790F6C25E3729DEB573D5860',
 ];
 
+// What [import_vl_keys] gets for spec.importVlKeys. A featureExport build
+// reads a bare key as network 0 (the XRPL mainnet), which is wrong for the
+// XRPL Testnet publisher key and makes an [export_relay] with network_id=1
+// relay nothing, so that key is written with its network id there. Only at
+// render time: a build without featureExport fails to start on an id.
+export function importVlKeyLines(keys: string[], hasExport: boolean): string[] {
+  return keys.map((k) =>
+    hasExport && k.toUpperCase() === DEFAULT_IMPORT_VL_KEYS[0] ? `${k} 1` : k,
+  );
+}
+
 export type Ports = {
   rpcAdmin: number;
   rpcPublic: number;
