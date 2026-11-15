@@ -157,11 +157,6 @@ test('writeNodeConfig: the relay peers with every validator, takes relayConfig o
   assert.ok(
     relay.includes('[export_relay]\nrelay.example 51235\nnetwork_id=1\n'),
   );
-  // it may carry an account= seed
-  assert.equal(
-    (await stat(join(dir, 'nodes', 'relay', 'xahaud.cfg'))).mode & 0o777,
-    0o600,
-  );
   assert.ok(relay.includes('[ips_fixed]\nt-v1 51235\nt-v2 51235\n'));
   assert.ok(!relay.includes('[port_pwa]'));
   assert.ok(!relay.includes('huge'));

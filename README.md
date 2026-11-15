@@ -157,7 +157,6 @@ relayConfig:
   export_relay:
     - xrpl-hub.example.com 51235 n9KorY8QtTdRx7TVDpwnG9NvyxsDwHUKUEeDLY3AkiGncVaSXZi9
     - network_id=1
-    - account=sEd...
 ```
 
 (Builds before 2026-11-10 named the section `[xrpl_relay]`; current ones
@@ -183,13 +182,12 @@ When exactly one import VL key is trusted, its network is also the default
 destination of a hook's `xport()` and of `export_setup`. `vl_url` must be
 https and may be omitted (the validator list arrives from the peer).
 
-`account=<seed>` (`s...` or `sEd...`, of an account funded on THIS network,
-e.g. from the faucet) makes the relayer prove the other network's ledgers
-here every `ingest_every=` ledgers (default 64, `Ingest` transactions, free
-of charge). Export fees follow these proofs and an export that never comes
-back is only closed as failed once one passes its `LastLedgerSequence`, so a
-network that exports wants it. The relayer's `xahaud.cfg` is written 0600
-because of this seed.
+The relayer also proves the other network's ledgers here (`Ingest`
+pseudo-transactions: no account, no signature, free of charge), one every
+`ingest_every=` seconds (default and minimum 60, 0 for never). Export fees
+follow these proofs, and an export that never comes back is only closed as
+failed once one passes its `LastLedgerSequence`. (Builds before 2026-11-13
+needed an `account=<seed>` line for this; it is now ignored.)
 
 When the build has featureExport, every validator's master account is
 pre-funded in genesis (100 XAH), since its export key is recorded there; the
