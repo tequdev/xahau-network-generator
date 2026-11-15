@@ -33,6 +33,7 @@ export type NetworkSpec = {
   portOffset: number; // standalone only; default 0; shifts every published host port
   nodeConfig?: Record<string, string[]>; // `node` (index 0) only: extra/overriding xahaud.cfg sections, section -> lines; validators never get it
   validatorConfig?: Record<string, string[]>; // testnet validators v1..vN only: same shape as nodeConfig; `node` never gets it
+  relayConfig?: Record<string, string[]>; // testnet only: when set, a non-validating `relay` xahaud (featureExport relayer, container `<name>-relay`) runs beside `node` with these extra/overriding xahaud.cfg sections (normally `export_relay`); absent = no relayer
   importVlKeys: string[]; // default DEFAULT_IMPORT_VL_KEYS (XRPL Testnet UNL publisher, https://vl.altnet.rippletest.net/)
 };
 
@@ -48,8 +49,12 @@ export function displayNames(spec: NetworkSpec): {
   };
 }
 
-type ConfigKey = 'nodeConfig' | 'validatorConfig';
-const CONFIG_KEYS: ConfigKey[] = ['nodeConfig', 'validatorConfig'];
+export type ConfigKey = 'nodeConfig' | 'validatorConfig' | 'relayConfig';
+const CONFIG_KEYS: ConfigKey[] = [
+  'nodeConfig',
+  'validatorConfig',
+  'relayConfig',
+];
 
 function checkSectionName(key: ConfigKey, name: string): void {
   if (name === '' || /[[\]\n\r]/.test(name)) {
@@ -227,6 +232,13 @@ export function validateSpec(spec: NetworkSpec): void {
   if (spec.validatorConfig !== undefined && spec.type !== 'testnet') {
     throw new Error('validatorConfig is testnet only');
   }
+  if (spec.relayConfig !== undefined && spec.type !== 'testnet') {
+    throw new Error('relayConfig is testnet only');
+  }
+  // `{}` would create a relayer that apply then cannot tell from "none".
+  if (spec.relayConfig && Object.keys(spec.relayConfig).length === 0) {
+    throw new Error('relayConfig must not be empty (omit it for no relayer)');
+  }
   for (const key of CONFIG_KEYS) {
     const sections = spec[key] as unknown;
     if (sections === undefined) continue;
@@ -252,6 +264,9 @@ export function validateSpec(spec: NetworkSpec): void {
 // on testnet, or published directly on the host on standalone); testnet
 // validators are v1..vN.
 export const VL_HOST = 'vl';
+// Optional testnet service (spec.relayConfig): not part of nodeName's index
+// range, it sits beside `node` and the validators.
+export const RELAY = 'relay';
 export function nodeName(spec: NetworkSpec, i: number): string {
   return i === 0 ? 'node' : `v${spec.validatorIds?.[i - 1] ?? i}`;
 }
@@ -285,6 +300,17 @@ export const DEFAULT_IMPORT_VL_KEYS = [
   // https://vl.altnet.rippletest.net/
   'ED264807102805220DA0F312E71FC2C69E1552C9C5790F6C25E3729DEB573D5860',
 ];
+
+// What [import_vl_keys] gets for spec.importVlKeys. A featureExport build
+// reads a bare key as network 0 (the XRPL mainnet), which is wrong for the
+// XRPL Testnet publisher key and makes an [export_relay] with network_id=1
+// relay nothing, so that key is written with its network id there. Only at
+// render time: a build without featureExport fails to start on an id.
+export function importVlKeyLines(keys: string[], hasExport: boolean): string[] {
+  return keys.map((k) =>
+    hasExport && k.toUpperCase() === DEFAULT_IMPORT_VL_KEYS[0] ? `${k} 1` : k,
+  );
+}
 
 export type Ports = {
   rpcAdmin: number;

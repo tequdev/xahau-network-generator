@@ -100,6 +100,16 @@ export function compose(name: string, args: string[]): void {
 // Like compose(), but captures stdout instead of inheriting it — for reading
 // a command's output (e.g. `exec <service> ... server_info`) rather than
 // just running it.
+// Removes one container by name, tolerating one that no longer exists:
+// `compose rm` would need the service in compose.yml, which upgrade may
+// already have dropped (or a failed earlier run left half-applied).
+export function removeContainer(container: string): void {
+  const result = spawnSync('docker', ['rm', '-f', container], {
+    stdio: ['ignore', 'ignore', 'inherit'],
+  });
+  if (result.error) throw result.error;
+}
+
 export function composeOutput(name: string, args: string[]): string {
   const result = spawnSync(
     'docker',
